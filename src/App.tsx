@@ -9,6 +9,8 @@ import WalletScreen from './screens/WalletScreen';
 import SendScreen from './screens/SendScreen';
 import ReceiveScreen from './screens/ReceiveScreen';
 import SettingsScreen from './screens/SettingsScreen';
+import LoginScreen from './screens/LoginScreen';
+import { useAuthStore } from '@stores/authStore';
 
 type TabKey = 'wallet' | 'send' | 'receive' | 'settings';
 
@@ -68,11 +70,14 @@ function Shell() {
   );
 }
 
-const App = () => (
-  <SafeAreaProvider>
-    <Shell />
-  </SafeAreaProvider>
-);
+const App = () => {
+  const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
+  return (
+    <SafeAreaProvider>
+      {isAuthenticated ? <Shell /> : <LoginScreen />}
+    </SafeAreaProvider>
+  );
+};
 
 const styles = StyleSheet.create({
   root: {
