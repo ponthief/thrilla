@@ -1,0 +1,30 @@
+{
+  "compilerOptions": {
+    "target": "ES2020",
+    "useDefineForClassFields": true,
+    "lib": ["ES2020", "DOM", "DOM.Iterable"],
+    "module": "ESNext",
+    "skipLibCheck": true,
+    "esModuleInterop": true,
+    "allowSyntheticDefaultImports": true,
+    "strict": true,
+    "noImplicitAny": true,
+    "strictNullChecks": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noImplicitReturns": true,
+    "resolveJsonModule": true,
+    "moduleResolution": "node",
+    "baseUrl": ".",
+    "paths": {
+      "@/*": ["app/*"],
+      "@components/*": ["app/components/*"],
+      "@stores/*": ["app/stores/*"],
+      "@services/*": ["app/services/*"],
+      "@utils/*": ["app/utils/*"]
+    },
+    "jsx": "react-jsx"
+  },
+  "include": ["app"],
+  "exclude": ["node_modules", ".expo"]
+}
