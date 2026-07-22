@@ -1,0 +1,23 @@
+{
+  "cli": {
+    "version": ">= 8.0.0"
+  },
+  "build": {
+    "production": {
+      "android": {
+        "buildType": "aab"
+      },
+      "ios": {
+        "buildType": "archive"
+      }
+    },
+    "preview": {
+      "android": {
+        "buildType": "apk"
+      },
+      "ios": {
+        "buildType": "simulator"
+      }
+    }
+  }
+}
