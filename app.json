@@ -1,29 +1,8 @@
 {
   "expo": {
     "name": "Thrilla",
-    "slug": "thrilla-wallet",
+    "slug": "thrilla",
     "version": "0.1.0",
-    "orientation": "portrait",
-    "userInterfaceStyle": "light",
-    "assetBundlePatterns": ["**/*"],
-    "ios": {
-      "supportsTabletMode": true,
-      "bundleIdentifier": "com.ponthief.thrilla"
-    },
-    "android": {
-      "package": "com.ponthief.thrilla",
-      "adaptiveIcon": {
-        "backgroundColor": "#ffffff"
-      }
-    },
-    "plugins": [
-      ["expo-barcode-scanner", { "cameraPermission": "Allow Thrilla to access camera for QR codes" }],
-      ["expo-secure-store", { "faceIDPermission": "Allow Thrilla to use Face ID" }]
-    ],
-    "extra": {
-      "eas": {
-        "projectId": "your-eas-project-id"
-      }
-    }
+    "assetBundlePatterns": ["**/*"]
   }
 }
