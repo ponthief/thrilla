@@ -10,10 +10,10 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import Config from 'react-native-config';
 import { useAuthStore } from '@stores/authStore';
+import { colors } from '@/theme';
 
-const PRIMARY = '#023c69';
+const PRIMARY = colors.primary;
 
 export default function LoginScreen() {
   const [username, setUsername] = useState('');
@@ -73,15 +73,11 @@ export default function LoginScreen() {
               onPress={onSubmit}
               disabled={!canSubmit}>
               {loading ? (
-                <ActivityIndicator color="#fff" />
+                <ActivityIndicator color={colors.onPrimary} />
               ) : (
                 <Text style={styles.buttonText}>Log In</Text>
               )}
             </TouchableOpacity>
-
-            <Text style={styles.host}>
-              {Config.LNBITS_URL || 'No backend configured (set LNBITS_URL)'}
-            </Text>
           </View>
         </View>
       </KeyboardAvoidingView>
@@ -140,11 +136,5 @@ const styles = StyleSheet.create({
     marginTop: 22,
   },
   buttonDisabled: { opacity: 0.5 },
-  buttonText: { color: '#fff', fontSize: 16, fontWeight: '600' },
-  host: {
-    fontSize: 11,
-    color: '#aaa',
-    textAlign: 'center',
-    marginTop: 16,
-  },
+  buttonText: { color: colors.onPrimary, fontSize: 16, fontWeight: '600' },
 });

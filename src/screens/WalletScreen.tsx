@@ -11,6 +11,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAuthStore } from '@stores/authStore';
 import { useWalletStore } from '@stores/walletStore';
 import * as api from '@services/api';
+import { colors } from '@/theme';
 
 // Group thousands without relying on Intl (Hermes ships without full Intl).
 function groupThousands(n: number): string {
@@ -76,7 +77,7 @@ export default function WalletScreen() {
         <View style={styles.card}>
           <Text style={styles.label}>{walletName || 'Total Balance'}</Text>
           {loading ? (
-            <ActivityIndicator style={styles.spinner} color="#023c69" />
+            <ActivityIndicator style={styles.spinner} color={colors.primary} />
           ) : error ? (
             <Text style={styles.error}>{error}</Text>
           ) : (
@@ -114,7 +115,7 @@ const styles = StyleSheet.create({
   },
   label: { fontSize: 14, color: '#666', marginBottom: 8 },
   spinner: { marginVertical: 12, alignSelf: 'flex-start' },
-  balance: { fontSize: 30, fontWeight: 'bold', color: '#023c69' },
+  balance: { fontSize: 30, fontWeight: 'bold', color: colors.primary },
   sub: { fontSize: 15, color: '#666', marginTop: 4 },
   error: { fontSize: 14, color: '#c0392b', marginTop: 4 },
   cardTitle: { fontSize: 16, fontWeight: '600', color: '#000', marginBottom: 8 },

@@ -14,12 +14,14 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Clipboard from '@react-native-clipboard/clipboard';
+import Config from 'react-native-config';
 import { useAuthStore } from '@stores/authStore';
 import * as api from '@services/api';
 import QRCode from '../components/QRCode';
+import { colors } from '@/theme';
 
-const PRIMARY = '#023c69';
-const GREEN = '#1e7d4f';
+const PRIMARY = colors.primary;
+const GREEN = colors.green;
 const POLL_INTERVAL_MS = 3000;
 
 type Mode = 'lightning' | 'onchain';
@@ -282,7 +284,7 @@ function LightningReceive() {
         onPress={onCreate}
         disabled={creating}>
         {creating ? (
-          <ActivityIndicator color="#fff" />
+          <ActivityIndicator color={colors.onPrimary} />
         ) : (
           <Text style={styles.primaryBtnText}>Create Invoice</Text>
         )}
@@ -313,7 +315,12 @@ function OnchainReceive() {
         setWallet(null);
         setError('No Silent Payments wallet found for this account.');
       } else {
-        setWallet(wallets[0]);
+        // Prefer a wallet on the build's locked network, but fall back to the
+        // first one so a network-label mismatch never hides an existing wallet.
+        const lock = Config.NETWORK_LOCK;
+        const chosen =
+          (lock && wallets.find((w) => w.network === lock)) || wallets[0];
+        setWallet(chosen);
       }
     } catch (e: any) {
       setError(e?.message || 'Could not load your receive address.');
@@ -430,7 +437,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginTop: 22,
   },
-  primaryBtnText: { color: '#fff', fontSize: 16, fontWeight: '600' },
+  primaryBtnText: { color: colors.onPrimary, fontSize: 16, fontWeight: '600' },
   btnDisabled: { opacity: 0.5 },
 
   mono: {
@@ -467,7 +474,7 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     alignItems: 'center',
   },
-  actionBtnText: { color: '#fff', fontSize: 14, fontWeight: '600' },
+  actionBtnText: { color: colors.onPrimary, fontSize: 14, fontWeight: '600' },
   actionBtnGhost: {
     backgroundColor: '#fff',
     borderWidth: 1,

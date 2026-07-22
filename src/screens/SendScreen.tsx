@@ -1,6 +1,7 @@
 import React from 'react';
 import { StyleSheet, Text, View, Button } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { colors } from '@/theme';
 
 export default function SendScreen() {
   return (
@@ -9,7 +10,7 @@ export default function SendScreen() {
         <View style={styles.card}>
           <Text style={styles.title}>Send Bitcoin</Text>
           <Text style={styles.subtitle}>Send functionality in development</Text>
-          <Button title="Scan QR Code" onPress={() => {}} color="#007AFF" />
+          <Button title="Scan QR Code" onPress={() => {}} color={colors.primary} />
         </View>
       </View>
     </SafeAreaView>
