@@ -1,8 +1,1 @@
-{
-  "expo": {
-    "name": "Thrilla",
-    "slug": "thrilla",
-    "version": "0.1.0",
-    "assetBundlePatterns": ["**/*"]
-  }
-}
+{\n  \"name\": \"Thrilla\",\n  \"displayName\": \"Thrilla\"\n}\n
