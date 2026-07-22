@@ -153,11 +153,13 @@ export async function lnPaymentStatus(
 // ── Receive: on-chain (Silent Payments) ─────────────────────────────────────
 // Fetch the account's Silent-Payments wallets from the siLNt extension. The
 // returned records carry the static `sp_address` used to receive on-chain.
-// `network` scopes the result to a single network (defaults to the build's
-// NETWORK_LOCK so a network-locked APK never surfaces another network's wallet).
+// `network` scopes the result server-side (WHERE network = …). Left undefined
+// by default so we always get the account's wallets back and can pick the right
+// one client-side — the backend filter is exact-match, so a NETWORK_LOCK that
+// doesn't equal the wallet's stored network would otherwise hide it entirely.
 export async function getSilntWallets(
   inkey: string,
-  network: string | undefined = Config.NETWORK_LOCK || undefined,
+  network?: string,
 ): Promise<SilntWallet[]> {
   const qs = network ? `?network=${encodeURIComponent(network)}` : '';
   return req(`${SILNT}/api/v1/wallet${qs}`, { headers: apiKey(inkey) });

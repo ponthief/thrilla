@@ -11,6 +11,7 @@ import ReceiveScreen from './screens/ReceiveScreen';
 import SettingsScreen from './screens/SettingsScreen';
 import LoginScreen from './screens/LoginScreen';
 import { useAuthStore } from '@stores/authStore';
+import { colors } from '@/theme';
 
 type TabKey = 'wallet' | 'send' | 'receive' | 'settings';
 
@@ -21,7 +22,7 @@ const TABS: { key: TabKey; label: string; icon: string; Screen: React.ComponentT
   { key: 'settings', label: 'Settings', icon: '⚙', Screen: SettingsScreen },
 ];
 
-const PRIMARY = '#023c69';
+const PRIMARY = colors.primary;
 const INACTIVE = '#8e8e93';
 
 function TabBar({
