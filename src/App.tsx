@@ -1,30 +1,106 @@
-import React from 'react';
-import { View, Text, StyleSheet } from 'react-native';
+import React, { useState } from 'react';
+import {
+  SafeAreaProvider,
+  useSafeAreaInsets,
+} from 'react-native-safe-area-context';
+import { StatusBar, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 
-const App = () => {
+import WalletScreen from './screens/WalletScreen';
+import SendScreen from './screens/SendScreen';
+import ReceiveScreen from './screens/ReceiveScreen';
+import SettingsScreen from './screens/SettingsScreen';
+
+type TabKey = 'wallet' | 'send' | 'receive' | 'settings';
+
+const TABS: { key: TabKey; label: string; icon: string; Screen: React.ComponentType }[] = [
+  { key: 'wallet', label: 'Wallet', icon: '₿', Screen: WalletScreen },
+  { key: 'send', label: 'Send', icon: '↑', Screen: SendScreen },
+  { key: 'receive', label: 'Receive', icon: '↓', Screen: ReceiveScreen },
+  { key: 'settings', label: 'Settings', icon: '⚙', Screen: SettingsScreen },
+];
+
+const PRIMARY = '#023c69';
+const INACTIVE = '#8e8e93';
+
+function TabBar({
+  active,
+  onSelect,
+}: {
+  active: TabKey;
+  onSelect: (key: TabKey) => void;
+}) {
+  const insets = useSafeAreaInsets();
   return (
-    <View style={styles.container}>
-      <Text style={styles.title}>Welcome to Thrilla</Text>
-      <Text style={styles.subtitle}>Silent Payments Wallet</Text>
+    <View style={[styles.tabBar, { paddingBottom: Math.max(insets.bottom, 8) }]}>
+      {TABS.map((tab) => {
+        const focused = tab.key === active;
+        const color = focused ? PRIMARY : INACTIVE;
+        return (
+          <TouchableOpacity
+            key={tab.key}
+            style={styles.tabItem}
+            onPress={() => onSelect(tab.key)}
+            accessibilityRole="button"
+            accessibilityState={{ selected: focused }}
+            accessibilityLabel={tab.label}>
+            <Text style={[styles.tabIcon, { color }]}>{tab.icon}</Text>
+            <Text style={[styles.tabLabel, { color }]}>{tab.label}</Text>
+          </TouchableOpacity>
+        );
+      })}
     </View>
   );
-};
+}
+
+function Shell() {
+  const [active, setActive] = useState<TabKey>('wallet');
+  const ActiveScreen =
+    TABS.find((t) => t.key === active)?.Screen ?? WalletScreen;
+
+  return (
+    <View style={styles.root}>
+      <StatusBar barStyle="light-content" backgroundColor={PRIMARY} />
+      <View style={styles.content}>
+        <ActiveScreen />
+      </View>
+      <TabBar active={active} onSelect={setActive} />
+    </View>
+  );
+}
+
+const App = () => (
+  <SafeAreaProvider>
+    <Shell />
+  </SafeAreaProvider>
+);
 
 const styles = StyleSheet.create({
-  container: {
+  root: {
     flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
     backgroundColor: '#f5f5f5',
   },
-  title: {
-    fontSize: 24,
-    fontWeight: 'bold',
-    marginBottom: 8,
+  content: {
+    flex: 1,
   },
-  subtitle: {
-    fontSize: 16,
-    color: '#666',
+  tabBar: {
+    flexDirection: 'row',
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: '#d1d1d6',
+    backgroundColor: '#ffffff',
+    paddingTop: 8,
+  },
+  tabItem: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  tabIcon: {
+    fontSize: 20,
+    marginBottom: 2,
+  },
+  tabLabel: {
+    fontSize: 11,
+    fontWeight: '600',
   },
 });
 
