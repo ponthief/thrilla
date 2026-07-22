@@ -2,8 +2,8 @@
   "compilerOptions": {
     "target": "ES2020",
     "useDefineForClassFields": true,
-    "lib": ["ES2020", "DOM", "DOM.Iterable"],
-    "module": "ESNext",
+    "lib": ["ES2020"],
+    "module": "commonjs",
     "skipLibCheck": true,
     "esModuleInterop": true,
     "allowSyntheticDefaultImports": true,
@@ -17,14 +17,15 @@
     "moduleResolution": "node",
     "baseUrl": ".",
     "paths": {
-      "@/*": ["app/*"],
-      "@components/*": ["app/components/*"],
-      "@stores/*": ["app/stores/*"],
-      "@services/*": ["app/services/*"],
-      "@utils/*": ["app/utils/*"]
-    },
-    "jsx": "react-jsx"
+      "@/*": ["src/*"],
+      "@components/*": ["src/components/*"],
+      "@stores/*": ["src/stores/*"],
+      "@services/*": ["src/services/*"],
+      "@utils/*": ["src/utils/*"],
+      "@navigation/*": ["src/navigation/*"],
+      "@screens/*": ["src/screens/*"]
+    }
   },
-  "include": ["app"],
-  "exclude": ["node_modules", ".expo"]
+  "include": ["src", "index.js"],
+  "exclude": ["node_modules"]
 }
