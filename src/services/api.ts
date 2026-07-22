@@ -115,6 +115,29 @@ export async function getLnbitsWallets(token: string): Promise<LnbitsWallet[]> {
   return req('/api/v1/wallets', { headers: bearer(token) });
 }
 
+// ── Auth: registration + password recovery ──────────────────────────────────
+// Both are public (no key). Registration sends a verification email and does
+// NOT create the account until the emailed link is opened; password reset
+// emails a signed link. The link steps happen in the browser, so the app only
+// needs to kick these off and tell the user to check their email.
+export async function startRegistration(
+  username: string,
+  password: string,
+  email: string,
+): Promise<unknown> {
+  return req(`${SILNT}/api/v1/auth/register-start`, {
+    method: 'POST',
+    body: JSON.stringify({ username, password, email }),
+  });
+}
+
+export async function requestPasswordReset(email: string): Promise<unknown> {
+  return req(`${SILNT}/api/v1/auth/forgot-password`, {
+    method: 'POST',
+    body: JSON.stringify({ email }),
+  });
+}
+
 // ── Lightning wallet ────────────────────────────────────────────────────────
 // Current LN balance (in millisatoshis) + wallet name. Uses inkey (read).
 export async function lnGetWallet(inkey: string): Promise<WalletInfo> {

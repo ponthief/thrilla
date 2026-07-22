@@ -15,7 +15,12 @@ import { colors } from '@/theme';
 
 const PRIMARY = colors.primary;
 
-export default function LoginScreen() {
+interface Props {
+  onCreateAccount: () => void;
+  onForgotPassword: () => void;
+}
+
+export default function LoginScreen({ onCreateAccount, onForgotPassword }: Props) {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const login = useAuthStore((s) => s.login);
@@ -78,7 +83,23 @@ export default function LoginScreen() {
                 <Text style={styles.buttonText}>Log In</Text>
               )}
             </TouchableOpacity>
+
+            <TouchableOpacity
+              style={styles.forgotLink}
+              onPress={onForgotPassword}
+              disabled={loading}>
+              <Text style={styles.forgotText}>Forgot password?</Text>
+            </TouchableOpacity>
           </View>
+
+          <TouchableOpacity
+            style={styles.footer}
+            onPress={onCreateAccount}
+            disabled={loading}>
+            <Text style={styles.footerText}>
+              Don't have an account? <Text style={styles.footerLink}>Create account</Text>
+            </Text>
+          </TouchableOpacity>
         </View>
       </KeyboardAvoidingView>
     </SafeAreaView>
@@ -137,4 +158,9 @@ const styles = StyleSheet.create({
   },
   buttonDisabled: { opacity: 0.5 },
   buttonText: { color: colors.onPrimary, fontSize: 16, fontWeight: '600' },
+  forgotLink: { marginTop: 16, alignItems: 'center' },
+  forgotText: { color: PRIMARY, fontSize: 14, fontWeight: '600' },
+  footer: { marginTop: 24, alignItems: 'center' },
+  footerText: { color: '#666', fontSize: 14 },
+  footerLink: { color: PRIMARY, fontWeight: '600' },
 });

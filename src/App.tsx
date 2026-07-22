@@ -10,6 +10,8 @@ import SendScreen from './screens/SendScreen';
 import ReceiveScreen from './screens/ReceiveScreen';
 import SettingsScreen from './screens/SettingsScreen';
 import LoginScreen from './screens/LoginScreen';
+import RegisterScreen from './screens/RegisterScreen';
+import ForgotPasswordScreen from './screens/ForgotPasswordScreen';
 import { useAuthStore } from '@stores/authStore';
 import { colors } from '@/theme';
 
@@ -71,11 +73,32 @@ function Shell() {
   );
 }
 
+type AuthScreen = 'login' | 'register' | 'forgot';
+
+// Minimal auth-flow navigator (the app has no router; a state switch is enough
+// for the three unauthenticated screens).
+function AuthNavigator() {
+  const [screen, setScreen] = useState<AuthScreen>('login');
+  switch (screen) {
+    case 'register':
+      return <RegisterScreen onBackToLogin={() => setScreen('login')} />;
+    case 'forgot':
+      return <ForgotPasswordScreen onBackToLogin={() => setScreen('login')} />;
+    default:
+      return (
+        <LoginScreen
+          onCreateAccount={() => setScreen('register')}
+          onForgotPassword={() => setScreen('forgot')}
+        />
+      );
+  }
+}
+
 const App = () => {
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
   return (
     <SafeAreaProvider>
-      {isAuthenticated ? <Shell /> : <LoginScreen />}
+      {isAuthenticated ? <Shell /> : <AuthNavigator />}
     </SafeAreaProvider>
   );
 };
