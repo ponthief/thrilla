@@ -1,0 +1,413 @@
+<script>
+export default { name: 'UtxosView' }
+</script>
+
+<script setup>
+import { ref, computed, onMounted, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
+import { useAuthStore } from '@/stores/auth'
+import * as api from '@/api'
+import { useAmount } from '@/composables/useAmount'
+import { useCsvExport } from '@/composables/useCsvExport'
+
+const route  = useRoute()
+const auth   = useAuthStore()
+const { fmt } = useAmount()
+
+const wallets        = ref([])
+const utxos          = ref([])
+const selectedWallet = ref(route.query.wallet_id || '')
+const hasKeys = computed(() => !!(selectedWallet.value && auth.hasWalletKeys(selectedWallet.value)))
+const loading        = ref(false)
+const error          = ref(null)
+const stateFilter    = ref('unspent')   // default to the bounded, day-to-day view
+const mempoolUrl     = ref('https://mempool.space')
+
+const stateOptions = ['all', 'unspent', 'spent', 'unconfirmed_spent']
+
+const filtered = computed(() => {
+  if (stateFilter.value === 'all') return utxos.value
+  return utxos.value.filter(u => u.utxo_state === stateFilter.value)
+})
+
+const { buildCsv, downloadCsv } = useCsvExport()
+function exportCsv() {
+  // Export the currently-filtered UTXOs. Display fields only — no key material.
+  const cols = [
+    { key: 'txid',           header: 'txid' },
+    { key: 'vout',           header: 'vout' },
+    { key: 'amount',         header: 'amount_sats' },
+    { key: 'utxo_state',     header: 'state' },
+    { key: 'label',          header: 'label',        map: u => u.label || '' },
+    { key: 'frozen',         header: 'frozen',       map: u => (u.frozen ? 'yes' : 'no') },
+    { key: 'suspected_dust', header: 'suspected_dust', map: u => (u.suspected_dust ? 'yes' : 'no') },
+  ]
+  const rows = filtered.value
+  if (!rows.length) return
+  const stamp = new Date().toISOString().slice(0, 10)
+  downloadCsv(`utxos-${stateFilter.value}-${stamp}.csv`, buildCsv(cols, rows))
+}
+
+// Pagination — keeps the rendered list bounded even when spent UTXOs pile up.
+const PAGE_SIZE = 25
+const page = ref(1)
+const pageCount = computed(() => Math.max(1, Math.ceil(filtered.value.length / PAGE_SIZE)))
+const paged = computed(() => {
+  const start = (page.value - 1) * PAGE_SIZE
+  return filtered.value.slice(start, start + PAGE_SIZE)
+})
+// Reset to page 1 whenever the filter changes or the list shrinks below the page.
+watch([stateFilter, () => filtered.value.length], () => {
+  if (page.value > pageCount.value) page.value = pageCount.value
+  if (stateFilter.value) page.value = 1
+})
+
+// Confirmed/spendable: unspent UTXOs
+const confirmedBalance = computed(() =>
+  utxos.value.filter(u => u.utxo_state === 'unspent').reduce((s, u) => s + u.amount, 0)
+)
+// Pending outgoing: inputs to a broadcast tx not yet confirmed
+const pendingOutBalance = computed(() =>
+  utxos.value.filter(u => u.utxo_state === 'unconfirmed_spent').reduce((s, u) => s + u.amount, 0)
+)
+// Incoming not yet confirmed (if the indexer marks such a state)
+const pendingInBalance = computed(() =>
+  utxos.value.filter(u => u.utxo_state === 'unconfirmed' || u.utxo_state === 'unconfirmed_unspent').reduce((s, u) => s + u.amount, 0)
+)
+const hasPending = computed(() => pendingOutBalance.value > 0 || pendingInBalance.value > 0)
+
+async function loadWallets() {
+  try {
+    wallets.value = await api.getSilntWallets(auth.inkey)
+    if (wallets.value.length && !selectedWallet.value) {
+      selectedWallet.value = wallets.value[0].id
+    }
+  } catch (e) { console.error('[UtxosView] getSilntWallets failed:', e.status, e.detail || e.message) }
+}
+
+async function loadConfig() {
+  try {
+    const cfg = await api.getAppConfig(auth.inkey)
+    if (cfg?.mempool_endpoint) mempoolUrl.value = cfg.mempool_endpoint.replace(/\/$/, '')
+  } catch {}
+}
+
+function txLink(txid) {
+  return `${mempoolUrl.value}/tx/${txid}`
+}
+
+async function loadUtxos() {
+  if (!selectedWallet.value) return
+  loading.value = true; error.value = null
+  try {
+    const res = await api.getUtxos(auth.inkey, selectedWallet.value)
+    utxos.value = res.utxos || []
+  } catch (e) { error.value = e.message }
+  finally { loading.value = false }
+}
+
+function stateBadge(state) {
+  const map = {
+    unspent:           'badge-green',
+    spent:             'badge-red',
+    unconfirmed_spent: 'badge-yellow',
+  }
+  return map[state] || 'badge-dim'
+}
+
+function fmtDate(ts) {
+  if (!ts) return '—'
+  return new Date(ts * 1000).toLocaleDateString()
+}
+
+function startEditLabel(u) {
+  u.editingLabel = true
+  u.labelDraft = u.label || ''
+}
+
+function cancelEditLabel(u) {
+  u.editingLabel = false
+  u.labelDraft = ''
+}
+
+const dustCount = computed(() => utxos.value.filter(u => u.suspected_dust && !u.frozen && u.utxo_state === 'unspent').length)
+
+async function toggleFrozen(u) {
+  const newState = !u.frozen
+  try {
+    await api.setUtxoFrozen(auth.inkey, u.txid, u.vout, newState)
+    u.frozen = newState
+  } catch (e) {
+    error.value = 'Failed to update frozen state: ' + (e.message || 'unknown error')
+  }
+}
+
+async function restoreUtxo(u) {
+  if (!confirm('Restore this coin to spendable? Only do this if the spending transaction was dropped and will not confirm. The app will verify the transaction is gone before restoring.')) return
+  u.restoring = true
+  error.value = null
+  try {
+    await api.restoreUtxo(auth.adminkey, selectedWallet.value, u.txid, u.vout)
+    await loadUtxos()
+  } catch (e) {
+    error.value = 'Restore failed: ' + (e.detail || e.message || 'unknown error')
+  } finally {
+    u.restoring = false
+  }
+}
+
+async function saveLabel(u) {
+  const newLabel = (u.labelDraft || '').trim()
+  try {
+    await api.updateUtxoLabel(auth.inkey, u.txid, newLabel, selectedWallet.value)
+    u.label = newLabel
+    u.editingLabel = false
+    u.labelDraft = ''
+  } catch (e) {
+    error.value = 'Failed to save label: ' + (e.message || 'unknown error')
+  }
+}
+
+// v-focus directive to auto-focus the input when entering edit mode
+const vFocus = {
+  mounted: (el) => el.focus()
+}
+
+function fmtTxid(txid) {
+  return txid ? txid.slice(0, 10) + '…' + txid.slice(-6) : '—'
+}
+
+function copyText(t) { navigator.clipboard.writeText(t).catch(() => {}) }
+
+onMounted(async () => {
+  await Promise.all([loadWallets(), loadConfig()])
+  if (selectedWallet.value) await loadUtxos()
+})
+
+</script>
+
+<template>
+  <div>
+    <div class="flex items-center justify-between" style="margin-bottom:24px">
+      <div>
+        <h1>Coins</h1>
+        <p class="text-dim text-sm" style="margin-top:2px">The individual coins that make up your wallet — spendable, pending, and spent</p>
+      </div>
+      <button class="btn btn-ghost btn-sm" @click="loadUtxos" :disabled="!selectedWallet || loading">
+        <span v-if="loading" class="spinner"></span>
+        {{ loading ? 'Loading…' : '↻ Refresh' }}
+      </button>
+    </div>
+
+    <!-- Filters row -->
+    <div class="flex gap-3 items-center" style="margin-bottom:20px;flex-wrap:wrap">
+      <div class="field">
+        <label>State</label>
+        <select class="input" v-model="stateFilter">
+          <option v-for="s in stateOptions" :key="s" :value="s">{{ s }}</option>
+        </select>
+      </div>
+      <button class="btn btn-ghost btn-sm" style="align-self:flex-end" :disabled="!filtered.length" @click="exportCsv">⬇ Export CSV</button>
+    </div>
+
+    <div v-if="selectedWallet && !hasKeys" class="card" style="border:1px solid rgba(249,115,22,.5);background:rgba(249,115,22,.06);margin-bottom:20px">
+      <div class="card-body" style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+        <span style="font-size:20px">🔑</span>
+        <div style="flex:1;min-width:200px">
+          <strong>Wallet keys not on this device</strong>
+          <div class="text-dim text-sm" style="margin-top:2px">This wallet's spend and scan keys aren't stored here. Recover them before you can use this feature.</div>
+        </div>
+        <router-link :to="{ name: 'wallets', query: { recover: selectedWallet } }" class="btn btn-primary btn-sm">🔑 Recover Keys</router-link>
+      </div>
+    </div>
+
+    <!-- Stats -->
+    <div v-if="utxos.length" class="grid-3" style="margin-bottom:20px">
+      <div class="stat-card">
+        <div class="stat-label">Confirmed Balance</div>
+        <div class="stat-value text-orange">{{ fmt(confirmedBalance) }}</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Pending</div>
+        <div class="stat-value" :class="hasPending ? 'text-yellow' : 'text-dim'">
+          <template v-if="pendingInBalance > 0">{{ fmt(pendingInBalance, { signed: true }) }} </template>
+          <template v-if="pendingOutBalance > 0">{{ fmt(-pendingOutBalance, { signed: true }) }} </template>
+          <template v-if="!hasPending">0 </template>
+        </div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Spendable coins</div>
+        <div class="stat-value text-green">{{ utxos.filter(u=>u.utxo_state==='unspent').length }}</div>
+      </div>
+    </div>
+    <p v-if="hasPending" class="text-dim text-xs" style="margin:-12px 0 20px 0">
+      Pending balances change once the network confirms the transactions.
+    </p>
+
+    <div v-if="error" class="alert alert-error" style="margin-bottom:16px">⚠ {{ error }}</div>
+
+    <div v-if="!selectedWallet" class="card">
+      <div class="card-body" style="text-align:center;padding:40px;color:var(--text-dim)">
+        Select a wallet to view its coins
+      </div>
+    </div>
+
+    <div v-else-if="loading" class="flex items-center gap-2 text-dim" style="padding:40px 0">
+      <span class="spinner"></span> Loading coins…
+    </div>
+
+    <div v-else-if="!filtered.length" class="card">
+      <div class="card-body" style="text-align:center;padding:40px;color:var(--text-dim)">
+        No coins found{{ stateFilter !== 'all' ? ` with state "${stateFilter}"` : '' }}.
+      </div>
+    </div>
+
+    <div v-else class="card">
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>TxID</th>
+              <th>Vout</th>
+              <th>Amount (sats)</th>
+              <th>Label</th>
+              <th>State</th>
+              <th>Date</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="u in paged" :key="u.txid + ':' + u.vout">
+              <td>
+                <div class="flex items-center gap-2">
+                  <a
+                    class="mono text-orange txid-link"
+                    :href="txLink(u.txid)"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    :title="u.txid"
+                  >{{ fmtTxid(u.txid) }} ↗</a>
+                  <button class="btn btn-ghost btn-sm btn-icon" @click="copyText(u.txid)" title="Copy TxID">⎘</button>
+                </div>
+              </td>
+              <td class="mono text-dim" style="font-size:12px">{{ u.vout }}</td>
+              <td class="mono text-orange" style="font-weight:600">{{ u.amount?.toLocaleString() }}</td>
+              <td>
+                <!-- Display mode: clickable label or "Add label" placeholder -->
+                <div v-if="!u.editingLabel" class="label-cell" @click="startEditLabel(u)">
+                  <span v-if="u.label" class="label-text">{{ u.label }}</span>
+                  <span v-else class="label-add">+ label</span>
+                </div>
+                <!-- Edit mode: input + save/cancel buttons -->
+                <div v-else class="label-edit">
+                  <input
+                    class="input label-input"
+                    type="text"
+                    v-model="u.labelDraft"
+                    placeholder="Label this coin"
+                    maxlength="40"
+                    @keyup.enter="saveLabel(u)"
+                    @keyup.escape="cancelEditLabel(u)"
+                    ref="labelInput"
+                    v-focus
+                  />
+                  <button class="btn btn-sm btn-primary" @click="saveLabel(u)" title="Save (Enter)">✓</button>
+                  <button class="btn btn-sm btn-ghost" @click="cancelEditLabel(u)" title="Cancel (Esc)">✕</button>
+                </div>
+              </td>
+              <td>
+                <div style="display:flex;flex-direction:column;gap:3px;align-items:flex-start">
+                  <span class="badge" :class="stateBadge(u.utxo_state)">{{ u.utxo_state }}</span>
+                  <span v-if="u.suspected_dust" class="badge badge-warn" title="Possible dust attack — small coin from unknown sender">⚠ dust?</span>
+                  <span v-if="u.frozen" class="badge badge-frozen" title="Coin is frozen — excluded from auto-selection">🔒 frozen</span>
+                </div>
+              </td>
+              <td class="text-dim" style="font-size:12px">{{ fmtDate(u.timestamp) }}</td>
+              <td>
+                <button
+                  v-if="u.frozen"
+                  class="btn btn-ghost btn-sm"
+                  @click="toggleFrozen(u)"
+                  title="Unfreeze (allow this coin to be auto-selected when sending)">
+                  🔓 Unfreeze
+                </button>
+                <button
+                  v-else-if="u.utxo_state === 'unspent'"
+                  class="btn btn-ghost btn-sm"
+                  @click="toggleFrozen(u)"
+                  :title="u.suspected_dust ? 'Re-freeze this suspected-dust coin' : 'Freeze (exclude this coin from auto-selection when sending)'">
+                  🔒 Freeze
+                </button>
+                <button
+                  v-if="u.utxo_state === 'unconfirmed_spent'"
+                  class="btn btn-ghost btn-sm"
+                  @click="restoreUtxo(u)"
+                  :disabled="u.restoring"
+                  title="If the spending transaction was dropped from the mempool, restore this coin to spendable">
+                  {{ u.restoring ? '…' : '↩ Restore' }}
+                </button>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <div v-if="pageCount > 1" class="utxo-pager">
+        <button class="btn btn-ghost btn-sm" :disabled="page <= 1" @click="page--">‹ Prev</button>
+        <span class="text-dim text-xs">Page {{ page }} of {{ pageCount }} · {{ filtered.length }} total</span>
+        <button class="btn btn-ghost btn-sm" :disabled="page >= pageCount" @click="page++">Next ›</button>
+      </div>
+    </div>
+  </div>
+</template>
+
+<style scoped>
+.label-cell {
+  cursor: pointer;
+  padding: 2px 6px;
+  border-radius: 3px;
+  display: inline-flex;
+  align-items: center;
+  min-width: 60px;
+  transition: background .15s;
+}
+.label-cell:hover { background: var(--orange-bg); }
+.label-text {
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  color: var(--orange);
+  background: var(--orange-bg);
+  border: 1px solid var(--orange-dim);
+  border-radius: 3px;
+  padding: 1px 8px;
+}
+.label-add {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-dim);
+  font-style: italic;
+  opacity: .6;
+}
+.label-cell:hover .label-add { opacity: 1; color: var(--orange); }
+.label-edit { display: flex; align-items: center; gap: 4px; }
+.badge-warn { background: #3d1f08; color: #f97316; border: 1px solid #6b3410; }
+.badge-frozen { background: #1e293b; color: #94a3b8; border: 1px solid #475569; }
+.label-input {
+  min-height: 26px !important;
+  padding: 3px 8px !important;
+  font-size: 11.5px !important;
+  font-family: var(--font-mono) !important;
+  width: 140px;
+}
+
+.stat-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 16px 20px;
+}
+.stat-label { font-family: var(--font-mono); font-size: 10px; text-transform: uppercase; letter-spacing: .1em; color: var(--text-dim); margin-bottom: 6px; }
+.stat-value { font-family: var(--font-mono); font-size: 20px; font-weight: 600; color: #fff; }
+.txid-link { font-size:12px; color: var(--orange); text-decoration:none; transition: opacity .15s; }
+.txid-link:hover { opacity: .75; text-decoration: underline; }
+.utxo-pager { display: flex; align-items: center; justify-content: center; gap: 14px; margin-top: 14px; }
+</style>

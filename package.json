@@ -1,0 +1,38 @@
+{
+  "name": "thrilla",
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "cap:sync": "vite build && cap sync android",
+    "cap:open": "cap open android",
+    "cap:build": "vite build && cap sync android && cap build android",
+    "build:signet": "vite build --mode signet",
+    "preview:signet": "vite preview --mode signet",
+    "build:regtest": "vite build --mode regtest",
+    "preview:regtest": "vite preview --mode regtest",
+    "build:admin": "vite build --mode admin",
+    "build:admin-signet": "vite build --mode admin-signet",
+    "build:admin-regtest": "vite build --mode admin-regtest",
+    "preview:admin-regtest": "vite preview --mode admin-regtest",
+    "build:mainnet": "vite build --mode mainnet",
+    "preview:mainnet": "vite preview --mode mainnet"
+  },
+  "dependencies": {
+    "pinia": "^2.1.7",
+    "vue": "^3.4.21",
+    "vue-router": "^4.3.0",
+    "qrcode": "^1.5.3",
+    "crypto-js": "^4.2.0",
+    "@capacitor/core": "^6.2.0",
+    "@capacitor/android": "^6.2.0",
+    "@capacitor-mlkit/barcode-scanning": "^6.0.0"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-vue": "^5.0.4",
+    "vite": "^5.2.0",
+    "@capacitor/cli": "^6.2.0"
+  }
+}
