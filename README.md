@@ -1,60 +1,91 @@
-# Silent Payments App
+# Thrilla - React Native Wallet
 
-Standalone Vue 3 SPA for the `silnt` LNbits extension. Hosted independently of LNbits.
+Silent Payments wallet for Bitcoin using React Native (no Expo).
 
-## Setup
+## Quick Start
+
+### Prerequisites
+
+- Node.js 16+
+- Android SDK (for Android development)
+- Xcode (for iOS development on macOS)
+
+### Setup
 
 ```bash
-cp .env.example .env
-# Edit .env — set VITE_LNBITS_URL for local dev only (see below)
-
 npm install
-npm run dev      # development
-npm run build    # production → dist/
 ```
 
-## Environment
+### Development
 
-| Variable | Purpose |
-|---|---|
-| `VITE_LNBITS_URL` | LNbits base URL. **Leave empty in production** if using Caddy proxy (recommended). Set to `https://lnbits.example.net` for local dev. |
-| `VITE_SILNT_PREFIX` | Extension mount path. Default: `/siLNt` |
-
-## Production Caddy Setup (recommended)
-
-Host the built `dist/` on `example.net` and proxy `/api/*` and `/siLNt/*`
-to your LNbits instance. This eliminates all CORS issues entirely.
-
-```caddy
-example.net {
-    # Serve the Vue SPA
-    root * /var/www/thrilla
-    try_files {path} /index.html
-
-    # Proxy LNbits core API (auth, wallets)
-    handle /api/* {
-        reverse_proxy lnbits.example.net {
-            header_up Host lnbits.example.net
-        }
-    }
-
-    # Proxy silnt extension API
-    handle /siLNt/* {
-        reverse_proxy lnbits.example.net {
-            header_up Host lnbits.example.net
-        }
-    }
-
-    file_server
-}
-```
-
-With this setup, set `VITE_LNBITS_URL=` (empty) in your `.env` before building,
-so all API calls go to the same origin.
-
-## Deploy
-
+**Start Metro bundler:**
 ```bash
-npm run build
-rsync -av dist/ user@server:/var/www/thrilla/
+npm start
+```
+
+**Run on Android (in another terminal):**
+```bash
+npm run android
+```
+
+**Run on iOS (macOS only):**
+```bash
+npm run ios
+```
+
+### Build for Production
+
+**Android APK:**
+```bash
+cd android
+./gradlew assembleRelease
+```
+
+APK location: `android/app/build/outputs/apk/release/app-release.apk`
+
+**Android App Bundle (Google Play):**
+```bash
+cd android
+./gradlew bundleRelease
+```
+
+Bundle location: `android/app/build/outputs/bundle/release/app-release.aab`
+
+**iOS:**
+```bash
+cd ios
+pod install
+xcodebuild -workspace Thrilla.xcworkspace -scheme Thrilla -configuration Release
+```
+
+## Project Structure
+
+```
+src/
+├── App.tsx          # Root component
+index.js            # Entry point
+app.json            # App configuration
+package.json        # Dependencies
+tsconfig.json       # TypeScript config
+```
+
+## Troubleshooting
+
+**Metro cache issues:**
+```bash
+npm start -- --reset-cache
+```
+
+**Android build issues:**
+```bash
+cd android
+./gradlew clean
+./gradlew assembleDebug
+```
+
+**Pod issues (iOS):**
+```bash
+cd ios
+rm -rf Pods Podfile.lock
+pod install
 ```
