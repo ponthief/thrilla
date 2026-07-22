@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import Config from 'react-native-config';
 
 interface WalletState {
   balance: number;
@@ -15,7 +16,7 @@ export const useWalletStore = create<WalletState>((set) => ({
   balance: 0,
   address: null,
   network: 'mainnet',
-  lnbitsUrl: process.env.LNBITS_URL || '',
+  lnbitsUrl: Config.LNBITS_URL || '',
   setBalance: (balance) => set({ balance }),
   setAddress: (address) => set({ address }),
   setNetwork: (network) => set({ network }),

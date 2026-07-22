@@ -2,6 +2,12 @@ apply plugin: "com.android.application"
 apply plugin: "org.jetbrains.kotlin.android"
 apply plugin: "com.facebook.react"
 
+// react-native-config: reads the env file (default .env, override with
+// ENVFILE=.env.mainnet) and generates BuildConfig/resValue entries that the
+// native module exposes to JS as `Config.*`. This is the mobile analog of the
+// web build's `vite build --mode mainnet` + .env.mainnet.
+apply from: project(':react-native-config').projectDir.getPath() + "/dotenv.gradle"
+
 /**
  * This is the configuration block to customize your React Native Android app.
  * By default you don't need to apply any configuration, just uncomment the lines you need.

@@ -1,13 +1,14 @@
 import axios from 'axios';
+import Config from 'react-native-config';
 import * as Keychain from 'react-native-keychain';
 import { useAuthStore } from '@stores/authStore';
 
 const getLnbitsUrl = () => {
-  return process.env.LNBITS_URL || '';
+  return Config.LNBITS_URL || '';
 };
 
 const getSilntPrefix = () => {
-  return process.env.SILNT_PREFIX || '/siLNt';
+  return Config.SILNT_PREFIX || '/siLNt';
 };
 
 const apiClient = axios.create({
