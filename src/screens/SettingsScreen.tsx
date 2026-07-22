@@ -12,7 +12,6 @@ import { useAuthStore } from '@stores/authStore';
 
 export default function SettingsScreen() {
   const network = useWalletStore((state) => state.network);
-  const lnbitsUrl = useWalletStore((state) => state.lnbitsUrl);
   const username = useAuthStore((state) => state.username);
   const logout = useAuthStore((state) => state.logout);
 
@@ -31,13 +30,6 @@ export default function SettingsScreen() {
           <View style={styles.item}>
             <Text style={styles.itemLabel}>Network</Text>
             <Text style={styles.itemValue}>{network.toUpperCase()}</Text>
-          </View>
-        </View>
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>API</Text>
-          <View style={styles.item}>
-            <Text style={styles.itemLabel}>LNbits URL</Text>
-            <Text style={styles.itemValue}>{lnbitsUrl || 'Not configured'}</Text>
           </View>
         </View>
         <View style={styles.section}>
