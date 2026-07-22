@@ -1,118 +1,100 @@
-import axios from 'axios';
 import Config from 'react-native-config';
-import * as Keychain from 'react-native-keychain';
-import { useAuthStore } from '@stores/authStore';
 
-const getLnbitsUrl = () => {
-  return Config.LNBITS_URL || '';
-};
+// Backend base URL + Silent-Payments prefix are injected at build time by
+// react-native-config (see .env.mainnet). LNBITS_URL must be an absolute URL.
+const BASE = Config.LNBITS_URL || '';
+const SILNT = Config.SILNT_PREFIX || '/siLNt';
 
-const getSilntPrefix = () => {
-  return Config.SILNT_PREFIX || '/siLNt';
-};
+export interface LnbitsWallet {
+  id: string;
+  name: string;
+  adminkey: string;
+  inkey: string;
+  balance_msat?: number;
+}
 
-const apiClient = axios.create({
-  timeout: 10000,
-});
+export interface WalletInfo {
+  id?: string;
+  name: string;
+  balance: number; // millisatoshis
+}
 
-// Add auth token to requests
-apiClient.interceptors.request.use(async (config) => {
-  try {
-    const credentials = await Keychain.getGenericPassword();
-    if (credentials && credentials.password) {
-      config.headers.Authorization = `Bearer ${credentials.password}`;
-    }
-  } catch (error) {
-    console.error('Failed to retrieve auth token', error);
-  }
-  return config;
-});
-
-export async function getWallets() {
-  try {
-    const url = `${getLnbitsUrl()}/api/v1/wallets`;
-    const response = await apiClient.get(url);
-    return response.data;
-  } catch (error) {
-    console.error('Failed to fetch wallets', error);
-    throw error;
+export class ApiError extends Error {
+  status?: number;
+  detail?: string;
+  constructor(message: string, status?: number, detail?: string) {
+    super(message);
+    this.name = 'ApiError';
+    this.status = status;
+    this.detail = detail;
   }
 }
 
-export async function getBalance(walletId: string) {
+// Core request helper. Unlike the web SPA we do NOT send the `X-Thrilla-Client`
+// header: this is a native client using standard LNbits auth (session token +
+// per-wallet API keys), so the backend's device-trust gate does not apply.
+async function req<T = any>(path: string, options: RequestInit = {}): Promise<T> {
+  let resp: Response;
   try {
-    const url = `${getLnbitsUrl()}/api/v1/wallet/${walletId}`;
-    const response = await apiClient.get(url);
-    return response.data.balance;
-  } catch (error) {
-    console.error('Failed to fetch balance', error);
-    throw error;
-  }
-}
-
-export async function createInvoice(
-  walletId: string,
-  amount: number,
-  memo: string
-) {
-  try {
-    const url = `${getLnbitsUrl()}${getSilntPrefix()}/api/v1/invoices`;
-    const response = await apiClient.post(url, {
-      out: false,
-      amount,
-      memo,
-      wallet_id: walletId,
+    resp = await fetch(BASE + path, {
+      ...options,
+      headers: {
+        'Content-Type': 'application/json',
+        ...(options.headers || {}),
+      },
     });
-    return response.data;
-  } catch (error) {
-    console.error('Failed to create invoice', error);
-    throw error;
+  } catch (e: any) {
+    // Network/connection failure (no HTTP status) — surface a clear message.
+    throw new ApiError(
+      `Network error reaching ${BASE || '(no LNBITS_URL configured)'}`,
+    );
   }
+
+  if (resp.status === 204) {
+    return null as unknown as T;
+  }
+
+  const data = await resp.json().catch(() => ({ detail: resp.statusText }));
+  if (!resp.ok) {
+    const message =
+      (data && (data.detail || data.message)) || `HTTP ${resp.status}`;
+    throw new ApiError(message, resp.status, data && data.detail);
+  }
+  return data as T;
 }
 
-export async function payInvoice(invoice: string, walletId: string) {
-  try {
-    const url = `${getLnbitsUrl()}${getSilntPrefix()}/api/v1/payments`;
-    const response = await apiClient.post(url, {
-      bolt11: invoice,
-      wallet_id: walletId,
-    });
-    return response.data;
-  } catch (error) {
-    console.error('Failed to pay invoice', error);
-    throw error;
-  }
+function bearer(token: string) {
+  return { Authorization: `Bearer ${token}` };
 }
 
-export async function saveToken(token: string) {
-  try {
-    await Keychain.setGenericPassword('lnbits_token', token);
-    useAuthStore.setState({ token });
-  } catch (error) {
-    console.error('Failed to save token', error);
-    throw error;
-  }
+function apiKey(key: string) {
+  return { 'X-Api-Key': key };
 }
 
-export async function loadToken() {
-  try {
-    const credentials = await Keychain.getGenericPassword();
-    if (credentials && credentials.password) {
-      useAuthStore.setState({ token: credentials.password });
-      return credentials.password;
-    }
-    return null;
-  } catch (error) {
-    console.error('Failed to load token', error);
-    return null;
-  }
+// ── Auth ──────────────────────────────────────────────────────────────────
+// POST /api/v1/auth → { access_token }
+export async function login(
+  username: string,
+  password: string,
+): Promise<{ access_token?: string; token?: string }> {
+  return req('/api/v1/auth', {
+    method: 'POST',
+    body: JSON.stringify({ username, password }),
+  });
 }
 
-export async function clearToken() {
-  try {
-    await Keychain.resetGenericPassword();
-    useAuthStore.setState({ token: null });
-  } catch (error) {
-    console.error('Failed to clear token', error);
-  }
+// Account wallets (with per-wallet inkey/adminkey). Uses the session token.
+export async function getLnbitsWallets(token: string): Promise<LnbitsWallet[]> {
+  return req('/api/v1/wallets', { headers: bearer(token) });
+}
+
+// ── Lightning wallet ────────────────────────────────────────────────────────
+// Current LN balance (in millisatoshis) + wallet name. Uses inkey (read).
+export async function lnGetWallet(inkey: string): Promise<WalletInfo> {
+  return req('/api/v1/wallet', { headers: apiKey(inkey) });
+}
+
+// BTC/USD rate via the siLNt backend. Returns { rate } (0 if unavailable).
+export async function getUsdRate(inkey: string): Promise<{ rate: number }> {
+  return req(`${SILNT}/api/v1/rate/usd`, { headers: apiKey(inkey) });
 }

@@ -1,15 +1,31 @@
 import React from 'react';
-import { StyleSheet, Text, View, ScrollView } from 'react-native';
+import {
+  StyleSheet,
+  Text,
+  View,
+  ScrollView,
+  TouchableOpacity,
+} from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useWalletStore } from '@stores/walletStore';
+import { useAuthStore } from '@stores/authStore';
 
 export default function SettingsScreen() {
   const network = useWalletStore((state) => state.network);
   const lnbitsUrl = useWalletStore((state) => state.lnbitsUrl);
+  const username = useAuthStore((state) => state.username);
+  const logout = useAuthStore((state) => state.logout);
 
   return (
     <SafeAreaView style={styles.container}>
       <ScrollView style={styles.content}>
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>Account</Text>
+          <View style={styles.item}>
+            <Text style={styles.itemLabel}>Username</Text>
+            <Text style={styles.itemValue}>{username || '—'}</Text>
+          </View>
+        </View>
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Wallet</Text>
           <View style={styles.item}>
@@ -31,6 +47,9 @@ export default function SettingsScreen() {
             <Text style={styles.itemValue}>0.1.0</Text>
           </View>
         </View>
+        <TouchableOpacity style={styles.logout} onPress={logout}>
+          <Text style={styles.logoutText}>Log Out</Text>
+        </TouchableOpacity>
       </ScrollView>
     </SafeAreaView>
   );
@@ -75,5 +94,17 @@ const styles = StyleSheet.create({
     flex: 1,
     textAlign: 'right',
     marginLeft: 8,
+  },
+  logout: {
+    backgroundColor: '#fff',
+    borderRadius: 8,
+    padding: 14,
+    alignItems: 'center',
+    marginTop: 8,
+  },
+  logoutText: {
+    color: '#c0392b',
+    fontSize: 15,
+    fontWeight: '600',
   },
 });
