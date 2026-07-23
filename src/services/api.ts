@@ -176,22 +176,60 @@ export async function lnPaymentStatus(
 // ── Receive: on-chain (Silent Payments) ─────────────────────────────────────
 // Fetch the account's Silent-Payments wallets from the siLNt extension. The
 // returned records carry the static `sp_address` used to receive on-chain.
-// `network` scopes the result server-side (WHERE network = …). Left undefined
-// by default so we always get the account's wallets back and can pick the right
-// one client-side — the backend filter is exact-match, so a NETWORK_LOCK that
-// doesn't equal the wallet's stored network would otherwise hide it entirely.
+// Scoped to the build's NETWORK_LOCK by default (WHERE network = …) so a
+// network-locked APK NEVER surfaces another network's wallet — e.g. a mainnet
+// build must not show a wallet that was created on Signet. This mirrors the web
+// app, which defaults the same filter to VITE_NETWORK_LOCK.
 export async function getSilntWallets(
   inkey: string,
-  network?: string,
+  network: string | undefined = Config.NETWORK_LOCK || undefined,
 ): Promise<SilntWallet[]> {
   const qs = network ? `?network=${encodeURIComponent(network)}` : '';
   return req(`${SILNT}/api/v1/wallet${qs}`, { headers: apiKey(inkey) });
 }
 
-// Choose which SP wallet to surface: prefer one on the build's locked network,
-// but fall back to the first so a network-label mismatch never hides a wallet.
+// Choose which SP wallet to surface. Strict on the locked network: never falls
+// back to a wallet from a different network (that would show a Signet wallet on
+// a mainnet build). Returns null when the account has no wallet on this network.
 export function pickSilntWallet(wallets: SilntWallet[]): SilntWallet | null {
   if (!wallets?.length) return null;
   const lock = Config.NETWORK_LOCK;
-  return (lock && wallets.find((w) => w.network === lock)) || wallets[0];
+  if (!lock) return wallets[0];
+  return wallets.find((w) => w.network === lock) ?? null;
+}
+
+// A freshly created SP wallet. On generate the server mints the mnemonic + keys
+// and returns them once — the client must show the mnemonic so the user can back
+// it up (everything is recoverable from it).
+export interface CreatedWallet {
+  wallet_id: string;
+  sp_address: string;
+  scan_secret: string;
+  spend_key: string;
+  mnemonic: string;
+  passphrase: string | null;
+  last_height: number;
+  network: string;
+  generated: boolean;
+}
+
+// Create (generate) a Silent-Payments wallet. Omitting `mnemonic` tells the
+// server to generate a fresh seed; it derives the keys/address server-side.
+export async function createSilntWallet(
+  inkey: string,
+  data: {
+    title: string;
+    network?: string;
+    passphrase?: string;
+    last_height?: number;
+  },
+): Promise<CreatedWallet> {
+  return req(`${SILNT}/api/v1/wallet`, {
+    method: 'POST',
+    headers: apiKey(inkey),
+    body: JSON.stringify({
+      network: Config.NETWORK_LOCK || 'mainnet',
+      ...data,
+    }),
+  });
 }
