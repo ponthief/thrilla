@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import {
   ActivityIndicator,
+  Image,
   KeyboardAvoidingView,
   Platform,
   StyleSheet,
@@ -40,6 +41,11 @@ export default function LoginScreen({ onCreateAccount, onForgotPassword }: Props
         style={styles.flex}
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
         <View style={styles.content}>
+          <Image
+            source={require('../assets/icon.png')}
+            style={styles.logo}
+            resizeMode="contain"
+          />
           <Text style={styles.title}>Thrilla</Text>
           <Text style={styles.subtitle}>Silent Payments Wallet</Text>
 
@@ -110,6 +116,7 @@ const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#f5f5f5' },
   flex: { flex: 1 },
   content: { flex: 1, justifyContent: 'center', padding: 24 },
+  logo: { width: 88, height: 88, alignSelf: 'center', marginBottom: 12 },
   title: {
     fontSize: 34,
     fontWeight: 'bold',

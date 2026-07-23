@@ -1,6 +1,7 @@
 import React, { useCallback, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
+  Image,
   KeyboardAvoidingView,
   Platform,
   ScrollView,
@@ -117,6 +118,11 @@ export default function RegisterScreen({ onBackToLogin }: Props) {
         <ScrollView
           contentContainerStyle={styles.scroll}
           keyboardShouldPersistTaps="handled">
+          <Image
+            source={require('../assets/icon.png')}
+            style={styles.logo}
+            resizeMode="contain"
+          />
           <Text style={styles.title}>Create Account</Text>
           <Text style={styles.subtitle}>Register for Thrilla</Text>
 
@@ -236,6 +242,7 @@ const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#f5f5f5' },
   flex: { flex: 1 },
   scroll: { padding: 24, paddingTop: 40 },
+  logo: { width: 72, height: 72, alignSelf: 'center', marginBottom: 10 },
   title: { fontSize: 30, fontWeight: 'bold', color: PRIMARY, textAlign: 'center' },
   subtitle: { fontSize: 15, color: '#666', textAlign: 'center', marginBottom: 28 },
   form: { backgroundColor: '#fff', borderRadius: 12, padding: 20 },
