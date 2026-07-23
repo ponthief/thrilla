@@ -14,7 +14,6 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Clipboard from '@react-native-clipboard/clipboard';
-import Config from 'react-native-config';
 import { useAuthStore } from '@stores/authStore';
 import * as api from '@services/api';
 import QRCode from '../components/QRCode';
@@ -315,12 +314,7 @@ function OnchainReceive() {
         setWallet(null);
         setError('No Silent Payments wallet found for this account.');
       } else {
-        // Prefer a wallet on the build's locked network, but fall back to the
-        // first one so a network-label mismatch never hides an existing wallet.
-        const lock = Config.NETWORK_LOCK;
-        const chosen =
-          (lock && wallets.find((w) => w.network === lock)) || wallets[0];
-        setWallet(chosen);
+        setWallet(api.pickSilntWallet(wallets));
       }
     } catch (e: any) {
       setError(e?.message || 'Could not load your receive address.');

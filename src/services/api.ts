@@ -187,3 +187,11 @@ export async function getSilntWallets(
   const qs = network ? `?network=${encodeURIComponent(network)}` : '';
   return req(`${SILNT}/api/v1/wallet${qs}`, { headers: apiKey(inkey) });
 }
+
+// Choose which SP wallet to surface: prefer one on the build's locked network,
+// but fall back to the first so a network-label mismatch never hides a wallet.
+export function pickSilntWallet(wallets: SilntWallet[]): SilntWallet | null {
+  if (!wallets?.length) return null;
+  const lock = Config.NETWORK_LOCK;
+  return (lock && wallets.find((w) => w.network === lock)) || wallets[0];
+}
