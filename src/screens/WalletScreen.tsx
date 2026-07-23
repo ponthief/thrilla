@@ -9,7 +9,6 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import Config from 'react-native-config';
 import { useAuthStore } from '@stores/authStore';
 import { useWalletStore } from '@stores/walletStore';
 import * as api from '@services/api';
@@ -141,9 +140,7 @@ export default function WalletScreen() {
         {isSp && spMissing && !loading ? (
           <View style={styles.emptyCard}>
             <Text style={styles.emptyIcon}>🔒</Text>
-            <Text style={styles.emptyTitle}>
-              No wallet on {(Config.NETWORK_LOCK || 'mainnet').toUpperCase()}
-            </Text>
+            <Text style={styles.emptyTitle}>No wallet yet</Text>
             <Text style={styles.emptyBody}>
               Create your Thrilla Silent Payments wallet to start receiving.
             </Text>
