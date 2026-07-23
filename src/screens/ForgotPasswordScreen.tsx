@@ -1,6 +1,7 @@
 import React, { useCallback, useState } from 'react';
 import {
   ActivityIndicator,
+  Image,
   KeyboardAvoidingView,
   Platform,
   StyleSheet,
@@ -55,6 +56,11 @@ export default function ForgotPasswordScreen({ onBackToLogin }: Props) {
         style={styles.flex}
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
         <View style={styles.content}>
+          <Image
+            source={require('../assets/icon.png')}
+            style={styles.logo}
+            resizeMode="contain"
+          />
           <Text style={styles.title}>Forgot Password</Text>
           <Text style={styles.subtitle}>Reset your password via email</Text>
 
@@ -111,6 +117,7 @@ const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#f5f5f5' },
   flex: { flex: 1 },
   content: { flex: 1, justifyContent: 'center', padding: 24 },
+  logo: { width: 72, height: 72, alignSelf: 'center', marginBottom: 10 },
   title: { fontSize: 30, fontWeight: 'bold', color: PRIMARY, textAlign: 'center' },
   subtitle: { fontSize: 15, color: '#666', textAlign: 'center', marginBottom: 28 },
   form: { backgroundColor: '#fff', borderRadius: 12, padding: 20 },
