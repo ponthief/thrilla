@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import * as api from '@services/api';
+import { resetCatchUp } from '../hooks/useCatchUpScan';
 
 interface AuthState {
   token: string | null;
@@ -62,7 +63,9 @@ export const useAuthStore = create<AuthState>((set) => ({
     }
   },
 
-  logout: () =>
+  logout: () => {
+    // New session should re-evaluate catch-up scanning for every wallet.
+    resetCatchUp();
     set({
       token: null,
       inkey: null,
@@ -72,5 +75,6 @@ export const useAuthStore = create<AuthState>((set) => ({
       username: null,
       isAuthenticated: false,
       error: null,
-    }),
+    });
+  },
 }));
