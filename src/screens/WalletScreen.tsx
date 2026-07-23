@@ -14,6 +14,7 @@ import { useWalletStore } from '@stores/walletStore';
 import * as api from '@services/api';
 import { colors } from '@/theme';
 import CreateWalletModal from '../components/CreateWalletModal';
+import { useCatchUpScan } from '../hooks/useCatchUpScan';
 
 // Group thousands without relying on Intl (Hermes ships without full Intl).
 function groupThousands(n: number): string {
@@ -36,8 +37,7 @@ export default function WalletScreen() {
   const [rate, setRate] = useState<number | null>(null);
   const [showCreate, setShowCreate] = useState(false);
 
-  const [spSats, setSpSats] = useState<number | null>(null);
-  const [spName, setSpName] = useState('');
+  const [spWallet, setSpWallet] = useState<api.SilntWallet | null>(null);
   const [spError, setSpError] = useState<string | null>(null);
   // No wallet exists on this network (distinct from a request failure).
   const [spMissing, setSpMissing] = useState(false);
@@ -62,12 +62,11 @@ export default function WalletScreen() {
       const w = api.pickSilntWallet(spRes.value);
       if (w) {
         newSpSats = w.balance;
-        setSpSats(w.balance);
-        setSpName(w.title || 'Silent Payments');
+        setSpWallet(w);
         setSpError(null);
         setSpMissing(false);
       } else {
-        setSpSats(null);
+        setSpWallet(null);
         setSpError(null);
         setSpMissing(true);
       }
@@ -109,10 +108,16 @@ export default function WalletScreen() {
     setRefreshing(false);
   }, [load]);
 
+  // Catch-up scan for the SP wallet (auto for small gaps, prompt for large).
+  // Reload balances when a scan finishes so newly found funds show up.
+  const scan = useCatchUpScan(inkey, spWallet, load);
+
   const isSp = kind === 'sp';
-  const sats = isSp ? spSats : lnSats;
+  const sats = isSp ? spWallet?.balance ?? null : lnSats;
   const error = isSp ? spError : lnError;
-  const name = isSp ? spName || 'Silent Payments' : lnName || 'Lightning';
+  const name = isSp
+    ? spWallet?.title || 'Silent Payments'
+    : lnName || 'Lightning';
 
   const btc = sats != null ? (sats / 1e8).toFixed(8) : null;
   const usd = sats != null && rate != null ? (sats / 1e8) * rate : null;
@@ -170,6 +175,52 @@ export default function WalletScreen() {
                 </>
               )}
             </View>
+
+            {isSp && scan.status === 'scanning' ? (
+              <View style={styles.scanBanner}>
+                <ActivityIndicator size="small" color={colors.primary} />
+                <View style={styles.scanTextWrap}>
+                  <Text style={styles.scanTitle}>
+                    Catching up to the chain…
+                    {scan.progress && scan.progress.total > 0
+                      ? ` ${Math.min(
+                          100,
+                          Math.floor(
+                            (scan.progress.current / scan.progress.total) * 100,
+                          ),
+                        )}%`
+                      : ''}
+                  </Text>
+                  {scan.progress && scan.progress.found > 0 ? (
+                    <Text style={styles.scanSub}>
+                      {scan.progress.found} output
+                      {scan.progress.found === 1 ? '' : 's'} found
+                    </Text>
+                  ) : null}
+                </View>
+              </View>
+            ) : null}
+
+            {isSp && scan.status === 'prompt' ? (
+              <View style={styles.scanBanner}>
+                <View style={styles.scanTextWrap}>
+                  <Text style={styles.scanTitle}>
+                    {groupThousands(scan.gap)} blocks behind
+                  </Text>
+                  <Text style={styles.scanSub}>
+                    Scan to detect funds received while you were away.
+                  </Text>
+                </View>
+                <TouchableOpacity style={styles.scanBtn} onPress={scan.accept}>
+                  <Text style={styles.scanBtnText}>Catch up</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={styles.scanDismiss}
+                  onPress={scan.dismiss}>
+                  <Text style={styles.scanDismissText}>Later</Text>
+                </TouchableOpacity>
+              </View>
+            ) : null}
 
             <View style={styles.card}>
               <Text style={styles.cardTitle}>Recent Transactions</Text>
@@ -262,6 +313,27 @@ const styles = StyleSheet.create({
     padding: 28,
     alignItems: 'center',
   },
+  scanBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(249,115,22,0.10)',
+    borderRadius: 10,
+    padding: 14,
+    marginBottom: 16,
+    gap: 10,
+  },
+  scanTextWrap: { flex: 1 },
+  scanTitle: { fontSize: 14, fontWeight: '600', color: '#000' },
+  scanSub: { fontSize: 12, color: '#666', marginTop: 2 },
+  scanBtn: {
+    backgroundColor: colors.primary,
+    borderRadius: 8,
+    paddingVertical: 8,
+    paddingHorizontal: 14,
+  },
+  scanBtnText: { color: colors.onPrimary, fontSize: 13, fontWeight: '700' },
+  scanDismiss: { paddingVertical: 8, paddingHorizontal: 6 },
+  scanDismissText: { color: '#666', fontSize: 13, fontWeight: '600' },
   emptyIcon: { fontSize: 40, marginBottom: 12 },
   emptyTitle: { fontSize: 18, fontWeight: '700', color: '#000', marginBottom: 8 },
   emptyBody: {

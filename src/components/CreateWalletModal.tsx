@@ -14,6 +14,8 @@ import Config from 'react-native-config';
 import CryptoJS from 'crypto-js';
 import { useAuthStore } from '@stores/authStore';
 import * as api from '@services/api';
+import { storeWalletKeys } from '@services/secureKeys';
+import { resetCatchUp } from '../hooks/useCatchUpScan';
 import { colors } from '@/theme';
 
 const PRIMARY = colors.primary;
@@ -104,6 +106,14 @@ export default function CreateWalletModal({ visible, onClose, onCreated }: Props
     setCreating(true);
     try {
       const res = await api.createSilntWallet(inkey, data);
+      // Persist the SP keys in the platform keystore so this device can scan
+      // (and later spend). Recoverable from the mnemonic if this fails.
+      if (res.wallet_id && res.scan_secret && res.spend_key) {
+        await storeWalletKeys(res.wallet_id, res.scan_secret, res.spend_key);
+      }
+      // A reimport reuses the same seed-derived id — let it be re-evaluated for
+      // catch-up scanning instead of being treated as already-checked.
+      resetCatchUp(res.wallet_id);
       if (res.mnemonic && res.generated) {
         // Fresh seed — show it once so the user can back it up.
         setMnemonic(res.mnemonic);
