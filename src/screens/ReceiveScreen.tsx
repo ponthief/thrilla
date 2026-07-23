@@ -310,11 +310,14 @@ function OnchainReceive() {
     setError(null);
     try {
       const wallets = await api.getSilntWallets(inkey);
-      if (!wallets?.length) {
+      const chosen = api.pickSilntWallet(wallets);
+      if (!chosen) {
         setWallet(null);
-        setError('No Silent Payments wallet found for this account.');
+        setError(
+          'No Silent Payments wallet on this network yet. Open the Wallet tab to create one.',
+        );
       } else {
-        setWallet(api.pickSilntWallet(wallets));
+        setWallet(chosen);
       }
     } catch (e: any) {
       setError(e?.message || 'Could not load your receive address.');

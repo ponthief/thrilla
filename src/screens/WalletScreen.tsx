@@ -9,10 +9,12 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import Config from 'react-native-config';
 import { useAuthStore } from '@stores/authStore';
 import { useWalletStore } from '@stores/walletStore';
 import * as api from '@services/api';
 import { colors } from '@/theme';
+import CreateWalletModal from '../components/CreateWalletModal';
 
 // Group thousands without relying on Intl (Hermes ships without full Intl).
 function groupThousands(n: number): string {
@@ -33,10 +35,13 @@ export default function WalletScreen() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [rate, setRate] = useState<number | null>(null);
+  const [showCreate, setShowCreate] = useState(false);
 
   const [spSats, setSpSats] = useState<number | null>(null);
   const [spName, setSpName] = useState('');
   const [spError, setSpError] = useState<string | null>(null);
+  // No wallet exists on this network (distinct from a request failure).
+  const [spMissing, setSpMissing] = useState(false);
 
   const [lnSats, setLnSats] = useState<number | null>(null);
   const [lnName, setLnName] = useState('');
@@ -61,11 +66,14 @@ export default function WalletScreen() {
         setSpSats(w.balance);
         setSpName(w.title || 'Silent Payments');
         setSpError(null);
+        setSpMissing(false);
       } else {
         setSpSats(null);
-        setSpError('No Silent Payments wallet found for this account.');
+        setSpError(null);
+        setSpMissing(true);
       }
     } else {
+      setSpMissing(false);
       setSpError(spRes.reason?.message || 'Failed to load balance');
     }
 
@@ -130,32 +138,61 @@ export default function WalletScreen() {
           />
         </View>
 
-        <View style={styles.card}>
-          <Text style={styles.label}>{name}</Text>
-          {loading ? (
-            <ActivityIndicator style={styles.spinner} color={colors.primary} />
-          ) : error ? (
-            <Text style={styles.error}>{error}</Text>
-          ) : sats == null ? (
-            <Text style={styles.error}>No balance available.</Text>
-          ) : (
-            <>
-              <Text style={styles.balance}>{btc} BTC</Text>
-              <Text style={styles.sub}>{groupThousands(sats)} sats</Text>
-              {usd != null ? (
-                <Text style={styles.sub}>≈ ${usd.toFixed(2)} USD</Text>
-              ) : null}
-            </>
-          )}
-        </View>
+        {isSp && spMissing && !loading ? (
+          <View style={styles.emptyCard}>
+            <Text style={styles.emptyIcon}>🔒</Text>
+            <Text style={styles.emptyTitle}>
+              No wallet on {(Config.NETWORK_LOCK || 'mainnet').toUpperCase()}
+            </Text>
+            <Text style={styles.emptyBody}>
+              Create your Thrilla Silent Payments wallet to start receiving.
+            </Text>
+            <TouchableOpacity
+              style={styles.createBtn}
+              onPress={() => setShowCreate(true)}>
+              <Text style={styles.createBtnText}>＋ New Wallet</Text>
+            </TouchableOpacity>
+          </View>
+        ) : (
+          <>
+            <View style={styles.card}>
+              <Text style={styles.label}>{name}</Text>
+              {loading ? (
+                <ActivityIndicator style={styles.spinner} color={colors.primary} />
+              ) : error ? (
+                <Text style={styles.error}>{error}</Text>
+              ) : sats == null ? (
+                <Text style={styles.error}>No balance available.</Text>
+              ) : (
+                <>
+                  <Text style={styles.balance}>{btc} BTC</Text>
+                  <Text style={styles.sub}>{groupThousands(sats)} sats</Text>
+                  {usd != null ? (
+                    <Text style={styles.sub}>≈ ${usd.toFixed(2)} USD</Text>
+                  ) : null}
+                </>
+              )}
+            </View>
 
-        <View style={styles.card}>
-          <Text style={styles.cardTitle}>Recent Transactions</Text>
-          <Text style={styles.emptyState}>No transactions yet</Text>
-        </View>
+            <View style={styles.card}>
+              <Text style={styles.cardTitle}>Recent Transactions</Text>
+              <Text style={styles.emptyState}>No transactions yet</Text>
+            </View>
 
-        <Text style={styles.hint}>Pull down to refresh</Text>
+            <Text style={styles.hint}>Pull down to refresh</Text>
+          </>
+        )}
       </ScrollView>
+
+      <CreateWalletModal
+        visible={showCreate}
+        onClose={() => setShowCreate(false)}
+        onCreated={() => {
+          setShowCreate(false);
+          setLoading(true);
+          load();
+        }}
+      />
     </SafeAreaView>
   );
 }
@@ -222,4 +259,28 @@ const styles = StyleSheet.create({
   cardTitle: { fontSize: 16, fontWeight: '600', color: '#000', marginBottom: 8 },
   emptyState: { fontSize: 14, color: '#999' },
   hint: { fontSize: 12, color: '#bbb', textAlign: 'center', marginTop: 4 },
+  emptyCard: {
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    padding: 28,
+    alignItems: 'center',
+  },
+  emptyIcon: { fontSize: 40, marginBottom: 12 },
+  emptyTitle: { fontSize: 18, fontWeight: '700', color: '#000', marginBottom: 8 },
+  emptyBody: {
+    fontSize: 14,
+    color: '#666',
+    textAlign: 'center',
+    marginBottom: 20,
+    lineHeight: 20,
+  },
+  createBtn: {
+    backgroundColor: colors.primary,
+    borderRadius: 8,
+    paddingVertical: 14,
+    paddingHorizontal: 28,
+    alignSelf: 'stretch',
+    alignItems: 'center',
+  },
+  createBtnText: { color: colors.onPrimary, fontSize: 16, fontWeight: '600' },
 });
