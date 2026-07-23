@@ -213,8 +213,10 @@ export interface CreatedWallet {
   generated: boolean;
 }
 
-// Create (generate) a Silent-Payments wallet. Omitting `mnemonic` tells the
-// server to generate a fresh seed; it derives the keys/address server-side.
+// Create a Silent-Payments wallet. Omitting `mnemonic` tells the server to
+// generate a fresh seed; it derives the keys/address server-side. For import,
+// pass `mnemonic` AES-encrypted with String(last_height) as the key (matching
+// the backend's decrypt_mnemonic) — see encryptMnemonicForImport in the modal.
 export async function createSilntWallet(
   inkey: string,
   data: {
@@ -222,6 +224,7 @@ export async function createSilntWallet(
     network?: string;
     passphrase?: string;
     last_height?: number;
+    mnemonic?: string;
   },
 ): Promise<CreatedWallet> {
   return req(`${SILNT}/api/v1/wallet`, {

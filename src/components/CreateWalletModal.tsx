@@ -11,6 +11,7 @@ import {
 } from 'react-native';
 import Clipboard from '@react-native-clipboard/clipboard';
 import Config from 'react-native-config';
+import CryptoJS from 'crypto-js';
 import { useAuthStore } from '@stores/authStore';
 import * as api from '@services/api';
 import { colors } from '@/theme';
@@ -24,14 +25,25 @@ interface Props {
 }
 
 type Step = 'form' | 'reveal';
+type Mode = 'generate' | 'import';
+
+// The backend decrypts the imported seed with String(last_height) as the AES
+// key (lnbits AESCipher == CryptoJS OpenSSL "Salted__" format), so we encrypt
+// exactly the way the web app does before sending it.
+function encryptMnemonicForImport(mnemonic: string, lastHeight: number): string {
+  return CryptoJS.AES.encrypt(mnemonic, String(lastHeight)).toString();
+}
 
 export default function CreateWalletModal({ visible, onClose, onCreated }: Props) {
   const inkey = useAuthStore((s) => s.inkey);
   const network = (Config.NETWORK_LOCK || 'mainnet').toUpperCase();
 
   const [step, setStep] = useState<Step>('form');
+  const [mode, setMode] = useState<Mode>('generate');
   const [title, setTitle] = useState('');
   const [passphrase, setPassphrase] = useState('');
+  const [mnemonicInput, setMnemonicInput] = useState('');
+  const [birthHeight, setBirthHeight] = useState('');
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -42,8 +54,11 @@ export default function CreateWalletModal({ visible, onClose, onCreated }: Props
 
   const reset = useCallback(() => {
     setStep('form');
+    setMode('generate');
     setTitle('');
     setPassphrase('');
+    setMnemonicInput('');
+    setBirthHeight('');
     setShowAdvanced(false);
     setCreating(false);
     setError(null);
@@ -62,17 +77,39 @@ export default function CreateWalletModal({ visible, onClose, onCreated }: Props
       setError('Not logged in.');
       return;
     }
+
+    const data: {
+      title: string;
+      passphrase?: string;
+      mnemonic?: string;
+      last_height?: number;
+    } = { title: title.trim() };
+    if (passphrase) data.passphrase = passphrase;
+
+    if (mode === 'import') {
+      const words = mnemonicInput.trim().toLowerCase().split(/\s+/).filter(Boolean);
+      if (words.length !== 12) {
+        setError('Recovery phrase must be exactly 12 words.');
+        return;
+      }
+      const height = Number(birthHeight);
+      if (!birthHeight || !Number.isFinite(height) || height < 0) {
+        setError('Enter the wallet birth height (block number) to import.');
+        return;
+      }
+      data.last_height = Math.floor(height);
+      data.mnemonic = encryptMnemonicForImport(words.join(' '), Math.floor(height));
+    }
+
     setCreating(true);
     try {
-      const res = await api.createSilntWallet(inkey, {
-        title: title.trim(),
-        ...(passphrase ? { passphrase } : {}),
-      });
+      const res = await api.createSilntWallet(inkey, data);
       if (res.mnemonic && res.generated) {
+        // Fresh seed — show it once so the user can back it up.
         setMnemonic(res.mnemonic);
         setStep('reveal');
       } else {
-        // Imported/edge case with no seed to reveal — just finish.
+        // Import: the user already has their phrase — just finish.
         onCreated();
         reset();
         onClose();
@@ -82,7 +119,17 @@ export default function CreateWalletModal({ visible, onClose, onCreated }: Props
     } finally {
       setCreating(false);
     }
-  }, [title, passphrase, inkey, onCreated, onClose, reset]);
+  }, [
+    title,
+    passphrase,
+    mode,
+    mnemonicInput,
+    birthHeight,
+    inkey,
+    onCreated,
+    onClose,
+    reset,
+  ]);
 
   const finishReveal = useCallback(() => {
     onCreated();
@@ -111,6 +158,37 @@ export default function CreateWalletModal({ visible, onClose, onCreated }: Props
               <Text style={styles.heading}>New Wallet</Text>
               <Text style={styles.networkTag}>{network}</Text>
 
+              <View style={styles.segment}>
+                <TouchableOpacity
+                  style={[styles.segBtn, mode === 'generate' && styles.segBtnOn]}
+                  onPress={() => {
+                    setMode('generate');
+                    setError(null);
+                  }}>
+                  <Text
+                    style={[
+                      styles.segText,
+                      mode === 'generate' && styles.segTextOn,
+                    ]}>
+                    Generate
+                  </Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[styles.segBtn, mode === 'import' && styles.segBtnOn]}
+                  onPress={() => {
+                    setMode('import');
+                    setError(null);
+                  }}>
+                  <Text
+                    style={[
+                      styles.segText,
+                      mode === 'import' && styles.segTextOn,
+                    ]}>
+                    Import
+                  </Text>
+                </TouchableOpacity>
+              </View>
+
               <Text style={styles.label}>Wallet name</Text>
               <TextInput
                 style={styles.input}
@@ -121,6 +199,35 @@ export default function CreateWalletModal({ visible, onClose, onCreated }: Props
                 maxLength={40}
                 autoFocus
               />
+
+              {mode === 'import' ? (
+                <>
+                  <Text style={styles.label}>Recovery phrase (12 words)</Text>
+                  <TextInput
+                    style={[styles.input, styles.mnemonicInput]}
+                    value={mnemonicInput}
+                    onChangeText={setMnemonicInput}
+                    placeholder="word1 word2 word3 …"
+                    placeholderTextColor="#aaa"
+                    autoCapitalize="none"
+                    autoCorrect={false}
+                    multiline
+                  />
+                  <Text style={styles.label}>Born at height (block)</Text>
+                  <TextInput
+                    style={styles.input}
+                    value={birthHeight}
+                    onChangeText={(t) => setBirthHeight(t.replace(/[^0-9]/g, ''))}
+                    placeholder="e.g. 840000"
+                    placeholderTextColor="#aaa"
+                    keyboardType="number-pad"
+                  />
+                  <Text style={styles.hint}>
+                    The block height the wallet was created at. Scanning starts
+                    here, so an accurate value avoids missing funds.
+                  </Text>
+                </>
+              ) : null}
 
               <TouchableOpacity
                 onPress={() => setShowAdvanced((v) => !v)}
@@ -157,7 +264,9 @@ export default function CreateWalletModal({ visible, onClose, onCreated }: Props
                 {creating ? (
                   <ActivityIndicator color={colors.onPrimary} />
                 ) : (
-                  <Text style={styles.primaryBtnText}>Create Wallet</Text>
+                  <Text style={styles.primaryBtnText}>
+                    {mode === 'import' ? 'Import Wallet' : 'Create Wallet'}
+                  </Text>
                 )}
               </TouchableOpacity>
               <TouchableOpacity style={styles.linkBtn} onPress={onClose}>
@@ -239,6 +348,18 @@ const styles = StyleSheet.create({
     borderRadius: 6,
     overflow: 'hidden',
   },
+  segment: {
+    flexDirection: 'row',
+    backgroundColor: '#e9e9ee',
+    borderRadius: 10,
+    padding: 3,
+    marginTop: 14,
+  },
+  segBtn: { flex: 1, paddingVertical: 8, borderRadius: 8, alignItems: 'center' },
+  segBtnOn: { backgroundColor: '#fff' },
+  segText: { fontSize: 14, fontWeight: '600', color: '#666' },
+  segTextOn: { color: PRIMARY },
+  mnemonicInput: { minHeight: 76, textAlignVertical: 'top' },
   label: {
     fontSize: 13,
     fontWeight: '600',
