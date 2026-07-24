@@ -251,20 +251,29 @@ export async function resolveBip353(inkey, address) {
 }
 
 // ── Config ────────────────────────────────────────────────────────────────────
-export async function getConfig(inkey) {
-  return req(`${SILNT}/api/v1/blindbit/config`, { headers: keyHeaders(inkey) })
+// Backend infra config (blindbit/mempool/fulcrum) is per-network. Each build
+// reads/writes the config for ITS network (VITE_NETWORK_LOCK), so the mainnet
+// admin portal and the signet admin portal manage separate configs. An explicit
+// `network` arg overrides.
+function _cfgQs(network) {
+  const net = network === undefined ? NETWORK_LOCK : network
+  return net ? `?network=${net}` : ''
 }
 
-export async function getBlindbitConfig(adminkey) {
-  return req(`${SILNT}/api/v1/blindbit/config`, { headers: keyHeaders(adminkey) })
+export async function getConfig(inkey, network = undefined) {
+  return req(`${SILNT}/api/v1/backend/config${_cfgQs(network)}`, { headers: keyHeaders(inkey) })
 }
 
-export async function getBlindbitHealth(adminkey) {
-  return req(`${SILNT}/api/v1/admin/blindbit/health`, { headers: keyHeaders(adminkey) })
+export async function getBlindbitConfig(adminkey, network = undefined) {
+  return req(`${SILNT}/api/v1/backend/config${_cfgQs(network)}`, { headers: keyHeaders(adminkey) })
 }
 
-export async function getFulcrumHealth(adminkey) {
-  return req(`${SILNT}/api/v1/admin/fulcrum/health`, { headers: keyHeaders(adminkey) })
+export async function getBlindbitHealth(adminkey, network = undefined) {
+  return req(`${SILNT}/api/v1/admin/blindbit/health${_cfgQs(network)}`, { headers: keyHeaders(adminkey) })
+}
+
+export async function getFulcrumHealth(adminkey, network = undefined) {
+  return req(`${SILNT}/api/v1/admin/fulcrum/health${_cfgQs(network)}`, { headers: keyHeaders(adminkey) })
 }
 
 export async function getAdminAlerts(adminkey, includeAck = false) {
@@ -277,8 +286,8 @@ export async function ackAdminAlert(adminkey, alertId) {
   })
 }
 
-export async function updateConfig(adminkey, data) {
-  return req(`${SILNT}/api/v1/blindbit/config`, {
+export async function updateConfig(adminkey, data, network = undefined) {
+  return req(`${SILNT}/api/v1/backend/config${_cfgQs(network)}`, {
     method: 'PUT',
     headers: keyHeaders(adminkey),
     body: JSON.stringify(data),
@@ -735,11 +744,12 @@ export async function refundSwap(adminkey, swapId, { address, fee_sats = 300 }) 
 // device auth: read paths take inkey, build/sign/broadcast paths take adminkey.
 
 // Import an output descriptor (wpkh([fp/84h/.../0h]xpub/<0;1>/*)).
-export async function payjoinImportDescriptor(inkey, descriptor, label = null) {
+export async function payjoinImportDescriptor(inkey, descriptor, label = null, network = undefined) {
+  const net = network === undefined ? (NETWORK_LOCK || 'signet') : network
   return req(`${SILNT}/api/v1/payjoin/descriptors`, {
     method: 'POST',
     headers: keyHeaders(inkey),
-    body: JSON.stringify({ descriptor, label }),
+    body: JSON.stringify({ descriptor, label, network: net }),
   })
 }
 
@@ -886,8 +896,8 @@ export async function spContactDelete(inkey, cid) {
 }
 
 // ── Admin: delete a user account ──────────────────────────────────────────────
-export async function adminAccountsList(adminkey) {
-  return req(`${SILNT}/api/v1/admin/accounts`, { headers: keyHeaders(adminkey) })
+export async function adminAccountsList(adminkey, network = undefined) {
+  return req(`${SILNT}/api/v1/admin/accounts${_cfgQs(network)}`, { headers: keyHeaders(adminkey) })
 }
 export async function adminAccountDelete(adminkey, identifier, confirmUsername, deleteBitmail = true) {
   return req(`${SILNT}/api/v1/admin/account/delete`, {
