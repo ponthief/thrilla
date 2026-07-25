@@ -20,6 +20,11 @@ project.ext.envConfigFiles = [
 project.ext.defaultEnvFile = ".env.mainnet"
 apply from: project(':react-native-config').projectDir.getPath() + "/dotenv.gradle"
 
+// Diagnostic: prints the network config actually baked into this build. Look for
+// this line (and react-native-config's "Reading env from: …") in the Gradle log
+// to confirm you built the flavor you intended.
+println "🔧 Thrilla build config → NETWORK_LOCK=${project.env?.NETWORK_LOCK}  LNBITS_URL=${project.env?.LNBITS_URL}"
+
 /**
  * This is the configuration block to customize your React Native Android app.
  * By default you don't need to apply any configuration, just uncomment the lines you need.
