@@ -286,6 +286,100 @@ export async function listWalletTransactions(
   return res?.transactions ?? [];
 }
 
+// ── Send: on-chain (Silent Payments) ────────────────────────────────────────
+
+// A spendable output owned by the wallet. priv_key_tweak + pub_key are needed
+// by the server-side tx builder to sign this input.
+export interface Utxo {
+  txid: string;
+  vout: number;
+  amount: number; // sats
+  priv_key_tweak: string;
+  pub_key: string;
+  utxo_state: string; // 'unspent' | 'spent' | …
+  frozen?: boolean;
+  label?: string | null;
+}
+
+// mempool.space-shaped recommended fee tiers (sat/vB).
+export interface FeeTiers {
+  fastestFee?: number;
+  halfHourFee?: number;
+  hourFee?: number;
+  economyFee?: number;
+  minimumFee?: number;
+}
+
+// Result of a server-side tx build.
+export interface BuiltTx {
+  tx_hex: string;
+  fee: number;
+  [k: string]: unknown;
+}
+
+// The wallet's UTXOs. Uses inkey (read).
+export async function getUtxos(inkey: string, walletId: string): Promise<Utxo[]> {
+  const res = await req<any>(
+    `${SILNT}/api/v1/utxos?wallet_id=${encodeURIComponent(walletId)}`,
+    { headers: apiKey(inkey) },
+  );
+  return res?.utxos ?? [];
+}
+
+// Recommended fee tiers for the build's network. Uses inkey.
+export async function getRecommendedFees(
+  inkey: string,
+  network: string | undefined = Config.NETWORK_LOCK || undefined,
+): Promise<FeeTiers> {
+  const qs = network ? `?network=${encodeURIComponent(network)}` : '';
+  return req(`${SILNT}/api/v1/fees/recommended${qs}`, { headers: apiKey(inkey) });
+}
+
+// Build a Silent Payments spend. Requires the admin key; the scan/spend keys are
+// passed transiently so the server can sign (never stored server-side).
+export async function buildTx(
+  adminkey: string,
+  data: {
+    wallet_id: string;
+    recipient: string;
+    amount: number;
+    fee_rate: number;
+    utxos: Array<
+      Pick<Utxo, 'txid' | 'vout' | 'amount' | 'priv_key_tweak' | 'pub_key'>
+    >;
+  },
+  spendKey: string,
+  scanSecret: string,
+): Promise<BuiltTx> {
+  return req(`${SILNT}/api/v1/tx/build`, {
+    method: 'POST',
+    headers: apiKey(adminkey),
+    body: JSON.stringify({ ...data, spend_key: spendKey, scan_secret: scanSecret }),
+  });
+}
+
+// Broadcast a built tx and mark its inputs spent. Requires the admin key.
+export async function broadcastTx(
+  adminkey: string,
+  txHex: string,
+  walletId: string,
+  spentOutpoints: Array<{ txid: string; vout: number }> = [],
+  meta: { recipient?: string; amount?: number; fee?: number } = {},
+): Promise<{ txid: string }> {
+  return req(`${SILNT}/api/v1/tx/broadcast`, {
+    method: 'POST',
+    headers: apiKey(adminkey),
+    body: JSON.stringify({
+      tx_hex: txHex,
+      wallet_id: walletId,
+      spent_outpoints: spentOutpoints,
+      recipient: meta.recipient || null,
+      amount: meta.amount || null,
+      fee: meta.fee || null,
+    }),
+  });
+}
+
 // ── Scanning (catch-up) ─────────────────────────────────────────────────────
 // Silent Payments funds are discovered by scanning blocks with the wallet's
 // scan/spend keys (never stored server-side — passed transiently per scan).
