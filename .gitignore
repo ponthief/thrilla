@@ -1,5 +1,7 @@
 .gradle
 .idea
+.gradle
+.idea
 node_modules
 *.keystore
 *.jks
