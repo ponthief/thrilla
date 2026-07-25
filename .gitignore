@@ -12,5 +12,6 @@ dist/
 .env.*
 !.env.example
 !.env.mainnet
+!.env.signet
 
 thrilla-src.zip
