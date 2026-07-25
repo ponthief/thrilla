@@ -1,3 +1,4 @@
 <resources>
-  <string name="app_name">Thrilla</string>
+  <!-- app_name is provided per build flavor via resValue in app/build.gradle
+       (Thrilla / Thrilla Signet), so it is intentionally not defined here. -->
 </resources>

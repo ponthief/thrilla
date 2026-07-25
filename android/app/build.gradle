@@ -2,15 +2,21 @@ apply plugin: "com.android.application"
 apply plugin: "org.jetbrains.kotlin.android"
 apply plugin: "com.facebook.react"
 
-// react-native-config: reads the env file and generates BuildConfig/resValue
-// entries that the native module exposes to JS as `Config.*`. This is the
-// mobile analog of the web build's `vite build --mode mainnet` + .env.mainnet.
+// react-native-config: reads a per-network env file and generates
+// BuildConfig/resValue entries exposed to JS as `Config.*` (the mobile analog of
+// the web build's `vite build --mode <net>` + .env.<net>).
 //
-// Default to .env.mainnet when ENVFILE is not supplied. Without this the
-// plugin falls back to `.env`, which does not exist in this repo, so every
-// `Config.*` value comes back empty and the app reports "LNBITS_URL not
-// configured". Override for other networks, e.g.
-//   ENVFILE=.env.signet npm run android
+// The file is chosen by the BUILD FLAVOR (see productFlavors below) via
+// envConfigFiles — keyed by "<flavor><buildType>". This is robust across the
+// Gradle daemon, unlike the ENVFILE env var, which a cached daemon may not pick
+// up (that's why `ENVFILE=.env.signet` alone kept building mainnet). ENVFILE
+// still overrides if explicitly set; defaultEnvFile is the last-resort fallback.
+project.ext.envConfigFiles = [
+    mainnetdebug:   ".env.mainnet",
+    mainnetrelease: ".env.mainnet",
+    signetdebug:    ".env.signet",
+    signetrelease:  ".env.signet",
+]
 project.ext.defaultEnvFile = ".env.mainnet"
 apply from: project(':react-native-config').projectDir.getPath() + "/dotenv.gradle"
 
@@ -30,10 +36,9 @@ react {
     // cliFile = file("../node_modules/react-native/cli.js")
 
     /* Variants */
-    //   The list of variants to that are debuggable. For those we're going to
-    //   skip the bundling of the JS bundle and the assets. By default is just 'debug'.
-    //   If you add flavors like lite, prod, etc. you'll have to list your debuggableVariants.
-    // debuggableVariants = ["liteDebug", "prodDebug"]
+    //   Debug variants skip JS bundling (they load from Metro). With flavors the
+    //   debug variants are named per-flavor, so they must be listed explicitly.
+    debuggableVariants = ["mainnetDebug", "signetDebug"]
 
     /* Bundling */
     //   A list containing the node command and its flags. Default is just 'node'.
@@ -93,6 +98,22 @@ android {
         targetSdkVersion rootProject.ext.targetSdkVersion
         versionCode 1
         versionName "1.0"
+    }
+
+    // One flavor per network. Each maps to its own env file (envConfigFiles
+    // above) and its own applicationId + launcher label, so mainnet and signet
+    // builds can be installed side by side.
+    flavorDimensions "network"
+    productFlavors {
+        mainnet {
+            dimension "network"
+            resValue "string", "app_name", "Thrilla"
+        }
+        signet {
+            dimension "network"
+            applicationIdSuffix ".signet"
+            resValue "string", "app_name", "Thrilla Signet"
+        }
     }
     signingConfigs {
         debug {
