@@ -61,12 +61,6 @@ export interface ChainInfo {
   height: number;
 }
 
-// Subset of the siLNt BlindBit config relevant to login/catch-up scanning.
-export interface BlindbitConfig {
-  login_scan_enabled?: boolean;
-  login_scan_auto_threshold?: number;
-}
-
 export class ApiError extends Error {
   status?: number;
   detail?: string;
@@ -323,11 +317,6 @@ export async function getScanProgress(
 // Current chain tip via the siLNt oracle proxy (BlindBit /info).
 export async function getChainTip(inkey: string): Promise<ChainInfo> {
   return req(`${SILNT}/api/v1/oracle/tip`, { headers: apiKey(inkey) });
-}
-
-// BlindBit config — carries the login-scan toggle + auto threshold.
-export async function getBlindbitConfig(inkey: string): Promise<BlindbitConfig> {
-  return req(`${SILNT}/api/v1/blindbit/config`, { headers: apiKey(inkey) });
 }
 
 // Create a Silent-Payments wallet. Omitting `mnemonic` tells the server to

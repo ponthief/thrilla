@@ -100,15 +100,10 @@ export function useCatchUpScan(
       const keys = await getWalletKeys(walletId);
       if (!keys || cancelled) return; // no keys on this device — can't scan
 
-      let threshold = DEFAULT_THRESHOLD;
-      try {
-        const cfg = await api.getBlindbitConfig(inkey);
-        if (cfg.login_scan_enabled === false) return;
-        threshold = Number(cfg.login_scan_auto_threshold ?? DEFAULT_THRESHOLD) || DEFAULT_THRESHOLD;
-      } catch {
-        /* use default threshold */
-      }
-      if (cancelled) return;
+      // Auto-vs-prompt threshold. The web app reads this from the siLNt
+      // /blindbit/config endpoint, but that isn't available to this client, so
+      // we use the backend's own default (BlindbitConfig.login_scan_auto_threshold).
+      const threshold = DEFAULT_THRESHOLD;
 
       let tip = 0;
       try {
