@@ -430,6 +430,24 @@ export async function getBackendConfig(
   return req(`${SILNT}/api/v1/backend/config${qs}`, { headers: apiKey(inkey) });
 }
 
+// Re-derive scan_secret + spend_key for an EXISTING wallet from its mnemonic
+// (used to restore keys onto a device that doesn't have them). The server checks
+// the derived sp_address matches the wallet's, so a wrong seed is rejected.
+// `encryptedMnemonic` is AES-encrypted with String(lastHeight), same as import.
+export async function recoverWalletKeys(
+  inkey: string,
+  walletId: string,
+  encryptedMnemonic: string,
+  lastHeight: number,
+  passphrase: string | null = null,
+): Promise<{ scan_secret: string; spend_key: string }> {
+  return req(`${SILNT}/api/v1/wallet/${walletId}/recover-keys`, {
+    method: 'POST',
+    headers: apiKey(inkey),
+    body: JSON.stringify({ mnemonic: encryptedMnemonic, last_height: lastHeight, passphrase }),
+  });
+}
+
 // Create a Silent-Payments wallet. Omitting `mnemonic` tells the server to
 // generate a fresh seed; it derives the keys/address server-side. For import,
 // pass `mnemonic` AES-encrypted with String(last_height) as the key (matching
