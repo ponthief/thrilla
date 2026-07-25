@@ -8,6 +8,7 @@ import { StatusBar, StyleSheet, Text, TouchableOpacity, View } from 'react-nativ
 import WalletScreen from './screens/WalletScreen';
 import SendScreen from './screens/SendScreen';
 import ReceiveScreen from './screens/ReceiveScreen';
+import ScanScreen from './screens/ScanScreen';
 import SettingsScreen from './screens/SettingsScreen';
 import LoginScreen from './screens/LoginScreen';
 import RegisterScreen from './screens/RegisterScreen';
@@ -15,12 +16,13 @@ import ForgotPasswordScreen from './screens/ForgotPasswordScreen';
 import { useAuthStore } from '@stores/authStore';
 import { colors } from '@/theme';
 
-type TabKey = 'wallet' | 'send' | 'receive' | 'settings';
+type TabKey = 'wallet' | 'send' | 'receive' | 'scan' | 'settings';
 
 const TABS: { key: TabKey; label: string; icon: string; Screen: React.ComponentType }[] = [
   { key: 'wallet', label: 'Wallet', icon: '₿', Screen: WalletScreen },
   { key: 'send', label: 'Send', icon: '↑', Screen: SendScreen },
   { key: 'receive', label: 'Receive', icon: '↓', Screen: ReceiveScreen },
+  { key: 'scan', label: 'Scan', icon: '⟳', Screen: ScanScreen },
   { key: 'settings', label: 'Settings', icon: '⚙', Screen: SettingsScreen },
 ];
 
