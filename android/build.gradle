@@ -1,11 +1,16 @@
 buildscript {
     ext {
         buildToolsVersion = "34.0.0"
-        minSdkVersion = 21
+        // 23 (Android 6.0) is the floor required by react-native-camera-kit.
+        minSdkVersion = 23
         compileSdkVersion = 34
         targetSdkVersion = 34
         ndkVersion = "25.1.8937393"
         kotlinVersion = "1.8.0"
+        // Some libraries (e.g. react-native-camera-kit) reference the legacy
+        // `kotlin_version` ext property instead of the template's `kotlinVersion`.
+        // Alias it so their `$kotlin_version` resolves.
+        kotlin_version = kotlinVersion
     }
     repositories {
         google()
