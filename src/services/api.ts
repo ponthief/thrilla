@@ -415,6 +415,24 @@ export async function getScanProgress(
   });
 }
 
+// Stop an in-progress scan. Uses inkey.
+export async function stopScan(inkey: string, walletId: string): Promise<unknown> {
+  return req(`${SILNT}/api/v1/wallet/${walletId}/scan/stop`, {
+    method: 'POST',
+    headers: apiKey(inkey),
+  });
+}
+
+// Client-facing app config (min scan height, etc.). Uses inkey.
+export interface AppConfig {
+  min_scan_height?: number;
+  network?: string;
+  dust_threshold_sats?: number;
+}
+export async function getAppConfig(inkey: string): Promise<AppConfig> {
+  return req(`${SILNT}/api/v1/config`, { headers: apiKey(inkey) });
+}
+
 // Current chain tip via the siLNt oracle proxy (BlindBit /info).
 export async function getChainTip(inkey: string): Promise<ChainInfo> {
   return req(`${SILNT}/api/v1/oracle/tip`, { headers: apiKey(inkey) });
