@@ -14,7 +14,38 @@ import { useWalletStore } from '@stores/walletStore';
 import * as api from '@services/api';
 import { colors } from '@/theme';
 import CreateWalletModal from '../components/CreateWalletModal';
+import TransactionList, { TxItem } from '../components/TransactionList';
 import { useCatchUpScan } from '../hooks/useCatchUpScan';
+
+function normalizeTime(t?: number | string | null): number | null {
+  if (t == null) return null;
+  if (typeof t === 'number') return t; // unix seconds
+  const parsed = Date.parse(t); // ISO string
+  return Number.isNaN(parsed) ? null : Math.floor(parsed / 1000);
+}
+
+function spTxToItem(t: api.SpTransaction): TxItem {
+  return {
+    id: t.txid,
+    direction: t.amount_sats < 0 ? 'out' : 'in',
+    amountSats: Math.abs(t.amount_sats),
+    label: t.labels?.[0] || (t.kind === 'send' ? 'Sent' : 'Received'),
+    timestamp: t.timestamp || null,
+    pending: false,
+  };
+}
+
+function lnPayToItem(p: api.LnPayment): TxItem {
+  const msat = p.amount ?? 0;
+  return {
+    id: p.payment_hash || p.checking_id || '',
+    direction: msat < 0 ? 'out' : 'in',
+    amountSats: Math.floor(Math.abs(msat) / 1000),
+    label: p.memo || (msat < 0 ? 'Sent' : 'Received'),
+    timestamp: normalizeTime(p.time),
+    pending: p.pending === true || p.status === 'pending',
+  };
+}
 
 // Group thousands without relying on Intl (Hermes ships without full Intl).
 function groupThousands(n: number): string {
@@ -46,15 +77,19 @@ export default function WalletScreen() {
   const [lnName, setLnName] = useState('');
   const [lnError, setLnError] = useState<string | null>(null);
 
+  const [spTxs, setSpTxs] = useState<TxItem[]>([]);
+  const [lnTxs, setLnTxs] = useState<TxItem[]>([]);
+
   const load = useCallback(async () => {
     if (!inkey) {
       setLoading(false);
       return;
     }
-    const [spRes, lnRes, rateRes] = await Promise.allSettled([
+    const [spRes, lnRes, rateRes, lnPayRes] = await Promise.allSettled([
       api.getSilntWallets(inkey),
       api.lnGetWallet(inkey),
       api.getUsdRate(inkey),
+      api.lnListPayments(inkey, 25),
     ]);
 
     let newSpSats: number | null = null;
@@ -65,15 +100,27 @@ export default function WalletScreen() {
         setSpWallet(w);
         setSpError(null);
         setSpMissing(false);
+        // On-chain history needs the wallet id, so fetch it once we have it.
+        try {
+          const txs = await api.listWalletTransactions(inkey, w.id, 25);
+          setSpTxs(txs.map(spTxToItem));
+        } catch {
+          setSpTxs([]);
+        }
       } else {
         setSpWallet(null);
         setSpError(null);
         setSpMissing(true);
+        setSpTxs([]);
       }
     } else {
       setSpMissing(false);
       setSpError(spRes.reason?.message || 'Failed to load balance');
     }
+
+    setLnTxs(
+      lnPayRes.status === 'fulfilled' ? lnPayRes.value.map(lnPayToItem) : [],
+    );
 
     let newLnSats: number | null = null;
     if (lnRes.status === 'fulfilled') {
@@ -222,10 +269,16 @@ export default function WalletScreen() {
               </View>
             ) : null}
 
-            <View style={styles.card}>
-              <Text style={styles.cardTitle}>Recent Transactions</Text>
-              <Text style={styles.emptyState}>No transactions yet</Text>
-            </View>
+            <TransactionList
+              title="Recent Transactions"
+              items={isSp ? spTxs : lnTxs}
+              loading={loading}
+              emptyText={
+                isSp
+                  ? 'No transactions yet'
+                  : 'No Lightning payments yet'
+              }
+            />
 
             <Text style={styles.hint}>Pull down to refresh</Text>
           </>
