@@ -3,7 +3,10 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "android": "react-native run-android",
+    "android": "react-native run-android --mode=mainnetDebug",
+    "android:signet": "react-native run-android --mode=signetDebug",
+    "apk:mainnet": "cd android && ./gradlew assembleMainnetRelease",
+    "apk:signet": "cd android && ./gradlew assembleSignetRelease",
     "ios": "react-native run-ios",
     "start": "react-native start",
     "test": "jest",
