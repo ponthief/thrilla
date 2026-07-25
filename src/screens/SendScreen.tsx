@@ -17,6 +17,16 @@ import { useAuthStore } from '@stores/authStore';
 import * as api from '@services/api';
 import { getWalletKeys } from '@services/secureKeys';
 import { colors } from '@/theme';
+import QRScanner from '../components/QRScanner';
+
+// Extract an SP address from a scanned value: a bare address, a bitcoin: URI, or
+// a URI carrying an `sp=` parameter.
+function parseScannedAddress(raw: string): string {
+  const s = raw.trim();
+  const m = s.match(/[?&]sp=([^&]+)/i);
+  if (m) return decodeURIComponent(m[1]);
+  return s.replace(/^bitcoin:/i, '').trim();
+}
 
 const PRIMARY = colors.primary;
 
@@ -74,6 +84,7 @@ export default function SendScreen() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [txid, setTxid] = useState('');
+  const [scanning, setScanning] = useState(false);
 
   const load = useCallback(async () => {
     if (!inkey) {
@@ -372,11 +383,20 @@ export default function SendScreen() {
               autoCorrect={false}
               multiline
             />
-            <TouchableOpacity
-              style={styles.pasteBtn}
-              onPress={async () => setRecipient((await Clipboard.getString()).trim())}>
-              <Text style={styles.pasteText}>Paste</Text>
-            </TouchableOpacity>
+            <View style={styles.recipientActions}>
+              <TouchableOpacity
+                style={styles.pasteBtn}
+                onPress={() => setScanning(true)}>
+                <Text style={styles.pasteText}>Scan</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.pasteBtn}
+                onPress={async () =>
+                  setRecipient(parseScannedAddress(await Clipboard.getString()))
+                }>
+                <Text style={styles.pasteText}>Paste</Text>
+              </TouchableOpacity>
+            </View>
           </View>
 
           <Text style={styles.label}>Amount (sats)</Text>
@@ -494,6 +514,12 @@ export default function SendScreen() {
           </TouchableOpacity>
         </ScrollView>
       </KeyboardAvoidingView>
+
+      <QRScanner
+        visible={scanning}
+        onClose={() => setScanning(false)}
+        onScanned={(v) => setRecipient(parseScannedAddress(v))}
+      />
     </SafeAreaView>
   );
 }
@@ -559,6 +585,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#fff',
   },
   recipientRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 8 },
+  recipientActions: { gap: 8 },
   recipientInput: { flex: 1, minHeight: 46 },
   pasteBtn: {
     borderWidth: 1,

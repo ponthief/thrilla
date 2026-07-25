@@ -12,8 +12,10 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAuthStore } from '@stores/authStore';
 import { useWalletStore } from '@stores/walletStore';
 import * as api from '@services/api';
+import { hasWalletKeys } from '@services/secureKeys';
 import { colors } from '@/theme';
 import CreateWalletModal from '../components/CreateWalletModal';
+import RecoverKeysModal from '../components/RecoverKeysModal';
 import TransactionList, { TxItem } from '../components/TransactionList';
 import { useCatchUpScan } from '../hooks/useCatchUpScan';
 
@@ -67,6 +69,8 @@ export default function WalletScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const [rate, setRate] = useState<number | null>(null);
   const [showCreate, setShowCreate] = useState(false);
+  const [showRecover, setShowRecover] = useState(false);
+  const [keysMissing, setKeysMissing] = useState(false);
 
   const [spWallet, setSpWallet] = useState<api.SilntWallet | null>(null);
   const [spError, setSpError] = useState<string | null>(null);
@@ -100,6 +104,7 @@ export default function WalletScreen() {
         setSpWallet(w);
         setSpError(null);
         setSpMissing(false);
+        setKeysMissing(!(await hasWalletKeys(w.id)));
         // On-chain history needs the wallet id, so fetch it once we have it.
         try {
           const txs = await api.listWalletTransactions(inkey, w.id, 25);
@@ -223,6 +228,22 @@ export default function WalletScreen() {
               )}
             </View>
 
+            {isSp && keysMissing && !loading ? (
+              <View style={styles.scanBanner}>
+                <View style={styles.scanTextWrap}>
+                  <Text style={styles.scanTitle}>Wallet keys missing</Text>
+                  <Text style={styles.scanSub}>
+                    This device can't scan or send until you restore the keys.
+                  </Text>
+                </View>
+                <TouchableOpacity
+                  style={styles.scanBtn}
+                  onPress={() => setShowRecover(true)}>
+                  <Text style={styles.scanBtnText}>Recover</Text>
+                </TouchableOpacity>
+              </View>
+            ) : null}
+
             {isSp && scan.status === 'scanning' ? (
               <View style={styles.scanBanner}>
                 <ActivityIndicator size="small" color={colors.primary} />
@@ -290,6 +311,18 @@ export default function WalletScreen() {
         onClose={() => setShowCreate(false)}
         onCreated={() => {
           setShowCreate(false);
+          setLoading(true);
+          load();
+        }}
+      />
+
+      <RecoverKeysModal
+        visible={showRecover}
+        wallet={spWallet}
+        onClose={() => setShowRecover(false)}
+        onRecovered={() => {
+          setShowRecover(false);
+          setKeysMissing(false);
           setLoading(true);
           load();
         }}
