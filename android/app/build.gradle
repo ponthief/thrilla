@@ -103,6 +103,14 @@ android {
         targetSdkVersion rootProject.ext.targetSdkVersion
         versionCode 1
         versionName "1.0"
+
+        // react-native-config resolves Config.* at runtime from
+        // "<package>.BuildConfig" using getPackageName() (the applicationId).
+        // The signet flavor adds applicationIdSuffix ".signet", so that lookup
+        // would target com.thrilla_btc.thrilla.signet.BuildConfig, which does
+        // NOT exist — BuildConfig is generated under the namespace. Pin the
+        // lookup to the namespace so Config.* resolves for every flavor.
+        resValue "string", "build_config_package", "com.thrilla_btc.thrilla"
     }
 
     // One flavor per network. Each maps to its own env file (envConfigFiles
