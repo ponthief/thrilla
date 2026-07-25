@@ -184,6 +184,33 @@ export async function lnCreateInvoice(
   });
 }
 
+// A Lightning payment as listed by LNbits core. `amount` is msat, signed
+// (negative = outgoing). Field names vary a little across LNbits versions, so
+// the optional fields are handled defensively by the caller.
+export interface LnPayment {
+  payment_hash?: string;
+  checking_id?: string;
+  amount?: number; // msat, signed
+  fee?: number;
+  memo?: string;
+  time?: number | string;
+  pending?: boolean;
+  status?: string;
+  bolt11?: string;
+}
+
+// Lightning payment history (most recent first). Uses inkey. Some LNbits builds
+// return a bare array, others { data: [...] } — unwrap to an array either way.
+export async function lnListPayments(
+  inkey: string,
+  limit = 25,
+): Promise<LnPayment[]> {
+  const res = await req<any>(`/api/v1/payments?limit=${limit}`, {
+    headers: apiKey(inkey),
+  });
+  return Array.isArray(res) ? res : res?.data ?? [];
+}
+
 // Poll a single payment by hash to see whether it has been paid. Uses inkey.
 export async function lnPaymentStatus(
   inkey: string,
@@ -232,6 +259,30 @@ export interface CreatedWallet {
   last_height: number;
   network: string;
   generated: boolean;
+}
+
+// A Silent Payments on-chain transaction (built server-side from scanned
+// receives/sends). `amount_sats` is signed: negative = net outflow.
+export interface SpTransaction {
+  kind: 'send' | 'receive';
+  txid: string;
+  timestamp: number; // unix seconds
+  amount_sats: number;
+  labels?: string[];
+}
+
+// On-chain transaction history for an SP wallet (most recent first).
+export async function listWalletTransactions(
+  inkey: string,
+  walletId: string,
+  limit = 25,
+  offset = 0,
+): Promise<SpTransaction[]> {
+  const res = await req<any>(
+    `${SILNT}/api/v1/wallet/${walletId}/transactions?limit=${limit}&offset=${offset}`,
+    { headers: apiKey(inkey) },
+  );
+  return res?.transactions ?? [];
 }
 
 // ── Scanning (catch-up) ─────────────────────────────────────────────────────
