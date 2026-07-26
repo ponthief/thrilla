@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   SafeAreaProvider,
   useSafeAreaInsets,
@@ -14,6 +14,7 @@ import LoginScreen from './screens/LoginScreen';
 import RegisterScreen from './screens/RegisterScreen';
 import ForgotPasswordScreen from './screens/ForgotPasswordScreen';
 import { useAuthStore } from '@stores/authStore';
+import { useSettingsStore } from '@stores/settingsStore';
 import { colors } from '@/theme';
 
 type TabKey = 'wallet' | 'send' | 'receive' | 'scan' | 'settings';
@@ -98,6 +99,9 @@ function AuthNavigator() {
 
 const App = () => {
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
+  useEffect(() => {
+    useSettingsStore.getState().hydrate();
+  }, []);
   return (
     <SafeAreaProvider>
       {isAuthenticated ? <Shell /> : <AuthNavigator />}
