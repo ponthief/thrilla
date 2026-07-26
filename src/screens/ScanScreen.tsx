@@ -5,7 +5,6 @@ import {
   ScrollView,
   StyleSheet,
   Text,
-  TextInput,
   TouchableOpacity,
   View,
 } from 'react-native';
@@ -357,25 +356,19 @@ export default function ScanScreen() {
             <View style={styles.rangeRow}>
               <View style={styles.rangeField}>
                 <Text style={styles.label}>From height</Text>
-                <TextInput
-                  style={styles.input}
-                  value={fromHeight}
-                  onChangeText={(t) => setFromHeight(t.replace(/[^0-9]/g, ''))}
-                  keyboardType="number-pad"
-                  editable={!scanning}
-                  placeholderTextColor="#aaa"
-                />
+                <View style={styles.readonly}>
+                  <Text style={styles.readonlyText}>
+                    {fromHeight ? groupThousands(Number(fromHeight)) : '—'}
+                  </Text>
+                </View>
               </View>
               <View style={styles.rangeField}>
                 <Text style={styles.label}>To height</Text>
-                <TextInput
-                  style={styles.input}
-                  value={toHeight}
-                  onChangeText={(t) => setToHeight(t.replace(/[^0-9]/g, ''))}
-                  keyboardType="number-pad"
-                  editable={!scanning}
-                  placeholderTextColor="#aaa"
-                />
+                <View style={styles.readonly}>
+                  <Text style={styles.readonlyText}>
+                    {toHeight ? groupThousands(Number(toHeight)) : '—'}
+                  </Text>
+                </View>
               </View>
             </View>
 
@@ -501,16 +494,15 @@ const styles = StyleSheet.create({
   rangeRow: { flexDirection: 'row', gap: 12 },
   rangeField: { flex: 1 },
   label: { fontSize: 13, fontWeight: '600', color: '#444', marginBottom: 6 },
-  input: {
+  readonly: {
     borderWidth: 1,
-    borderColor: '#d1d1d6',
+    borderColor: '#e5e5ea',
     borderRadius: 8,
     paddingHorizontal: 12,
     paddingVertical: 10,
-    fontSize: 16,
-    color: '#000',
-    backgroundColor: '#fafafa',
+    backgroundColor: '#f2f2f7',
   },
+  readonlyText: { fontSize: 16, color: '#333', fontWeight: '600' },
 
   progressTrack: {
     height: 8,
