@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useState } from 'react';
 import {
   ActivityIndicator,
   Image,
@@ -22,7 +22,6 @@ export default function LockScreen() {
   const unlocking = useAppLockStore((s) => s.unlocking);
   const setUnlocking = useAppLockStore((s) => s.setUnlocking);
   const logout = useAuthStore((s) => s.logout);
-  const attempted = useRef(false);
   const [failed, setFailed] = useState(false);
 
   const prompt = useCallback(async () => {
@@ -46,13 +45,11 @@ export default function LockScreen() {
     setUnlocking(false);
   }, [unlocking, setUnlocking, unlock]);
 
-  // Prompt once automatically when the lock screen appears.
-  useEffect(() => {
-    if (!attempted.current) {
-      attempted.current = true;
-      prompt();
-    }
-  }, [prompt]);
+  // NOTE: we deliberately do NOT auto-trigger the biometric prompt on mount.
+  // The lock screen appears as the Activity resumes from background, and Android's
+  // BiometricPrompt fails (silently, sometimes leaving a fragment that swallows
+  // touches) if started before the Activity is fully resumed — which made both
+  // buttons appear dead. The user taps "Unlock" once resumed, which is reliable.
 
   return (
     <SafeAreaView style={styles.container}>
