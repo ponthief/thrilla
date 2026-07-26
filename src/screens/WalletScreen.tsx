@@ -205,6 +205,14 @@ export default function WalletScreen() {
   const btc = sats != null ? (sats / 1e8).toFixed(8) : null;
   const usd = sats != null && rate != null ? (sats / 1e8) * rate : null;
 
+  // Prefill the tx-detail label editor with the real label only (not the
+  // "Sent"/"Received" fallback used for display).
+  const detailTx = spTxs.find((t) => t.id === detailTxid) || null;
+  const detailLabel =
+    detailTx && !['Sent', 'Received'].includes(detailTx.label)
+      ? detailTx.label
+      : '';
+
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
       <ScrollView
@@ -391,7 +399,9 @@ export default function WalletScreen() {
         visible={!!detailTxid}
         walletId={spWallet?.id ?? null}
         txid={detailTxid}
+        initialLabel={detailLabel}
         onClose={() => setDetailTxid(null)}
+        onLabelSaved={load}
       />
     </SafeAreaView>
   );
