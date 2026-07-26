@@ -200,8 +200,11 @@ export async function getScanProgress(inkey, walletId) {
   })
 }
 
-export async function getChainTip(inkey) {
-  return req(`${SILNT}/api/v1/oracle/tip`, { headers: keyHeaders(inkey) })
+// Chain tip is per-network; the backend now requires an explicit `network`
+// (no silent signet fallback), so scope by the build's NETWORK_LOCK like the
+// other per-network calls. An explicit arg still overrides.
+export async function getChainTip(inkey, network = undefined) {
+  return req(`${SILNT}/api/v1/oracle/tip${_cfgQs(network)}`, { headers: keyHeaders(inkey) })
 }
 
 // ── Transactions ──────────────────────────────────────────────────────────────
@@ -294,8 +297,10 @@ export async function updateConfig(adminkey, data, network = undefined) {
   })
 }
 
-export async function getAppConfig(inkey) {
-  return req(`${SILNT}/api/v1/config`, { headers: keyHeaders(inkey) })
+// Client app config is per-network; the backend now requires an explicit
+// `network` (no silent signet fallback), so scope by the build's NETWORK_LOCK.
+export async function getAppConfig(inkey, network = undefined) {
+  return req(`${SILNT}/api/v1/config${_cfgQs(network)}`, { headers: keyHeaders(inkey) })
 }
 
 // ── Labeled addresses ─────────────────────────────────────────────────────────
