@@ -6,6 +6,7 @@ import {
   ScrollView,
   StyleSheet,
   Text,
+  TextInput,
   TouchableOpacity,
   View,
 } from 'react-native';
@@ -33,15 +34,53 @@ interface Props {
   visible: boolean;
   walletId: string | null;
   txid: string | null;
+  initialLabel?: string;
   onClose: () => void;
+  onLabelSaved?: () => void;
 }
 
-export default function TxDetailModal({ visible, walletId, txid, onClose }: Props) {
+export default function TxDetailModal({
+  visible,
+  walletId,
+  txid,
+  initialLabel = '',
+  onClose,
+  onLabelSaved,
+}: Props) {
   const inkey = useAuthStore((s) => s.inkey);
   const [loading, setLoading] = useState(true);
   const [detail, setDetail] = useState<api.WalletTxDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+
+  const [labelDraft, setLabelDraft] = useState(initialLabel);
+  const [labelBusy, setLabelBusy] = useState(false);
+  const [labelSaved, setLabelSaved] = useState(false);
+  const [labelError, setLabelError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (visible) {
+      setLabelDraft(initialLabel);
+      setLabelSaved(false);
+      setLabelError(null);
+    }
+  }, [visible, initialLabel]);
+
+  const saveLabel = useCallback(async () => {
+    if (!inkey || !walletId || !txid) return;
+    setLabelBusy(true);
+    setLabelSaved(false);
+    setLabelError(null);
+    try {
+      await api.updateUtxoLabel(inkey, txid, labelDraft.trim(), walletId);
+      setLabelSaved(true);
+      onLabelSaved?.();
+    } catch (e: any) {
+      setLabelError(e?.message || 'Could not save label.');
+    } finally {
+      setLabelBusy(false);
+    }
+  }, [inkey, walletId, txid, labelDraft, onLabelSaved]);
 
   const load = useCallback(async () => {
     if (!inkey || !walletId || !txid) return;
@@ -114,6 +153,39 @@ export default function TxDetailModal({ visible, walletId, txid, onClose }: Prop
                     </Text>
                   </Row>
                 ) : null}
+              </View>
+
+              <View style={styles.card}>
+                <Text style={styles.cardTitle}>Label</Text>
+                <View style={styles.labelRow}>
+                  <TextInput
+                    style={styles.labelInput}
+                    value={labelDraft}
+                    onChangeText={(t) => {
+                      setLabelDraft(t);
+                      setLabelSaved(false);
+                      setLabelError(null);
+                    }}
+                    placeholder="Label this transaction"
+                    placeholderTextColor="#aaa"
+                    maxLength={60}
+                  />
+                  <TouchableOpacity
+                    style={[styles.btn, styles.labelSave, labelBusy && styles.disabled]}
+                    onPress={saveLabel}
+                    disabled={labelBusy}>
+                    {labelBusy ? (
+                      <ActivityIndicator color={colors.onPrimary} />
+                    ) : (
+                      <Text style={styles.btnText}>Save</Text>
+                    )}
+                  </TouchableOpacity>
+                </View>
+                {labelSaved ? <Text style={styles.saved}>✓ Saved</Text> : null}
+                {labelError ? <Text style={styles.errorSm}>{labelError}</Text> : null}
+                <Text style={styles.labelHint}>
+                  Labels this transaction's coin in your wallet.
+                </Text>
               </View>
 
               <View style={styles.card}>
@@ -221,4 +293,21 @@ const styles = StyleSheet.create({
   recipientAddr: { flex: 1, fontSize: 12, color: '#333', fontFamily: 'monospace' },
   recipientAmt: { fontSize: 13, color: '#000', fontWeight: '600' },
   error: { color: '#c0392b', fontSize: 14, textAlign: 'center', marginTop: 24 },
+  labelRow: { flexDirection: 'row', gap: 10, alignItems: 'center' },
+  labelInput: {
+    flex: 1,
+    borderWidth: 1,
+    borderColor: '#d1d1d6',
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    fontSize: 15,
+    color: '#000',
+    backgroundColor: '#fafafa',
+  },
+  labelSave: { flex: 0, paddingHorizontal: 18 },
+  disabled: { opacity: 0.5 },
+  saved: { color: colors.green, fontSize: 13, fontWeight: '600', marginTop: 8 },
+  errorSm: { color: '#c0392b', fontSize: 13, marginTop: 8 },
+  labelHint: { fontSize: 12, color: '#999', marginTop: 8 },
 });
