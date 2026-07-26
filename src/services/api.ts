@@ -1,4 +1,6 @@
 import Config from 'react-native-config';
+import { DEVICE_TRUST_ENABLED } from '@/theme';
+import { currentDeviceId } from './deviceTrust';
 
 // Backend base URL + Silent-Payments prefix are injected at build time by
 // react-native-config (see .env.mainnet). LNBITS_URL must be an absolute URL.
@@ -79,9 +81,21 @@ export class ApiError extends Error {
   }
 }
 
-// Core request helper. Unlike the web SPA we do NOT send the `X-Thrilla-Client`
-// header: this is a native client using standard LNbits auth (session token +
-// per-wallet API keys), so the backend's device-trust gate does not apply.
+// Device-trust headers. Only sent when DEVICE_TRUST_ENABLED is on: the presence
+// of `X-Thrilla-Client: 1` is what activates the backend's device-trust gate, so
+// leaving the flag off keeps the app on plain API-key auth. `X-Silnt-Device`
+// carries the confirmed device id (the native equivalent of the web device
+// cookie); it's omitted until a device has been confirmed.
+function trustHeaders(): Record<string, string> {
+  if (!DEVICE_TRUST_ENABLED) return {};
+  const h: Record<string, string> = { 'X-Thrilla-Client': '1' };
+  const did = currentDeviceId();
+  if (did) h['X-Silnt-Device'] = did;
+  return h;
+}
+
+// Core request helper. When device-trust is enabled it also stamps the
+// `X-Thrilla-Client`/`X-Silnt-Device` headers (see trustHeaders).
 async function req<T = any>(path: string, options: RequestInit = {}): Promise<T> {
   let resp: Response;
   try {
@@ -89,6 +103,7 @@ async function req<T = any>(path: string, options: RequestInit = {}): Promise<T>
       ...options,
       headers: {
         'Content-Type': 'application/json',
+        ...trustHeaders(),
         ...(options.headers || {}),
       },
     });
@@ -135,6 +150,92 @@ export async function login(
 // Account wallets (with per-wallet inkey/adminkey). Uses the session token.
 export async function getLnbitsWallets(token: string): Promise<LnbitsWallet[]> {
   return req('/api/v1/wallets', { headers: bearer(token) });
+}
+
+// ── Device trust (email 2FA) ────────────────────────────────────────────────
+// Enrollment mirrors the web app: on an unrecognised device the user requests a
+// 6-digit code by email, enters it, and the server returns the device_id we
+// then send in `X-Silnt-Device` on every request. Gated by DEVICE_TRUST_ENABLED
+// (theme.ts); when off these endpoints are never called.
+
+export interface TrustedDevice {
+  id: string; // row id (used to revoke)
+  user_id: string;
+  device_id: string; // opaque trust id (matches X-Silnt-Device)
+  user_agent?: string | null;
+  ip?: string | null;
+  label?: string | null;
+  confirmed_at: number;
+  last_seen_at: number;
+}
+
+export interface DeviceCheckResponse {
+  status: 'trusted' | 'untrusted';
+  device_count: number;
+  cap: number;
+}
+
+export interface DeviceConfirmResponse {
+  confirmed: boolean;
+  device_count: number;
+  cap: number;
+  device_id?: string | null;
+}
+
+export interface DeviceListResponse {
+  devices: TrustedDevice[];
+  current_device?: string | null;
+  cap: number;
+}
+
+// Is this device already trusted? Needs only the invoice key; the current
+// device id (if any) rides along in the X-Silnt-Device header.
+export async function deviceCheck(inkey: string): Promise<DeviceCheckResponse> {
+  return req(`${SILNT}/api/v1/auth/device-check`, {
+    method: 'POST',
+    headers: apiKey(inkey),
+  });
+}
+
+// Ask the backend to email a 6-digit confirmation code for this device.
+// Returns { status: 'sent' | 'already-trusted' }. May 400 (max devices / no
+// email on account) — the message is surfaced to the user.
+export async function deviceRequestConfirm(
+  inkey: string,
+): Promise<{ status: string }> {
+  return req(`${SILNT}/api/v1/auth/device-request-confirm`, {
+    method: 'POST',
+    headers: apiKey(inkey),
+  });
+}
+
+// Submit the emailed code. On success the response carries the device_id we must
+// persist and send henceforth.
+export async function deviceVerifyCode(
+  inkey: string,
+  code: string,
+): Promise<DeviceConfirmResponse> {
+  return req(`${SILNT}/api/v1/auth/device-verify-code`, {
+    method: 'POST',
+    headers: apiKey(inkey),
+    body: JSON.stringify({ code }),
+  });
+}
+
+// List the account's trusted devices (requires an already-trusted device).
+export async function listDevices(inkey: string): Promise<DeviceListResponse> {
+  return req(`${SILNT}/api/v1/devices`, { headers: apiKey(inkey) });
+}
+
+// Revoke a trusted device by its row id.
+export async function revokeDevice(
+  inkey: string,
+  deviceRowId: string,
+): Promise<{ deleted: boolean; was_current: boolean }> {
+  return req(`${SILNT}/api/v1/devices/${encodeURIComponent(deviceRowId)}`, {
+    method: 'DELETE',
+    headers: apiKey(inkey),
+  });
 }
 
 // ── BitMail (BIP-353 human-readable address) ────────────────────────────────
