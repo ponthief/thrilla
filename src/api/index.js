@@ -879,11 +879,13 @@ export async function payjoinCancel(inkey, requestId) {
 }
 
 // ── SP send contacts (per-user private address book) ──────────────────────────
-export async function spContactsList(inkey) {
-  return req(`${SILNT}/api/v1/contacts`, { headers: keyHeaders(inkey) })
+// Per-network: the backend requires an explicit `network`, so scope by the
+// build's NETWORK_LOCK (like wallets/config). An explicit arg still overrides.
+export async function spContactsList(inkey, network = undefined) {
+  return req(`${SILNT}/api/v1/contacts${_cfgQs(network)}`, { headers: keyHeaders(inkey) })
 }
-export async function spContactCreate(inkey, label, value) {
-  return req(`${SILNT}/api/v1/contacts`, {
+export async function spContactCreate(inkey, label, value, network = undefined) {
+  return req(`${SILNT}/api/v1/contacts${_cfgQs(network)}`, {
     method: 'POST', headers: keyHeaders(inkey),
     body: JSON.stringify({ label, value }),
   })
