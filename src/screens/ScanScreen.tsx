@@ -13,6 +13,12 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAuthStore } from '@stores/authStore';
 import * as api from '@services/api';
 import { getWalletKeys, hasWalletKeys } from '@services/secureKeys';
+import {
+  cooldownRemaining,
+  markScanStarted,
+  setCooldown,
+  SCAN_COOLDOWN_SECONDS,
+} from '@services/scanCooldown';
 import { resetCatchUp } from '../hooks/useCatchUpScan';
 import RecoverKeysModal from '../components/RecoverKeysModal';
 import { colors } from '@/theme';
@@ -69,6 +75,7 @@ export default function ScanScreen() {
   });
   const [result, setResult] = useState<ScanResult | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [cooldown, setCooldownSec] = useState(0);
 
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const stopPoll = useCallback(() => {
@@ -129,6 +136,15 @@ export default function ScanScreen() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [inkey]);
 
+  // Tick the scan cooldown once a second so the Start button re-enables on time.
+  useEffect(() => {
+    if (!wallet) return undefined;
+    const tick = () => setCooldownSec(cooldownRemaining(wallet.id));
+    tick();
+    const id = setInterval(tick, 1000);
+    return () => clearInterval(id);
+  }, [wallet?.id]);
+
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
     await load();
@@ -183,6 +199,12 @@ export default function ScanScreen() {
     setResult(null);
     if (!wallet || !inkey) return;
 
+    const wait = cooldownRemaining(wallet.id);
+    if (wait > 0) {
+      setError(`Please wait ${wait}s before scanning again.`);
+      return;
+    }
+
     const from = Number(fromHeight);
     const to = Number(toHeight);
     if (!Number.isFinite(from) || !Number.isFinite(to)) {
@@ -212,15 +234,25 @@ export default function ScanScreen() {
     setProgress({ active: true, current: 0, total: 0, found: 0 });
     try {
       await api.startScan(inkey, wallet.id, keys.scanSecret, keys.spendKey, from, to);
+      markScanStarted(wallet.id); // arm the 1-min cooldown
+      setCooldownSec(cooldownRemaining(wallet.id));
       poll(wallet.id);
     } catch (e: any) {
-      const msg = (e?.message || '').toLowerCase();
-      if (/recently|already|too many|budget/.test(msg)) {
+      const raw = e?.message || '';
+      const msg = raw.toLowerCase();
+      if (/already running|another scan/.test(msg)) {
         // A scan is already running (e.g. the login catch-up) — attach to it.
         poll(wallet.id);
+      } else if (/recently|too many|try again in/.test(msg)) {
+        // Backend cooldown — sync the client timer to the reported wait.
+        const m = raw.match(/(\d+)\s*second/i);
+        setCooldown(wallet.id, m ? Number(m[1]) : SCAN_COOLDOWN_SECONDS);
+        setCooldownSec(cooldownRemaining(wallet.id));
+        setScanning(false);
+        setError(raw || 'Wallet was scanned recently. Try again shortly.');
       } else {
         setScanning(false);
-        setError(e?.message || 'Scan failed to start.');
+        setError(raw || 'Scan failed to start.');
       }
     }
   }, [wallet, inkey, fromHeight, toHeight, minHeight, tip, poll]);
@@ -370,10 +402,18 @@ export default function ScanScreen() {
               </>
             ) : (
               <TouchableOpacity
-                style={[styles.primaryBtn, upToDate && styles.btnDisabled]}
-                onPress={onStart}>
+                style={[
+                  styles.primaryBtn,
+                  (upToDate || cooldown > 0) && styles.btnDisabled,
+                ]}
+                onPress={onStart}
+                disabled={upToDate || cooldown > 0}>
                 <Text style={styles.primaryBtnText}>
-                  {upToDate ? 'Up to date' : 'Start scan'}
+                  {cooldown > 0
+                    ? `Scan again in ${cooldown}s`
+                    : upToDate
+                    ? 'Up to date'
+                    : 'Start scan'}
                 </Text>
               </TouchableOpacity>
             )}
