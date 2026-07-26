@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import * as api from '@services/api';
 import { getWalletKeys } from '@services/secureKeys';
+import { markScanStarted } from '@services/scanCooldown';
 
 // Wallets already evaluated this app session, so returning to the Wallet tab
 // doesn't re-trigger a scan/prompt. Cleared on create/import (id may be reused)
@@ -72,6 +73,7 @@ export function useCatchUpScan(
       setProgress({ active: true, current: 0, total: 0, found: 0 });
       try {
         await api.startScan(inkey, walletId, scanSecret, spendKey, from, null);
+        markScanStarted(walletId);
         poll(walletId);
       } catch (e: any) {
         // 429 / cooldown / already-running are benign for a catch-up — if a scan
