@@ -14,7 +14,25 @@ import * as api from '@services/api';
 import { colors } from '@/theme';
 
 const PRIMARY = colors.primary;
-const USERNAME_RE = /^[a-z0-9]([a-z0-9._-]{0,30}[a-z0-9])?$/;
+// Mirror the backend rules (models.py): 3–20 chars, lowercase letters/digits/-/_,
+// plus a reserved list. "Taken" can only be confirmed on submit (no lookup API).
+const USERNAME_RE = /^[a-z0-9_-]{3,20}$/;
+const RESERVED_USERNAMES = new Set([
+  'admin', 'administrator', 'root', 'support', 'help', 'info', 'abuse',
+  'postmaster', 'webmaster', 'system', 'anthropic', 'claude', 'bot',
+  'moderator', 'mod', 'service', 'noreply', 'no-reply', 'test', 'demo',
+]);
+
+// Inline validation message (null = ok, or too short to judge yet).
+function usernameIssue(u: string): string | null {
+  if (!u) return null;
+  if (u.length < 3) return null; // don't nag while they're still typing
+  if (!USERNAME_RE.test(u)) {
+    return 'Use 3–20 lowercase letters, digits, - or _.';
+  }
+  if (RESERVED_USERNAMES.has(u)) return 'This username is reserved. Choose another.';
+  return null;
+}
 
 interface Props {
   wallet: api.SilntWallet;
@@ -77,7 +95,11 @@ export default function BitMailCard({ wallet }: Props) {
     setError(null);
     const u = username.trim().toLowerCase();
     if (!USERNAME_RE.test(u)) {
-      setError('Use 1–32 letters, numbers, dots or hyphens.');
+      setError('Username must be 3–20 chars: lowercase letters, digits, - or _.');
+      return;
+    }
+    if (RESERVED_USERNAMES.has(u)) {
+      setError('This username is reserved. Choose another.');
       return;
     }
     if (!inkey) return;
@@ -166,22 +188,34 @@ export default function BitMailCard({ wallet }: Props) {
             <TextInput
               style={styles.input}
               value={username}
-              onChangeText={(t) =>
-                setUsername(t.replace(/[^a-zA-Z0-9._-]/g, '').toLowerCase())
-              }
+              onChangeText={(t) => {
+                setUsername(t.toLowerCase().replace(/[^a-z0-9_-]/g, ''));
+                setError(null);
+              }}
               placeholder="name"
               placeholderTextColor="#aaa"
               autoCapitalize="none"
               autoCorrect={false}
-              maxLength={32}
+              maxLength={20}
             />
             <Text style={styles.domain}>@{domain}</Text>
           </View>
+          {usernameIssue(username) ? (
+            <Text style={styles.issue}>{usernameIssue(username)}</Text>
+          ) : (
+            <Text style={styles.caption}>
+              3–20 chars: lowercase letters, digits, - or _.
+            </Text>
+          )}
           {error ? <Text style={styles.error}>{error}</Text> : null}
           <TouchableOpacity
-            style={[styles.primaryBtn, (busy || !username) && styles.btnDisabled]}
+            style={[
+              styles.primaryBtn,
+              (busy || !USERNAME_RE.test(username) || RESERVED_USERNAMES.has(username)) &&
+                styles.btnDisabled,
+            ]}
             onPress={onRequest}
-            disabled={busy || !username}>
+            disabled={busy || !USERNAME_RE.test(username) || RESERVED_USERNAMES.has(username)}>
             {busy ? (
               <ActivityIndicator color={colors.onPrimary} />
             ) : (
@@ -260,6 +294,7 @@ const styles = StyleSheet.create({
   badgeText: { color: PRIMARY, fontSize: 12, fontWeight: '700' },
   cancel: { color: '#c0392b', fontSize: 14, fontWeight: '600' },
   error: { color: '#c0392b', fontSize: 13, marginTop: 12 },
+  issue: { color: '#c0392b', fontSize: 12, marginTop: 8 },
   tamper: {
     backgroundColor: '#fdecea',
     borderColor: '#c0392b',
