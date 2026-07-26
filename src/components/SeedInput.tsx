@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react';
+import React, { useMemo, useState } from 'react';
 import {
   Platform,
   ScrollView,
@@ -27,6 +27,9 @@ interface Props {
  * list. Advisory only — never blocks submission.
  */
 export default function SeedInput({ value, onChangeText, placeholder }: Props) {
+  // Masked by default; the user reveals it to check what they've entered.
+  const [revealed, setRevealed] = useState(false);
+
   // The word being typed = the trailing token, unless a space already closed it.
   const endsMidWord = value.length > 0 && !/\s$/.test(value);
   const words = value.trim().toLowerCase().split(/\s+/).filter(Boolean);
@@ -56,6 +59,11 @@ export default function SeedInput({ value, onChangeText, placeholder }: Props) {
 
   return (
     <View>
+      <View style={styles.toolbar}>
+        <TouchableOpacity onPress={() => setRevealed((v) => !v)} hitSlop={8}>
+          <Text style={styles.toggle}>{revealed ? '🙈 Hide' : '👁 Show'}</Text>
+        </TouchableOpacity>
+      </View>
       <TextInput
         style={styles.input}
         value={value}
@@ -66,7 +74,10 @@ export default function SeedInput({ value, onChangeText, placeholder }: Props) {
         autoCorrect={false}
         autoComplete="off"
         spellCheck={false}
-        multiline
+        // secureTextEntry masks the words when hidden. It can't combine with
+        // multiline, so we only wrap (multiline) while revealed.
+        secureTextEntry={!revealed}
+        multiline={revealed}
       />
       {suggestions.length ? (
         <ScrollView
@@ -92,6 +103,8 @@ export default function SeedInput({ value, onChangeText, placeholder }: Props) {
 }
 
 const styles = StyleSheet.create({
+  toolbar: { flexDirection: 'row', justifyContent: 'flex-end', marginBottom: 6 },
+  toggle: { color: colors.primary, fontSize: 13, fontWeight: '600' },
   input: {
     borderWidth: 1,
     borderColor: '#d1d1d6',
