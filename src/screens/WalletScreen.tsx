@@ -14,6 +14,7 @@ import { useWalletStore } from '@stores/walletStore';
 import * as api from '@services/api';
 import { hasWalletKeys } from '@services/secureKeys';
 import { colors } from '@/theme';
+import CoinsScreen from './CoinsScreen';
 import CreateWalletModal from '../components/CreateWalletModal';
 import RecoverKeysModal from '../components/RecoverKeysModal';
 import TransactionList, { TxItem } from '../components/TransactionList';
@@ -70,6 +71,7 @@ export default function WalletScreen() {
   const [rate, setRate] = useState<number | null>(null);
   const [showCreate, setShowCreate] = useState(false);
   const [showRecover, setShowRecover] = useState(false);
+  const [showCoins, setShowCoins] = useState(false);
   const [keysMissing, setKeysMissing] = useState(false);
 
   const [spWallet, setSpWallet] = useState<api.SilntWallet | null>(null);
@@ -290,6 +292,14 @@ export default function WalletScreen() {
               </View>
             ) : null}
 
+            {isSp && !keysMissing ? (
+              <TouchableOpacity
+                style={styles.coinsBtn}
+                onPress={() => setShowCoins(true)}>
+                <Text style={styles.coinsBtnText}>Manage coins</Text>
+              </TouchableOpacity>
+            ) : null}
+
             <TransactionList
               title="Recent Transactions"
               items={isSp ? spTxs : lnTxs}
@@ -324,6 +334,14 @@ export default function WalletScreen() {
           setShowRecover(false);
           setKeysMissing(false);
           setLoading(true);
+          load();
+        }}
+      />
+
+      <CoinsScreen
+        visible={showCoins}
+        onClose={() => {
+          setShowCoins(false);
           load();
         }}
       />
@@ -393,6 +411,14 @@ const styles = StyleSheet.create({
   cardTitle: { fontSize: 16, fontWeight: '600', color: '#000', marginBottom: 8 },
   emptyState: { fontSize: 14, color: '#999' },
   hint: { fontSize: 12, color: '#bbb', textAlign: 'center', marginTop: 4 },
+  coinsBtn: {
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    paddingVertical: 16,
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  coinsBtnText: { color: colors.primary, fontSize: 15, fontWeight: '600' },
   emptyCard: {
     backgroundColor: '#fff',
     borderRadius: 12,

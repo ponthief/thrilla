@@ -353,6 +353,7 @@ export interface Utxo {
   utxo_state: string; // 'unspent' | 'spent' | …
   frozen?: boolean;
   label?: string | null;
+  suspected_dust?: boolean;
 }
 
 // mempool.space-shaped recommended fee tiers (sat/vB).
@@ -378,6 +379,34 @@ export async function getUtxos(inkey: string, walletId: string): Promise<Utxo[]>
     { headers: apiKey(inkey) },
   );
   return res?.utxos ?? [];
+}
+
+// Freeze/unfreeze a UTXO (frozen coins are excluded from send selection). inkey.
+export async function setUtxoFrozen(
+  inkey: string,
+  txid: string,
+  vout: number,
+  frozen: boolean,
+): Promise<unknown> {
+  return req(`${SILNT}/api/v1/utxos/${txid}/${vout}/frozen`, {
+    method: 'PUT',
+    headers: apiKey(inkey),
+    body: JSON.stringify({ frozen }),
+  });
+}
+
+// Set/clear a UTXO's label. inkey.
+export async function updateUtxoLabel(
+  inkey: string,
+  txid: string,
+  label: string,
+  walletId: string,
+): Promise<unknown> {
+  return req(`${SILNT}/api/v1/utxos/${txid}/label`, {
+    method: 'PUT',
+    headers: apiKey(inkey),
+    body: JSON.stringify({ label: label || '', wallet_id: walletId }),
+  });
 }
 
 // Recommended fee tiers for the build's network. Uses inkey.
