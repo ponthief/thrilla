@@ -675,8 +675,14 @@ export interface SpContact {
   value: string;
 }
 
-export async function listContacts(inkey: string): Promise<SpContact[]> {
-  const res = await req<any>(`${SILNT}/api/v1/contacts`, { headers: apiKey(inkey) });
+// The address book is per-network; the backend requires an explicit `network`,
+// so scope by the build's NETWORK_LOCK (same as wallets/chain tip/config).
+export async function listContacts(
+  inkey: string,
+  network: string | undefined = Config.NETWORK_LOCK || undefined,
+): Promise<SpContact[]> {
+  const qs = network ? `?network=${encodeURIComponent(network)}` : '';
+  const res = await req<any>(`${SILNT}/api/v1/contacts${qs}`, { headers: apiKey(inkey) });
   return res?.contacts ?? [];
 }
 
@@ -684,8 +690,10 @@ export async function createContact(
   inkey: string,
   label: string,
   value: string,
+  network: string | undefined = Config.NETWORK_LOCK || undefined,
 ): Promise<SpContact> {
-  return req(`${SILNT}/api/v1/contacts`, {
+  const qs = network ? `?network=${encodeURIComponent(network)}` : '';
+  return req(`${SILNT}/api/v1/contacts${qs}`, {
     method: 'POST',
     headers: apiKey(inkey),
     body: JSON.stringify({ label, value }),
