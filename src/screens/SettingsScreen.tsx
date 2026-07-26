@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   StyleSheet,
+  Switch,
   Text,
   View,
   ScrollView,
@@ -10,7 +11,9 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAuthStore } from '@stores/authStore';
+import { useAppLockStore } from '@stores/appLockStore';
 import * as api from '@services/api';
+import * as appLock from '@services/appLock';
 import { colors, DEVICE_TRUST_ENABLED } from '@/theme';
 import DevicesModal from '../components/DevicesModal';
 
@@ -19,6 +22,45 @@ export default function SettingsScreen() {
   const inkey = useAuthStore((state) => state.inkey);
   const logout = useAuthStore((state) => state.logout);
   const [devicesOpen, setDevicesOpen] = useState(false);
+
+  // App lock (biometric / device PIN).
+  const lockEnabled = useAppLockStore((s) => s.enabled);
+  const setLockEnabled = useAppLockStore((s) => s.setEnabled);
+  const [biometry, setBiometry] = useState<string | null>(null);
+  const [lockBusy, setLockBusy] = useState(false);
+  const [lockMsg, setLockMsg] = useState<string | null>(null);
+
+  useEffect(() => {
+    appLock.biometryType().then(setBiometry);
+  }, []);
+
+  const onToggleLock = useCallback(
+    async (val: boolean) => {
+      setLockBusy(true);
+      setLockMsg(null);
+      try {
+        if (val) {
+          const ok = await appLock.enable();
+          setLockEnabled(ok);
+          if (!ok) {
+            setLockMsg(
+              'Could not turn on App Lock. Set up a fingerprint, face, or screen PIN on your device first.',
+            );
+          }
+        } else {
+          await appLock.disable();
+          setLockEnabled(false);
+        }
+      } finally {
+        setLockBusy(false);
+      }
+    },
+    [setLockEnabled],
+  );
+
+  const lockSubtitle = biometry
+    ? `Require ${biometry} or your device PIN when reopening the app.`
+    : 'Require your device PIN or biometrics when reopening the app.';
 
   const [prefs, setPrefs] = useState<api.UserPrefs | null>(null);
   const [dustDraft, setDustDraft] = useState('');
@@ -139,17 +181,35 @@ export default function SettingsScreen() {
           </View>
         </View>
 
-        {DEVICE_TRUST_ENABLED ? (
-          <View style={styles.section}>
-            <Text style={styles.sectionTitle}>Security</Text>
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>Security</Text>
+
+          <View style={styles.column}>
+            <View style={styles.switchRow}>
+              <Text style={styles.itemLabel}>App Lock</Text>
+              {lockBusy ? (
+                <ActivityIndicator color={colors.primary} />
+              ) : (
+                <Switch
+                  value={lockEnabled}
+                  onValueChange={onToggleLock}
+                  trackColor={{ true: colors.primary }}
+                />
+              )}
+            </View>
+            <Text style={styles.help}>{lockSubtitle}</Text>
+            {lockMsg ? <Text style={styles.dustError}>{lockMsg}</Text> : null}
+          </View>
+
+          {DEVICE_TRUST_ENABLED ? (
             <TouchableOpacity
-              style={styles.item}
+              style={[styles.item, { marginTop: 8 }]}
               onPress={() => setDevicesOpen(true)}>
               <Text style={styles.itemLabel}>Trusted devices</Text>
               <Text style={styles.itemValue}>Manage ›</Text>
             </TouchableOpacity>
-          </View>
-        ) : null}
+          ) : null}
+        </View>
 
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>About</Text>
@@ -195,6 +255,11 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   column: { backgroundColor: '#fff', borderRadius: 8, padding: 14 },
+  switchRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
   itemLabel: { fontSize: 14, color: '#000', fontWeight: '500' },
   itemValue: {
     fontSize: 12,

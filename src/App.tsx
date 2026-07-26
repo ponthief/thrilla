@@ -1,9 +1,16 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   SafeAreaProvider,
   useSafeAreaInsets,
 } from 'react-native-safe-area-context';
-import { StatusBar, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import {
+  AppState,
+  StatusBar,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
+} from 'react-native';
 
 import WalletScreen from './screens/WalletScreen';
 import SendScreen from './screens/SendScreen';
@@ -14,7 +21,9 @@ import LoginScreen from './screens/LoginScreen';
 import RegisterScreen from './screens/RegisterScreen';
 import ForgotPasswordScreen from './screens/ForgotPasswordScreen';
 import DeviceConfirmScreen from './screens/DeviceConfirmScreen';
+import LockScreen from './screens/LockScreen';
 import { useAuthStore } from '@stores/authStore';
+import { useAppLockStore } from '@stores/appLockStore';
 import { useIdleLogout } from './hooks/useIdleLogout';
 import { touchActivity } from '@services/sessionActivity';
 import { colors, DEVICE_TRUST_ENABLED } from '@/theme';
@@ -103,13 +112,37 @@ const App = () => {
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
   const deviceStatus = useAuthStore((s) => s.deviceStatus);
 
+  const lockEnabled = useAppLockStore((s) => s.enabled);
+  const locked = useAppLockStore((s) => s.locked);
+  const unlocking = useAppLockStore((s) => s.unlocking);
+  const refreshLock = useAppLockStore((s) => s.refresh);
+  const lock = useAppLockStore((s) => s.lock);
+
   // Idle session timeout (mirrors web): sign out after inactivity.
   useIdleLogout();
+
+  // Load the app-lock preference once at startup.
+  useEffect(() => {
+    refreshLock();
+  }, [refreshLock]);
+
+  // Lock when the app leaves the foreground (only 'background', not the
+  // transient 'inactive' the OS emits during the unlock prompt itself, which
+  // would otherwise re-lock mid-unlock). Re-locking happens while backgrounded
+  // so the LockScreen is already up when the user returns.
+  useEffect(() => {
+    const sub = AppState.addEventListener('change', (state) => {
+      if (state === 'background' && lockEnabled && !unlocking) lock();
+    });
+    return () => sub.remove();
+  }, [lockEnabled, unlocking, lock]);
 
   // When device-trust is on, an authenticated-but-unconfirmed device must clear
   // the confirmation flow before reaching the wallet.
   const needsDeviceConfirm =
     DEVICE_TRUST_ENABLED && isAuthenticated && deviceStatus !== 'trusted';
+
+  const showLock = isAuthenticated && lockEnabled && locked;
 
   return (
     <SafeAreaProvider>
@@ -123,6 +156,8 @@ const App = () => {
         }}>
         {!isAuthenticated ? (
           <AuthNavigator />
+        ) : showLock ? (
+          <LockScreen />
         ) : needsDeviceConfirm ? (
           <DeviceConfirmScreen />
         ) : (
