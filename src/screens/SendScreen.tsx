@@ -1,0 +1,900 @@
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import {
+  ActivityIndicator,
+  Keyboard,
+  KeyboardAvoidingView,
+  Platform,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
+} from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import Clipboard from '@react-native-clipboard/clipboard';
+import { useAuthStore } from '@stores/authStore';
+import * as api from '@services/api';
+import { getWalletKeys } from '@services/secureKeys';
+import { colors } from '@/theme';
+import QRScanner from '../components/QRScanner';
+import ContactsModal from '../components/ContactsModal';
+
+type RecipientKind = 'sp' | 'onchain' | 'bitmail' | '';
+
+// Classify a recipient so we can label it and gate contact-saving (the backend
+// only saves sp/bitmail contacts, though sends also accept bech32 on-chain).
+function recipientKind(v: string): RecipientKind {
+  const s = v.trim().toLowerCase();
+  if (!s) return '';
+  if (s.includes('@')) return 'bitmail';
+  if (s.startsWith('sp1') || s.startsWith('tsp1')) return 'sp';
+  if (s.startsWith('bc1') || s.startsWith('tb1') || s.startsWith('bcrt1')) return 'onchain';
+  return '';
+}
+
+const KIND_LABEL: Record<RecipientKind, string> = {
+  sp: 'Silent Payment address',
+  onchain: 'On-chain address',
+  bitmail: 'BitMail',
+  '': '',
+};
+
+// Extract an SP address from a scanned value: a bare address, a bitcoin: URI, or
+// a URI carrying an `sp=` parameter.
+function parseScannedAddress(raw: string): string {
+  const s = raw.trim();
+  const m = s.match(/[?&]sp=([^&]+)/i);
+  if (m) return decodeURIComponent(m[1]);
+  return s.replace(/^bitcoin:/i, '').trim();
+}
+
+const PRIMARY = colors.primary;
+
+type Step = 'form' | 'review' | 'done';
+
+const FEE_TIERS: { key: keyof api.FeeTiers; label: string; hint: string }[] = [
+  { key: 'fastestFee', label: 'Fastest', hint: '~10 min' },
+  { key: 'halfHourFee', label: 'Fast', hint: '~30 min' },
+  { key: 'hourFee', label: 'Normal', hint: '~1 hr' },
+  { key: 'economyFee', label: 'Economy', hint: 'slower' },
+];
+
+function groupThousands(n: number): string {
+  return Math.floor(n)
+    .toString()
+    .replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+}
+
+function utxoKey(u: api.Utxo): string {
+  return `${u.txid}:${u.vout}`;
+}
+
+// Mirror the backend builder's vsize formula for a live fee estimate:
+//   vsize = 10 + 57.5*inputs + 31*2 (recipient + change)
+function estimateFee(numInputs: number, feeRate: number): number {
+  if (!numInputs || !feeRate) return 0;
+  const vsize = 10 + 57.5 * numInputs + 31 * 2;
+  return Math.max(1, Math.ceil(vsize * feeRate));
+}
+
+export default function SendScreen() {
+  const inkey = useAuthStore((s) => s.inkey);
+  const adminkey = useAuthStore((s) => s.adminkey);
+
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [missing, setMissing] = useState(false);
+  const [noKeys, setNoKeys] = useState(false);
+
+  const [wallet, setWallet] = useState<api.SilntWallet | null>(null);
+  const [utxos, setUtxos] = useState<api.Utxo[]>([]);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+
+  const [recipient, setRecipient] = useState('');
+  const [amount, setAmount] = useState('');
+
+  const [tiers, setTiers] = useState<api.FeeTiers | null>(null);
+  const [feeChoice, setFeeChoice] = useState<keyof api.FeeTiers | 'custom'>(
+    'halfHourFee',
+  );
+  const [feeRate, setFeeRate] = useState<number>(1);
+
+  const [step, setStep] = useState<Step>('form');
+  const [built, setBuilt] = useState<api.BuiltTx | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [txid, setTxid] = useState('');
+  const [scanning, setScanning] = useState(false);
+
+  const [contacts, setContacts] = useState<api.SpContact[]>([]);
+  const [showContacts, setShowContacts] = useState(false);
+  const [savingContact, setSavingContact] = useState(false);
+  const [showSaveContact, setShowSaveContact] = useState(false);
+  const [contactLabel, setContactLabel] = useState('');
+  const [contactMsg, setContactMsg] = useState<string | null>(null);
+
+  const loadContacts = useCallback(async () => {
+    if (!inkey) return;
+    try {
+      setContacts(await api.listContacts(inkey));
+    } catch {
+      setContacts([]);
+    }
+  }, [inkey]);
+
+  const load = useCallback(async () => {
+    if (!inkey) {
+      setLoading(false);
+      return;
+    }
+    setLoading(true);
+    setLoadError(null);
+    setMissing(false);
+    setNoKeys(false);
+    try {
+      const wallets = await api.getSilntWallets(inkey);
+      const w = api.pickSilntWallet(wallets);
+      if (!w) {
+        setWallet(null);
+        setMissing(true);
+        return;
+      }
+      setWallet(w);
+      setNoKeys(!(await getWalletKeys(w.id)));
+
+      const [utxoRes, feeRes] = await Promise.allSettled([
+        api.getUtxos(inkey, w.id),
+        api.getRecommendedFees(inkey),
+      ]);
+
+      if (utxoRes.status === 'fulfilled') {
+        setUtxos(
+          utxoRes.value.filter((u) => u.utxo_state === 'unspent' && !u.frozen),
+        );
+      } else {
+        setUtxos([]);
+      }
+
+      if (feeRes.status === 'fulfilled') {
+        setTiers(feeRes.value);
+        const def = feeRes.value.halfHourFee ?? feeRes.value.fastestFee;
+        if (def) setFeeRate(def);
+      }
+    } catch (e: any) {
+      setLoadError(e?.message || 'Failed to load wallet.');
+    } finally {
+      setLoading(false);
+    }
+  }, [inkey]);
+
+  useEffect(() => {
+    load();
+    loadContacts();
+  }, [load, loadContacts]);
+
+  const rKind = recipientKind(recipient);
+  const saveable = rKind === 'sp' || rKind === 'bitmail';
+  const alreadySaved = contacts.some(
+    (c) => c.value.trim().toLowerCase() === recipient.trim().toLowerCase(),
+  );
+
+  const onSaveContact = useCallback(async () => {
+    if (!inkey) return;
+    const value = recipient.trim();
+    setSavingContact(true);
+    setContactMsg(null);
+    try {
+      await api.createContact(inkey, contactLabel.trim() || value, value);
+      setContactLabel('');
+      setShowSaveContact(false);
+      setContactMsg('Contact saved.');
+      await loadContacts();
+    } catch (e: any) {
+      setContactMsg(e?.message || 'Could not save contact.');
+    } finally {
+      setSavingContact(false);
+    }
+  }, [inkey, recipient, contactLabel, loadContacts]);
+
+  const onDeleteContact = useCallback(
+    async (id: string) => {
+      if (!inkey) return;
+      try {
+        await api.deleteContact(inkey, id);
+        await loadContacts();
+      } catch {
+        /* ignore */
+      }
+    },
+    [inkey, loadContacts],
+  );
+
+  const toggleUtxo = useCallback((u: api.Utxo) => {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      const k = utxoKey(u);
+      if (next.has(k)) next.delete(k);
+      else next.add(k);
+      return next;
+    });
+  }, []);
+
+  const selectedUtxos = useMemo(
+    () => utxos.filter((u) => selected.has(utxoKey(u))),
+    [utxos, selected],
+  );
+  const selectedTotal = useMemo(
+    () => selectedUtxos.reduce((s, u) => s + u.amount, 0),
+    [selectedUtxos],
+  );
+  const amountSats = Number(amount) || 0;
+  const estFee = estimateFee(selectedUtxos.length, feeRate);
+  const insufficient =
+    amountSats > 0 && selectedTotal > 0 && amountSats + estFee > selectedTotal;
+
+  const canBuild =
+    !!recipient.trim() &&
+    amountSats > 0 &&
+    selectedUtxos.length > 0 &&
+    feeRate > 0 &&
+    !insufficient &&
+    !noKeys;
+
+  const pickTier = useCallback(
+    (key: keyof api.FeeTiers | 'custom') => {
+      setFeeChoice(key);
+      if (key !== 'custom' && tiers && tiers[key]) {
+        setFeeRate(tiers[key] as number);
+      }
+    },
+    [tiers],
+  );
+
+  const onBuild = useCallback(async () => {
+    Keyboard.dismiss();
+    setError(null);
+    if (!wallet || !adminkey || !inkey) return;
+    setBusy(true);
+    try {
+      const keys = await getWalletKeys(wallet.id);
+      if (!keys) {
+        setError('Wallet keys are not on this device. Re-import the wallet to send.');
+        setBusy(false);
+        return;
+      }
+      const result = await api.buildTx(
+        adminkey,
+        {
+          wallet_id: wallet.id,
+          recipient: recipient.trim(),
+          amount: amountSats,
+          fee_rate: feeRate,
+          utxos: selectedUtxos.map((u) => ({
+            txid: u.txid,
+            vout: u.vout,
+            amount: u.amount,
+            priv_key_tweak: u.priv_key_tweak,
+            pub_key: u.pub_key,
+          })),
+        },
+        keys.spendKey,
+        keys.scanSecret,
+      );
+      setBuilt(result);
+      setStep('review');
+    } catch (e: any) {
+      setError(e?.message || 'Could not build the transaction.');
+    } finally {
+      setBusy(false);
+    }
+  }, [wallet, adminkey, inkey, recipient, amountSats, feeRate, selectedUtxos]);
+
+  const onBroadcast = useCallback(async () => {
+    if (!built || !wallet || !adminkey) return;
+    setError(null);
+    setBusy(true);
+    try {
+      const res = await api.broadcastTx(
+        adminkey,
+        built.tx_hex,
+        wallet.id,
+        selectedUtxos.map((u) => ({ txid: u.txid, vout: u.vout })),
+        { recipient: recipient.trim(), amount: amountSats, fee: built.fee },
+      );
+      setTxid(res.txid);
+      setStep('done');
+    } catch (e: any) {
+      setError(e?.message || 'Broadcast failed.');
+    } finally {
+      setBusy(false);
+    }
+  }, [built, wallet, adminkey, selectedUtxos, recipient, amountSats]);
+
+  const reset = useCallback(() => {
+    setStep('form');
+    setBuilt(null);
+    setError(null);
+    setTxid('');
+    setRecipient('');
+    setAmount('');
+    setSelected(new Set());
+    load();
+  }, [load]);
+
+  // ── Render ────────────────────────────────────────────────────────────────
+  if (loading) {
+    return (
+      <SafeAreaView style={styles.container} edges={['top']}>
+        <View style={styles.center}>
+          <ActivityIndicator color={PRIMARY} />
+        </View>
+      </SafeAreaView>
+    );
+  }
+
+  if (missing) {
+    return (
+      <SafeAreaView style={styles.container} edges={['top']}>
+        <View style={styles.center}>
+          <Text style={styles.info}>
+            No Silent Payments wallet on this network. Create one on the Wallet
+            tab first.
+          </Text>
+        </View>
+      </SafeAreaView>
+    );
+  }
+
+  if (loadError) {
+    return (
+      <SafeAreaView style={styles.container} edges={['top']}>
+        <View style={styles.center}>
+          <Text style={styles.error}>{loadError}</Text>
+          <TouchableOpacity style={styles.primaryBtn} onPress={load}>
+            <Text style={styles.primaryBtnText}>Retry</Text>
+          </TouchableOpacity>
+        </View>
+      </SafeAreaView>
+    );
+  }
+
+  if (step === 'done') {
+    return (
+      <SafeAreaView style={styles.container} edges={['top']}>
+        <View style={styles.center}>
+          <Text style={styles.doneIcon}>✓</Text>
+          <Text style={styles.doneTitle}>Transaction broadcast</Text>
+          <Text style={styles.doneSub}>
+            {groupThousands(amountSats)} sats sent
+          </Text>
+          <Text style={styles.txidLabel}>Transaction ID</Text>
+          <Text style={styles.txid} numberOfLines={1}>
+            {txid}
+          </Text>
+          <TouchableOpacity
+            style={styles.ghostBtn}
+            onPress={() => Clipboard.setString(txid)}>
+            <Text style={styles.ghostBtnText}>Copy TXID</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.primaryBtn} onPress={reset}>
+            <Text style={styles.primaryBtnText}>Done</Text>
+          </TouchableOpacity>
+        </View>
+      </SafeAreaView>
+    );
+  }
+
+  if (step === 'review' && built) {
+    const total = amountSats + (built.fee || 0);
+    return (
+      <SafeAreaView style={styles.container} edges={['top']}>
+        <ScrollView contentContainerStyle={styles.content}>
+          <Text style={styles.header}>Review</Text>
+          <View style={styles.card}>
+            <ReviewRow label="To" value={recipient.trim()} mono />
+            <ReviewRow label="Amount" value={`${groupThousands(amountSats)} sats`} />
+            <ReviewRow
+              label="Network fee"
+              value={`${groupThousands(built.fee || 0)} sats`}
+            />
+            <View style={styles.divider} />
+            <ReviewRow label="Total" value={`${groupThousands(total)} sats`} bold />
+          </View>
+
+          {error ? <Text style={styles.error}>{error}</Text> : null}
+
+          <TouchableOpacity
+            style={[styles.primaryBtn, busy && styles.btnDisabled]}
+            onPress={onBroadcast}
+            disabled={busy}>
+            {busy ? (
+              <ActivityIndicator color={colors.onPrimary} />
+            ) : (
+              <Text style={styles.primaryBtnText}>Confirm &amp; Send</Text>
+            )}
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={styles.linkBtn}
+            onPress={() => {
+              setStep('form');
+              setError(null);
+            }}
+            disabled={busy}>
+            <Text style={styles.linkBtnText}>Back</Text>
+          </TouchableOpacity>
+        </ScrollView>
+      </SafeAreaView>
+    );
+  }
+
+  // step === 'form'
+  return (
+    <SafeAreaView style={styles.container} edges={['top']}>
+      <KeyboardAvoidingView
+        style={styles.flex}
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+        <ScrollView
+          contentContainerStyle={styles.content}
+          keyboardShouldPersistTaps="handled">
+          <Text style={styles.header}>Send</Text>
+
+          {noKeys ? (
+            <Text style={styles.warn}>
+              This wallet's keys aren't on this device, so it can't sign a
+              transaction. Re-import the wallet (Wallet tab) to send.
+            </Text>
+          ) : null}
+
+          <Text style={styles.label}>Recipient</Text>
+          <Text style={styles.recipientHelp}>
+            Silent Payment (sp1…), on-chain (bc1…), or BitMail (name@domain).
+          </Text>
+          <View style={styles.recipientRow}>
+            <TextInput
+              style={[styles.input, styles.recipientInput]}
+              value={recipient}
+              onChangeText={(t) => {
+                setRecipient(t);
+                setContactMsg(null);
+              }}
+              placeholder="sp1… / bc1… / name@domain"
+              placeholderTextColor={colors.faint}
+              autoCapitalize="none"
+              autoCorrect={false}
+              multiline
+            />
+            <View style={styles.recipientActions}>
+              <TouchableOpacity
+                style={styles.pasteBtn}
+                onPress={() => setScanning(true)}>
+                <Text style={styles.pasteText}>Scan</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.pasteBtn}
+                onPress={async () =>
+                  setRecipient(parseScannedAddress(await Clipboard.getString()))
+                }>
+                <Text style={styles.pasteText}>Paste</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+
+          {rKind ? (
+            <Text style={styles.kindHint}>Detected: {KIND_LABEL[rKind]}</Text>
+          ) : null}
+
+          <View style={styles.contactRow}>
+            <TouchableOpacity
+              style={styles.contactBtn}
+              onPress={() => setShowContacts(true)}>
+              <Text style={styles.contactBtnText}>
+                Contacts{contacts.length ? ` (${contacts.length})` : ''}
+              </Text>
+            </TouchableOpacity>
+            {saveable && !alreadySaved ? (
+              <TouchableOpacity
+                style={styles.contactBtn}
+                onPress={() => setShowSaveContact((v) => !v)}>
+                <Text style={styles.contactBtnText}>★ Save contact</Text>
+              </TouchableOpacity>
+            ) : null}
+            {alreadySaved ? (
+              <Text style={styles.savedHint}>✓ In contacts</Text>
+            ) : null}
+          </View>
+
+          {showSaveContact && saveable ? (
+            <View style={styles.saveContactRow}>
+              <TextInput
+                style={[styles.input, styles.contactLabelInput]}
+                value={contactLabel}
+                onChangeText={setContactLabel}
+                placeholder="Label (e.g. Alice)"
+                placeholderTextColor={colors.faint}
+                maxLength={40}
+              />
+              <TouchableOpacity
+                style={[styles.pasteBtn, savingContact && styles.btnDisabled]}
+                onPress={onSaveContact}
+                disabled={savingContact}>
+                {savingContact ? (
+                  <ActivityIndicator color={PRIMARY} />
+                ) : (
+                  <Text style={styles.pasteText}>Save</Text>
+                )}
+              </TouchableOpacity>
+            </View>
+          ) : null}
+          {contactMsg ? <Text style={styles.contactMsg}>{contactMsg}</Text> : null}
+
+          <Text style={styles.label}>Amount (sats)</Text>
+          <TextInput
+            style={styles.input}
+            value={amount}
+            onChangeText={(t) => setAmount(t.replace(/[^0-9]/g, ''))}
+            keyboardType="number-pad"
+            placeholder="0"
+            placeholderTextColor={colors.faint}
+          />
+
+          <Text style={styles.label}>Fee rate</Text>
+          <View style={styles.feeRow}>
+            {FEE_TIERS.map((t) => {
+              const val = tiers?.[t.key];
+              const active = feeChoice === t.key;
+              return (
+                <TouchableOpacity
+                  key={t.key}
+                  style={[styles.feeChip, active && styles.feeChipOn]}
+                  onPress={() => pickTier(t.key)}
+                  disabled={!val}>
+                  <Text style={[styles.feeChipLabel, active && styles.feeChipLabelOn]}>
+                    {t.label}
+                  </Text>
+                  <Text style={[styles.feeChipHint, active && styles.feeChipLabelOn]}>
+                    {val ? `${val} s/vB` : '—'}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
+            <TouchableOpacity
+              style={[styles.feeChip, feeChoice === 'custom' && styles.feeChipOn]}
+              onPress={() => pickTier('custom')}>
+              <Text
+                style={[
+                  styles.feeChipLabel,
+                  feeChoice === 'custom' && styles.feeChipLabelOn,
+                ]}>
+                Custom
+              </Text>
+            </TouchableOpacity>
+          </View>
+          {feeChoice === 'custom' ? (
+            <TextInput
+              style={styles.input}
+              value={String(feeRate || '')}
+              onChangeText={(t) => setFeeRate(Number(t.replace(/[^0-9]/g, '')) || 0)}
+              keyboardType="number-pad"
+              placeholder="sat/vB"
+              placeholderTextColor={colors.faint}
+            />
+          ) : null}
+
+          <Text style={styles.label}>
+            Coins ({selectedUtxos.length}/{utxos.length} selected)
+          </Text>
+          {utxos.length === 0 ? (
+            <Text style={styles.info}>No spendable coins in this wallet yet.</Text>
+          ) : (
+            utxos.map((u) => {
+              const on = selected.has(utxoKey(u));
+              return (
+                <TouchableOpacity
+                  key={utxoKey(u)}
+                  style={styles.utxoRow}
+                  onPress={() => toggleUtxo(u)}>
+                  <View style={[styles.checkbox, on && styles.checkboxOn]}>
+                    {on ? <Text style={styles.checkMark}>✓</Text> : null}
+                  </View>
+                  <View style={styles.utxoInfo}>
+                    <Text style={styles.utxoAmount}>
+                      {groupThousands(u.amount)} sats
+                    </Text>
+                    <Text style={styles.utxoMeta} numberOfLines={1}>
+                      {u.label ? `${u.label} · ` : ''}
+                      {u.txid.slice(0, 10)}…:{u.vout}
+                    </Text>
+                  </View>
+                </TouchableOpacity>
+              );
+            })
+          )}
+
+          {selectedUtxos.length > 0 ? (
+            <View style={styles.summary}>
+              <SummaryRow
+                label="Selected"
+                value={`${groupThousands(selectedTotal)} sats`}
+              />
+              <SummaryRow
+                label="Est. fee"
+                value={`~${groupThousands(estFee)} sats`}
+              />
+            </View>
+          ) : null}
+
+          {selectedUtxos.length > 1 ? (
+            <View style={styles.privacyWarn}>
+              <Text style={styles.privacyText}>
+                ⚠ Combining {selectedUtxos.length} coins in one transaction links
+                them together on-chain, which reduces your privacy. Spend a single
+                coin when you can.
+              </Text>
+            </View>
+          ) : null}
+
+          {insufficient ? (
+            <Text style={styles.error}>
+              Selected coins don't cover the amount plus fee.
+            </Text>
+          ) : null}
+          {error ? <Text style={styles.error}>{error}</Text> : null}
+
+          <TouchableOpacity
+            style={[styles.primaryBtn, (!canBuild || busy) && styles.btnDisabled]}
+            onPress={onBuild}
+            disabled={!canBuild || busy}>
+            {busy ? (
+              <ActivityIndicator color={colors.onPrimary} />
+            ) : (
+              <Text style={styles.primaryBtnText}>Review</Text>
+            )}
+          </TouchableOpacity>
+        </ScrollView>
+      </KeyboardAvoidingView>
+
+      <QRScanner
+        visible={scanning}
+        onClose={() => setScanning(false)}
+        onScanned={(v) => setRecipient(parseScannedAddress(v))}
+      />
+
+      <ContactsModal
+        visible={showContacts}
+        contacts={contacts}
+        onClose={() => setShowContacts(false)}
+        onPick={(v) => setRecipient(v)}
+        onDelete={onDeleteContact}
+      />
+    </SafeAreaView>
+  );
+}
+
+function ReviewRow({
+  label,
+  value,
+  mono,
+  bold,
+}: {
+  label: string;
+  value: string;
+  mono?: boolean;
+  bold?: boolean;
+}) {
+  return (
+    <View style={styles.reviewRow}>
+      <Text style={styles.reviewLabel}>{label}</Text>
+      <Text
+        style={[
+          styles.reviewValue,
+          mono && styles.reviewMono,
+          bold && styles.reviewBold,
+        ]}
+        numberOfLines={mono ? 2 : 1}>
+        {value}
+      </Text>
+    </View>
+  );
+}
+
+function SummaryRow({ label, value }: { label: string; value: string }) {
+  return (
+    <View style={styles.summaryRow}>
+      <Text style={styles.summaryLabel}>{label}</Text>
+      <Text style={styles.summaryValue}>{value}</Text>
+    </View>
+  );
+}
+
+const styles = StyleSheet.create({
+  container: { flex: 1, backgroundColor: colors.bg },
+  flex: { flex: 1 },
+  center: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 24 },
+  content: { padding: 16 },
+  header: { fontSize: 24, fontWeight: 'bold', color: colors.text, marginBottom: 12 },
+
+  label: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: colors.label,
+    marginTop: 16,
+    marginBottom: 6,
+  },
+  input: {
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    fontSize: 16,
+    color: colors.text,
+    backgroundColor: colors.surfaceAlt,
+  },
+  recipientHelp: { fontSize: 12, color: colors.faint, marginBottom: 8, marginTop: -2 },
+  recipientRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 8 },
+  recipientActions: { gap: 8 },
+  recipientInput: { flex: 1, minHeight: 46 },
+  kindHint: { fontSize: 12, color: PRIMARY, fontWeight: '600', marginTop: 6 },
+  contactRow: { flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 12 },
+  contactBtn: {
+    borderWidth: 1,
+    borderColor: PRIMARY,
+    borderRadius: 8,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+  },
+  contactBtnText: { color: PRIMARY, fontSize: 13, fontWeight: '600' },
+  savedHint: { color: colors.green, fontSize: 13, fontWeight: '600' },
+  saveContactRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 10 },
+  contactLabelInput: { flex: 1 },
+  contactMsg: { fontSize: 13, color: colors.muted, marginTop: 8 },
+  pasteBtn: {
+    borderWidth: 1,
+    borderColor: PRIMARY,
+    borderRadius: 8,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+  },
+  pasteText: { color: PRIMARY, fontWeight: '600', fontSize: 13 },
+
+  feeRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  feeChip: {
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: 8,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    alignItems: 'center',
+    minWidth: 68,
+  },
+  feeChipOn: { borderColor: PRIMARY, backgroundColor: 'rgba(249,115,22,0.10)' },
+  feeChipLabel: { fontSize: 13, fontWeight: '600', color: colors.strong },
+  feeChipLabelOn: { color: PRIMARY },
+  feeChipHint: { fontSize: 10, color: colors.faint, marginTop: 2 },
+
+  utxoRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: colors.surface,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.border,
+    borderRadius: 8,
+    padding: 12,
+    marginBottom: 8,
+  },
+  checkbox: {
+    width: 22,
+    height: 22,
+    borderRadius: 5,
+    borderWidth: 1.5,
+    borderColor: PRIMARY,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 12,
+  },
+  checkboxOn: { backgroundColor: PRIMARY },
+  checkMark: { color: colors.onPrimary, fontSize: 14, fontWeight: 'bold' },
+  utxoInfo: { flex: 1 },
+  utxoAmount: { fontSize: 15, fontWeight: '600', color: colors.text },
+  utxoMeta: { fontSize: 12, color: colors.faint, marginTop: 2 },
+
+  summary: {
+    backgroundColor: colors.surface,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.border,
+    borderRadius: 8,
+    padding: 12,
+    marginTop: 4,
+  },
+  summaryRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    paddingVertical: 3,
+  },
+  summaryLabel: { fontSize: 13, color: colors.muted },
+  summaryValue: { fontSize: 13, fontWeight: '600', color: colors.text },
+
+  primaryBtn: {
+    backgroundColor: PRIMARY,
+    borderRadius: 8,
+    paddingVertical: 14,
+    alignItems: 'center',
+    marginTop: 22,
+    alignSelf: 'stretch',
+  },
+  primaryBtnText: { color: colors.onPrimary, fontSize: 16, fontWeight: '600' },
+  btnDisabled: { opacity: 0.5 },
+  linkBtn: { marginTop: 14, paddingVertical: 6, alignItems: 'center' },
+  linkBtnText: { color: colors.muted, fontSize: 14, fontWeight: '600' },
+  ghostBtn: {
+    borderWidth: 1,
+    borderColor: PRIMARY,
+    borderRadius: 8,
+    paddingVertical: 12,
+    paddingHorizontal: 24,
+    marginTop: 20,
+  },
+  ghostBtnText: { color: PRIMARY, fontSize: 14, fontWeight: '600' },
+
+  card: {
+    backgroundColor: colors.surface,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.border,
+    borderRadius: 12,
+    padding: 20,
+  },
+  reviewRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    paddingVertical: 8,
+  },
+  reviewLabel: { fontSize: 14, color: colors.muted, marginRight: 12 },
+  reviewValue: { fontSize: 14, color: colors.text, flex: 1, textAlign: 'right' },
+  reviewMono: {
+    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+    fontSize: 12,
+  },
+  reviewBold: { fontWeight: '700', fontSize: 16 },
+  divider: {
+    height: StyleSheet.hairlineWidth,
+    backgroundColor: colors.border,
+    marginVertical: 6,
+  },
+
+  info: { fontSize: 14, color: colors.muted, textAlign: 'center', lineHeight: 20 },
+  warn: {
+    fontSize: 13,
+    color: colors.danger,
+    backgroundColor: 'rgba(255,107,94,0.08)',
+    borderRadius: 8,
+    padding: 12,
+    marginTop: 8,
+    lineHeight: 18,
+  },
+  error: { color: colors.danger, fontSize: 13, marginTop: 14, textAlign: 'center' },
+  privacyWarn: {
+    backgroundColor: 'rgba(249,115,22,0.10)',
+    borderRadius: 8,
+    padding: 12,
+    marginTop: 14,
+  },
+  privacyText: { fontSize: 13, color: colors.primary, lineHeight: 18 },
+
+  doneIcon: {
+    fontSize: 48,
+    color: colors.green,
+    fontWeight: 'bold',
+    marginBottom: 8,
+  },
+  doneTitle: { fontSize: 20, fontWeight: 'bold', color: colors.green },
+  doneSub: { fontSize: 15, color: colors.muted, marginTop: 4, marginBottom: 20 },
+  txidLabel: { fontSize: 12, color: colors.faint, marginTop: 8 },
+  txid: {
+    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+    fontSize: 12,
+    color: colors.strong,
+    marginTop: 4,
+    paddingHorizontal: 24,
+  },
+});
