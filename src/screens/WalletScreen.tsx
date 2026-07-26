@@ -11,6 +11,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAuthStore } from '@stores/authStore';
 import { useWalletStore } from '@stores/walletStore';
+import { useBitmailAlert } from '@stores/bitmailAlert';
 import * as api from '@services/api';
 import { hasWalletKeys } from '@services/secureKeys';
 import { colors } from '@/theme';
@@ -62,6 +63,7 @@ type WalletKind = 'sp' | 'ln';
 export default function WalletScreen() {
   const inkey = useAuthStore((s) => s.inkey);
   const setBalance = useWalletStore((s) => s.setBalance);
+  const tamper = useBitmailAlert((s) => s.tamper);
 
   // Silent Payments is the primary wallet — land here, offer Lightning as a tab.
   const [kind, setKind] = useState<WalletKind>('sp');
@@ -107,6 +109,31 @@ export default function WalletScreen() {
         setSpError(null);
         setSpMissing(false);
         setKeysMissing(!(await hasWalletKeys(w.id)));
+
+        // BitMail tamper check (best-effort, non-blocking): if the wallet's
+        // BitMail resolves over DNS to a different SP address, flag it. The admin
+        // is notified server-side (send-time block + backend tamper sweep + ntfy).
+        if (w.hr_address) {
+          api
+            .resolveBip353(inkey, w.hr_address)
+            .then((res) => {
+              const resolved = api.spFromResolve(res);
+              if (resolved && resolved.toLowerCase() !== w.sp_address.toLowerCase()) {
+                useBitmailAlert.getState().setTamper({
+                  bitmail: w.hr_address,
+                  expected: w.sp_address,
+                  resolved,
+                });
+              } else {
+                useBitmailAlert.getState().clear();
+              }
+            })
+            .catch(() => {
+              /* unresolvable ≠ tampered — leave as-is */
+            });
+        } else {
+          useBitmailAlert.getState().clear();
+        }
         // On-chain history needs the wallet id, so fetch it once we have it.
         try {
           const txs = await api.listWalletTransactions(inkey, w.id, 25);
@@ -195,6 +222,17 @@ export default function WalletScreen() {
             onPress={() => setKind('ln')}
           />
         </View>
+
+        {isSp && tamper ? (
+          <View style={styles.tamperCard}>
+            <Text style={styles.tamperTitle}>⚠ BitMail tampering detected</Text>
+            <Text style={styles.tamperBody}>
+              {tamper.bitmail} currently resolves to a different address than your
+              wallet. Do not rely on it to receive — the DNS record may have been
+              altered to redirect funds. Your administrator has been alerted.
+            </Text>
+          </View>
+        ) : null}
 
         {isSp && spMissing && !loading ? (
           <View style={styles.emptyCard}>
@@ -419,6 +457,16 @@ const styles = StyleSheet.create({
     marginBottom: 16,
   },
   coinsBtnText: { color: colors.primary, fontSize: 15, fontWeight: '600' },
+  tamperCard: {
+    backgroundColor: '#fdecea',
+    borderColor: '#c0392b',
+    borderWidth: 1,
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 16,
+  },
+  tamperTitle: { fontSize: 15, fontWeight: '700', color: '#c0392b' },
+  tamperBody: { fontSize: 13, color: '#7d2820', marginTop: 6, lineHeight: 19 },
   emptyCard: {
     backgroundColor: '#fff',
     borderRadius: 12,
