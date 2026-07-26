@@ -158,7 +158,7 @@ export default function DevicesModal({ visible, onClose }: Props) {
                     onPress={() => confirmRevoke(d)}
                     disabled={busyId === d.id}>
                     {busyId === d.id ? (
-                      <ActivityIndicator color="#c0392b" />
+                      <ActivityIndicator color={colors.danger} />
                     ) : (
                       <Text style={styles.revokeText}>Revoke</Text>
                     )}
@@ -174,24 +174,26 @@ export default function DevicesModal({ visible, onClose }: Props) {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#f5f5f5' },
+  container: { flex: 1, backgroundColor: colors.bg },
   header: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
     padding: 16,
     borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: '#d1d1d6',
-    backgroundColor: '#fff',
+    borderBottomColor: colors.border,
+    backgroundColor: colors.surface,
   },
-  title: { fontSize: 18, fontWeight: '700', color: '#000' },
+  title: { fontSize: 18, fontWeight: '700', color: colors.text },
   close: { fontSize: 16, color: PRIMARY, fontWeight: '600' },
   content: { flex: 1, padding: 16 },
-  help: { fontSize: 13, color: '#666', lineHeight: 19, marginBottom: 16 },
-  empty: { fontSize: 14, color: '#999', textAlign: 'center', marginTop: 24 },
-  error: { fontSize: 14, color: '#c0392b', marginTop: 16 },
+  help: { fontSize: 13, color: colors.muted, lineHeight: 19, marginBottom: 16 },
+  empty: { fontSize: 14, color: colors.faint, textAlign: 'center', marginTop: 24 },
+  error: { fontSize: 14, color: colors.danger, marginTop: 16 },
   card: {
-    backgroundColor: '#fff',
+    backgroundColor: colors.surface,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.border,
     borderRadius: 10,
     padding: 14,
     marginBottom: 12,
@@ -201,7 +203,7 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'flex-start',
   },
-  deviceName: { fontSize: 15, fontWeight: '600', color: '#000', flex: 1, paddingRight: 8 },
+  deviceName: { fontSize: 15, fontWeight: '600', color: colors.text, flex: 1, paddingRight: 8 },
   badge: {
     backgroundColor: 'rgba(30,125,79,0.12)',
     borderRadius: 6,
@@ -209,15 +211,15 @@ const styles = StyleSheet.create({
     paddingVertical: 3,
   },
   badgeText: { color: colors.green, fontSize: 11, fontWeight: '700' },
-  meta: { fontSize: 12, color: '#888', marginTop: 4 },
+  meta: { fontSize: 12, color: colors.faint, marginTop: 4 },
   revokeBtn: {
     alignSelf: 'flex-start',
     borderWidth: 1,
-    borderColor: '#c0392b',
+    borderColor: colors.danger,
     borderRadius: 8,
     paddingHorizontal: 16,
     paddingVertical: 8,
     marginTop: 12,
   },
-  revokeText: { color: '#c0392b', fontSize: 14, fontWeight: '600' },
+  revokeText: { color: colors.danger, fontSize: 14, fontWeight: '600' },
 });

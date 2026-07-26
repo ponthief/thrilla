@@ -153,7 +153,7 @@ export default function SettingsScreen() {
                     placeholder={
                       prefs ? String(prefs.admin_default_dust) : 'default'
                     }
-                    placeholderTextColor="#aaa"
+                    placeholderTextColor={colors.faint}
                   />
                   <TouchableOpacity
                     style={[styles.saveBtn, (!dirty || savingDust) && styles.saveDisabled]}
@@ -235,18 +235,20 @@ export default function SettingsScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#f5f5f5' },
+  container: { flex: 1, backgroundColor: colors.bg },
   content: { flex: 1, padding: 16 },
   section: { marginBottom: 20 },
   sectionTitle: {
     fontSize: 14,
     fontWeight: '600',
-    color: '#666',
+    color: colors.muted,
     marginBottom: 8,
     textTransform: 'uppercase',
   },
   item: {
-    backgroundColor: '#fff',
+    backgroundColor: colors.surface,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.border,
     borderRadius: 8,
     padding: 12,
     marginBottom: 8,
@@ -254,35 +256,41 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
   },
-  column: { backgroundColor: '#fff', borderRadius: 8, padding: 14 },
+  column: {
+    backgroundColor: colors.surface,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.border,
+    borderRadius: 8,
+    padding: 14,
+  },
   switchRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
   },
-  itemLabel: { fontSize: 14, color: '#000', fontWeight: '500' },
+  itemLabel: { fontSize: 14, color: colors.text, fontWeight: '500' },
   itemValue: {
     fontSize: 12,
-    color: '#999',
+    color: colors.faint,
     flex: 1,
     textAlign: 'right',
     marginLeft: 8,
   },
-  help: { fontSize: 12, color: '#888', marginTop: 4, lineHeight: 17 },
-  effective: { fontSize: 12, color: '#666', marginTop: 10, fontWeight: '600' },
-  dustError: { fontSize: 13, color: '#c0392b', marginTop: 10 },
+  help: { fontSize: 12, color: colors.faint, marginTop: 4, lineHeight: 17 },
+  effective: { fontSize: 12, color: colors.muted, marginTop: 10, fontWeight: '600' },
+  dustError: { fontSize: 13, color: colors.danger, marginTop: 10 },
   dustSaved: { fontSize: 13, color: colors.green, marginTop: 10, fontWeight: '600' },
   inputRow: { flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 12 },
   input: {
     flex: 1,
     borderWidth: 1,
-    borderColor: '#d1d1d6',
+    borderColor: colors.border,
     borderRadius: 8,
     paddingHorizontal: 12,
     paddingVertical: 10,
     fontSize: 16,
-    color: '#000',
-    backgroundColor: '#fafafa',
+    color: colors.text,
+    backgroundColor: colors.surfaceAlt,
   },
   saveBtn: {
     backgroundColor: colors.primary,
@@ -293,11 +301,13 @@ const styles = StyleSheet.create({
   saveDisabled: { opacity: 0.5 },
   saveText: { color: colors.onPrimary, fontSize: 14, fontWeight: '600' },
   logout: {
-    backgroundColor: '#fff',
+    backgroundColor: colors.surface,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.border,
     borderRadius: 8,
     padding: 14,
     alignItems: 'center',
     marginTop: 8,
   },
-  logoutText: { color: '#c0392b', fontSize: 15, fontWeight: '600' },
+  logoutText: { color: colors.danger, fontSize: 15, fontWeight: '600' },
 });

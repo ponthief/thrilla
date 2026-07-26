@@ -82,7 +82,7 @@ export default function ContactsModal({
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#f5f5f5' },
+  container: { flex: 1, backgroundColor: colors.bg },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -90,21 +90,23 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 12,
   },
-  title: { fontSize: 22, fontWeight: 'bold', color: '#000' },
+  title: { fontSize: 22, fontWeight: 'bold', color: colors.text },
   close: { fontSize: 16, fontWeight: '600', color: PRIMARY },
   content: { padding: 16, paddingTop: 4 },
-  empty: { fontSize: 14, color: '#999', textAlign: 'center', marginTop: 24, lineHeight: 20 },
+  empty: { fontSize: 14, color: colors.faint, textAlign: 'center', marginTop: 24, lineHeight: 20 },
   row: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#fff',
+    backgroundColor: colors.surface,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.border,
     borderRadius: 10,
     padding: 14,
     marginBottom: 10,
   },
   info: { flex: 1, marginRight: 10 },
-  label: { fontSize: 15, fontWeight: '600', color: '#000' },
-  value: { fontSize: 12, color: '#999', fontFamily: 'monospace', marginTop: 2 },
+  label: { fontSize: 15, fontWeight: '600', color: colors.text },
+  value: { fontSize: 12, color: colors.faint, fontFamily: 'monospace', marginTop: 2 },
   useBtn: {
     backgroundColor: PRIMARY,
     borderRadius: 8,
@@ -114,5 +116,5 @@ const styles = StyleSheet.create({
   },
   useText: { color: colors.onPrimary, fontSize: 13, fontWeight: '600' },
   removeBtn: { paddingHorizontal: 6, paddingVertical: 8 },
-  removeText: { color: '#c0392b', fontSize: 13, fontWeight: '600' },
+  removeText: { color: colors.danger, fontSize: 13, fontWeight: '600' },
 });

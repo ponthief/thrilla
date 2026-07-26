@@ -73,7 +73,7 @@ export default function SeedInput({ value, onChangeText, placeholder }: Props) {
           value={value}
           onChangeText={onChangeText}
           placeholder={placeholder}
-          placeholderTextColor="#aaa"
+          placeholderTextColor={colors.faint}
           autoCapitalize="none"
           autoCorrect={false}
           autoComplete="off"
@@ -115,14 +115,14 @@ const styles = StyleSheet.create({
   toggle: { color: colors.primary, fontSize: 13, fontWeight: '600' },
   input: {
     borderWidth: 1,
-    borderColor: '#d1d1d6',
+    borderColor: colors.border,
     borderRadius: 8,
     paddingHorizontal: 12,
     paddingVertical: 10,
     fontSize: 16,
     lineHeight: 22,
-    color: '#000',
-    backgroundColor: '#fafafa',
+    color: colors.text,
+    backgroundColor: colors.surfaceAlt,
     minHeight: 76,
     textAlignVertical: 'top',
     fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
@@ -134,7 +134,7 @@ const styles = StyleSheet.create({
   mask: {
     fontSize: 16,
     lineHeight: 22,
-    color: '#000',
+    color: colors.text,
     fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
     includeFontPadding: false,
   },
@@ -148,5 +148,5 @@ const styles = StyleSheet.create({
     marginRight: 8,
   },
   chipText: { color: colors.primary, fontSize: 14, fontWeight: '600' },
-  invalid: { color: '#c0392b', fontSize: 12, marginTop: 8 },
+  invalid: { color: colors.danger, fontSize: 12, marginTop: 8 },
 });

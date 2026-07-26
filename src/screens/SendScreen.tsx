@@ -459,7 +459,7 @@ export default function SendScreen() {
                 setContactMsg(null);
               }}
               placeholder="sp1… / bc1… / name@domain"
-              placeholderTextColor="#aaa"
+              placeholderTextColor={colors.faint}
               autoCapitalize="none"
               autoCorrect={false}
               multiline
@@ -511,7 +511,7 @@ export default function SendScreen() {
                 value={contactLabel}
                 onChangeText={setContactLabel}
                 placeholder="Label (e.g. Alice)"
-                placeholderTextColor="#aaa"
+                placeholderTextColor={colors.faint}
                 maxLength={40}
               />
               <TouchableOpacity
@@ -535,7 +535,7 @@ export default function SendScreen() {
             onChangeText={(t) => setAmount(t.replace(/[^0-9]/g, ''))}
             keyboardType="number-pad"
             placeholder="0"
-            placeholderTextColor="#aaa"
+            placeholderTextColor={colors.faint}
           />
 
           <Text style={styles.label}>Fee rate</Text>
@@ -577,7 +577,7 @@ export default function SendScreen() {
               onChangeText={(t) => setFeeRate(Number(t.replace(/[^0-9]/g, '')) || 0)}
               keyboardType="number-pad"
               placeholder="sat/vB"
-              placeholderTextColor="#aaa"
+              placeholderTextColor={colors.faint}
             />
           ) : null}
 
@@ -708,30 +708,30 @@ function SummaryRow({ label, value }: { label: string; value: string }) {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#f5f5f5' },
+  container: { flex: 1, backgroundColor: colors.bg },
   flex: { flex: 1 },
   center: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 24 },
   content: { padding: 16 },
-  header: { fontSize: 24, fontWeight: 'bold', color: '#000', marginBottom: 12 },
+  header: { fontSize: 24, fontWeight: 'bold', color: colors.text, marginBottom: 12 },
 
   label: {
     fontSize: 13,
     fontWeight: '600',
-    color: '#444',
+    color: colors.label,
     marginTop: 16,
     marginBottom: 6,
   },
   input: {
     borderWidth: 1,
-    borderColor: '#d1d1d6',
+    borderColor: colors.border,
     borderRadius: 8,
     paddingHorizontal: 12,
     paddingVertical: 10,
     fontSize: 16,
-    color: '#000',
-    backgroundColor: '#fff',
+    color: colors.text,
+    backgroundColor: colors.surfaceAlt,
   },
-  recipientHelp: { fontSize: 12, color: '#888', marginBottom: 8, marginTop: -2 },
+  recipientHelp: { fontSize: 12, color: colors.faint, marginBottom: 8, marginTop: -2 },
   recipientRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 8 },
   recipientActions: { gap: 8 },
   recipientInput: { flex: 1, minHeight: 46 },
@@ -748,7 +748,7 @@ const styles = StyleSheet.create({
   savedHint: { color: colors.green, fontSize: 13, fontWeight: '600' },
   saveContactRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 10 },
   contactLabelInput: { flex: 1 },
-  contactMsg: { fontSize: 13, color: '#666', marginTop: 8 },
+  contactMsg: { fontSize: 13, color: colors.muted, marginTop: 8 },
   pasteBtn: {
     borderWidth: 1,
     borderColor: PRIMARY,
@@ -761,7 +761,7 @@ const styles = StyleSheet.create({
   feeRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   feeChip: {
     borderWidth: 1,
-    borderColor: '#d1d1d6',
+    borderColor: colors.border,
     borderRadius: 8,
     paddingVertical: 8,
     paddingHorizontal: 12,
@@ -769,14 +769,16 @@ const styles = StyleSheet.create({
     minWidth: 68,
   },
   feeChipOn: { borderColor: PRIMARY, backgroundColor: 'rgba(249,115,22,0.10)' },
-  feeChipLabel: { fontSize: 13, fontWeight: '600', color: '#333' },
+  feeChipLabel: { fontSize: 13, fontWeight: '600', color: colors.strong },
   feeChipLabelOn: { color: PRIMARY },
-  feeChipHint: { fontSize: 10, color: '#999', marginTop: 2 },
+  feeChipHint: { fontSize: 10, color: colors.faint, marginTop: 2 },
 
   utxoRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#fff',
+    backgroundColor: colors.surface,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.border,
     borderRadius: 8,
     padding: 12,
     marginBottom: 8,
@@ -794,11 +796,13 @@ const styles = StyleSheet.create({
   checkboxOn: { backgroundColor: PRIMARY },
   checkMark: { color: colors.onPrimary, fontSize: 14, fontWeight: 'bold' },
   utxoInfo: { flex: 1 },
-  utxoAmount: { fontSize: 15, fontWeight: '600', color: '#000' },
-  utxoMeta: { fontSize: 12, color: '#999', marginTop: 2 },
+  utxoAmount: { fontSize: 15, fontWeight: '600', color: colors.text },
+  utxoMeta: { fontSize: 12, color: colors.faint, marginTop: 2 },
 
   summary: {
-    backgroundColor: '#fff',
+    backgroundColor: colors.surface,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.border,
     borderRadius: 8,
     padding: 12,
     marginTop: 4,
@@ -808,8 +812,8 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     paddingVertical: 3,
   },
-  summaryLabel: { fontSize: 13, color: '#666' },
-  summaryValue: { fontSize: 13, fontWeight: '600', color: '#000' },
+  summaryLabel: { fontSize: 13, color: colors.muted },
+  summaryValue: { fontSize: 13, fontWeight: '600', color: colors.text },
 
   primaryBtn: {
     backgroundColor: PRIMARY,
@@ -822,7 +826,7 @@ const styles = StyleSheet.create({
   primaryBtnText: { color: colors.onPrimary, fontSize: 16, fontWeight: '600' },
   btnDisabled: { opacity: 0.5 },
   linkBtn: { marginTop: 14, paddingVertical: 6, alignItems: 'center' },
-  linkBtnText: { color: '#666', fontSize: 14, fontWeight: '600' },
+  linkBtnText: { color: colors.muted, fontSize: 14, fontWeight: '600' },
   ghostBtn: {
     borderWidth: 1,
     borderColor: PRIMARY,
@@ -833,14 +837,20 @@ const styles = StyleSheet.create({
   },
   ghostBtnText: { color: PRIMARY, fontSize: 14, fontWeight: '600' },
 
-  card: { backgroundColor: '#fff', borderRadius: 12, padding: 20 },
+  card: {
+    backgroundColor: colors.surface,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.border,
+    borderRadius: 12,
+    padding: 20,
+  },
   reviewRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     paddingVertical: 8,
   },
-  reviewLabel: { fontSize: 14, color: '#666', marginRight: 12 },
-  reviewValue: { fontSize: 14, color: '#000', flex: 1, textAlign: 'right' },
+  reviewLabel: { fontSize: 14, color: colors.muted, marginRight: 12 },
+  reviewValue: { fontSize: 14, color: colors.text, flex: 1, textAlign: 'right' },
   reviewMono: {
     fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
     fontSize: 12,
@@ -848,28 +858,28 @@ const styles = StyleSheet.create({
   reviewBold: { fontWeight: '700', fontSize: 16 },
   divider: {
     height: StyleSheet.hairlineWidth,
-    backgroundColor: '#e0e0e0',
+    backgroundColor: colors.border,
     marginVertical: 6,
   },
 
-  info: { fontSize: 14, color: '#666', textAlign: 'center', lineHeight: 20 },
+  info: { fontSize: 14, color: colors.muted, textAlign: 'center', lineHeight: 20 },
   warn: {
     fontSize: 13,
-    color: '#c0392b',
-    backgroundColor: 'rgba(192,57,43,0.08)',
+    color: colors.danger,
+    backgroundColor: 'rgba(255,107,94,0.08)',
     borderRadius: 8,
     padding: 12,
     marginTop: 8,
     lineHeight: 18,
   },
-  error: { color: '#c0392b', fontSize: 13, marginTop: 14, textAlign: 'center' },
+  error: { color: colors.danger, fontSize: 13, marginTop: 14, textAlign: 'center' },
   privacyWarn: {
     backgroundColor: 'rgba(249,115,22,0.10)',
     borderRadius: 8,
     padding: 12,
     marginTop: 14,
   },
-  privacyText: { fontSize: 13, color: '#8a4b12', lineHeight: 18 },
+  privacyText: { fontSize: 13, color: colors.primary, lineHeight: 18 },
 
   doneIcon: {
     fontSize: 48,
@@ -878,12 +888,12 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   doneTitle: { fontSize: 20, fontWeight: 'bold', color: colors.green },
-  doneSub: { fontSize: 15, color: '#666', marginTop: 4, marginBottom: 20 },
-  txidLabel: { fontSize: 12, color: '#999', marginTop: 8 },
+  doneSub: { fontSize: 15, color: colors.muted, marginTop: 4, marginBottom: 20 },
+  txidLabel: { fontSize: 12, color: colors.faint, marginTop: 8 },
   txid: {
     fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
     fontSize: 12,
-    color: '#333',
+    color: colors.strong,
     marginTop: 4,
     paddingHorizontal: 24,
   },

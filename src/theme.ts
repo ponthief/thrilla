@@ -19,12 +19,33 @@ export const DEVICE_TRUST_ENABLED = true;
 // Brand palette, mirroring the web app's CSS custom properties (src/style.css).
 // Keeping these in one place means every screen shares the same orange the web
 // wallet uses, instead of the placeholder blue the migration scaffolding had.
+//
+// The app runs a single "dark slate" theme: a charcoal background with lighter
+// raised cards, near-white text, and the brand orange as the accent. Every
+// screen pulls its surfaces/text/borders from these tokens (no more hardcoded
+// #fff/#f5f5f5/#000 per screen) so the look stays consistent.
 export const colors = {
   primary: '#f97316', // --orange
   primaryDim: '#7c3910', // --orange-dim
-  onPrimary: '#000000', // web buttons use black text on orange
-  green: '#1e7d4f',
-  danger: '#c0392b',
-  text: '#000000',
-  muted: '#666666',
+  onPrimary: '#000000', // black text on the orange buttons (unchanged)
+  // Brightened so they stay legible on the dark surfaces.
+  green: '#2ecc71',
+  danger: '#ff6b5e',
+
+  // ── Dark slate surfaces ────────────────────────────────────────────────────
+  bg: '#181a20', // app / screen background
+  surface: '#23262e', // raised cards
+  surfaceAlt: '#2b2f38', // inputs, chips, insets, progress tracks
+  border: '#363b47', // hairlines & input borders
+
+  // ── Text ────────────────────────────────────────────────────────────────────
+  text: '#f2f2f5', // primary text
+  strong: '#d6dae1', // secondary strong text (was ~#333)
+  label: '#c3c8d0', // form labels (was ~#444)
+  muted: '#a2a8b4', // muted body text (was ~#666)
+  faint: '#7c828e', // faint captions / placeholders (was #888–#bbb)
+  inactive: '#8a909b', // inactive tab / icon tint
+
+  // A translucent orange tint for accent fills (chips, badges) on dark cards.
+  accentTint: 'rgba(249,115,22,0.16)',
 };

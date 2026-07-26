@@ -8,7 +8,6 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAuthStore } from '@stores/authStore';
 import * as api from '@services/api';
 import { getWalletKeys, hasWalletKeys } from '@services/secureKeys';
@@ -49,7 +48,9 @@ function resumeFrom(w: api.SilntWallet, tip: number, minHeight: number): number 
   return start;
 }
 
-export default function ScanScreen() {
+// Rendered inside the Receive screen (the "Scan" segment), so this is a plain
+// panel — no SafeAreaView or page header of its own; Receive supplies both.
+export default function ScanPanel() {
   const inkey = useAuthStore((s) => s.inkey);
 
   const [loading, setLoading] = useState(true);
@@ -271,24 +272,20 @@ export default function ScanScreen() {
   // ── Render ──────────────────────────────────────────────────────────────────
   if (loading) {
     return (
-      <SafeAreaView style={styles.container} edges={['top']}>
-        <View style={styles.center}>
-          <ActivityIndicator color={PRIMARY} />
-        </View>
-      </SafeAreaView>
+      <View style={styles.center}>
+        <ActivityIndicator color={PRIMARY} />
+      </View>
     );
   }
 
   if (missing) {
     return (
-      <SafeAreaView style={styles.container} edges={['top']}>
-        <View style={styles.center}>
-          <Text style={styles.info}>
-            No Silent Payments wallet on this network. Create one on the Wallet
-            tab first.
-          </Text>
-        </View>
-      </SafeAreaView>
+      <View style={styles.center}>
+        <Text style={styles.info}>
+          No Silent Payments wallet on this network. Create one on the Wallet tab
+          first.
+        </Text>
+      </View>
     );
   }
 
@@ -305,13 +302,16 @@ export default function ScanScreen() {
       : null;
 
   return (
-    <SafeAreaView style={styles.container} edges={['top']}>
+    <View style={styles.container}>
       <ScrollView
         contentContainerStyle={styles.content}
         refreshControl={
-          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+            tintColor={PRIMARY}
+          />
         }>
-        <Text style={styles.header}>Scan</Text>
         <Text style={styles.subhead}>
           Scan the chain to find Silent Payments sent to your address.
         </Text>
@@ -448,7 +448,7 @@ export default function ScanScreen() {
           load();
         }}
       />
-    </SafeAreaView>
+    </View>
   );
 }
 
@@ -470,81 +470,93 @@ function Row({
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#f5f5f5' },
-  center: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 24 },
-  content: { padding: 16 },
-  header: { fontSize: 24, fontWeight: 'bold', color: '#000' },
-  subhead: { fontSize: 14, color: '#666', marginTop: 4, marginBottom: 16 },
+  container: { flex: 1, backgroundColor: colors.bg },
+  center: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 24,
+    minHeight: 220,
+  },
+  content: { padding: 16, paddingTop: 4 },
+  subhead: { fontSize: 14, color: colors.muted, marginTop: 4, marginBottom: 16 },
   card: {
-    backgroundColor: '#fff',
-    borderRadius: 12,
+    backgroundColor: colors.surface,
+    borderRadius: 14,
     padding: 20,
     marginBottom: 16,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.border,
   },
   row: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     paddingVertical: 6,
   },
-  rowLabel: { fontSize: 14, color: '#666' },
-  rowValue: { fontSize: 14, fontWeight: '600', color: '#000' },
+  rowLabel: { fontSize: 14, color: colors.muted },
+  rowValue: { fontSize: 14, fontWeight: '600', color: colors.text },
   ok: { color: colors.green },
   warnText: { color: PRIMARY },
 
   rangeRow: { flexDirection: 'row', gap: 12 },
   rangeField: { flex: 1 },
-  label: { fontSize: 13, fontWeight: '600', color: '#444', marginBottom: 6 },
+  label: { fontSize: 13, fontWeight: '600', color: colors.label, marginBottom: 6 },
   readonly: {
     borderWidth: 1,
-    borderColor: '#e5e5ea',
+    borderColor: colors.border,
     borderRadius: 8,
     paddingHorizontal: 12,
     paddingVertical: 10,
-    backgroundColor: '#f2f2f7',
+    backgroundColor: colors.surfaceAlt,
   },
-  readonlyText: { fontSize: 16, color: '#333', fontWeight: '600' },
+  readonlyText: { fontSize: 16, color: colors.text, fontWeight: '600' },
 
   progressTrack: {
     height: 8,
     borderRadius: 4,
-    backgroundColor: '#eee',
+    backgroundColor: colors.surfaceAlt,
     marginTop: 20,
     overflow: 'hidden',
   },
   progressFill: { height: 8, backgroundColor: PRIMARY, borderRadius: 4 },
-  progressText: { fontSize: 13, color: '#666', marginTop: 8, textAlign: 'center' },
+  progressText: { fontSize: 13, color: colors.muted, marginTop: 8, textAlign: 'center' },
 
   primaryBtn: {
     backgroundColor: PRIMARY,
-    borderRadius: 8,
+    borderRadius: 10,
     paddingVertical: 14,
     alignItems: 'center',
     marginTop: 20,
   },
-  primaryBtnText: { color: colors.onPrimary, fontSize: 16, fontWeight: '600' },
-  btnDisabled: { opacity: 0.5 },
+  primaryBtnText: {
+    color: colors.onPrimary,
+    fontSize: 16,
+    fontWeight: '700',
+    letterSpacing: 0.3,
+  },
+  btnDisabled: { opacity: 0.45 },
   stopBtn: {
     borderWidth: 1,
-    borderColor: '#c0392b',
-    borderRadius: 8,
+    borderColor: colors.danger,
+    borderRadius: 10,
     paddingVertical: 12,
     alignItems: 'center',
     marginTop: 16,
   },
-  stopBtnText: { color: '#c0392b', fontSize: 15, fontWeight: '600' },
+  stopBtnText: { color: colors.danger, fontSize: 15, fontWeight: '600' },
 
-  error: { color: '#c0392b', fontSize: 13, marginTop: 14, textAlign: 'center' },
-  warn: { fontSize: 13, color: '#c0392b', lineHeight: 19 },
-  info: { fontSize: 14, color: '#666', textAlign: 'center', lineHeight: 20 },
+  error: { color: colors.danger, fontSize: 13, marginTop: 14, textAlign: 'center' },
+  warn: { fontSize: 13, color: colors.danger, lineHeight: 19 },
+  info: { fontSize: 14, color: colors.muted, textAlign: 'center', lineHeight: 20 },
 
   result: {
     marginTop: 18,
     paddingTop: 16,
     borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: '#eee',
+    borderTopColor: colors.border,
     alignItems: 'center',
   },
-  resultTitle: { fontSize: 16, fontWeight: '700', color: '#000' },
-  resultLine: { fontSize: 14, color: '#666', marginTop: 4 },
+  resultTitle: { fontSize: 16, fontWeight: '700', color: colors.text },
+  resultLine: { fontSize: 14, color: colors.muted, marginTop: 4 },
   resultFound: { color: colors.green, fontWeight: '600' },
 });

@@ -18,6 +18,7 @@ import { useAuthStore } from '@stores/authStore';
 import * as api from '@services/api';
 import QRCode from '../components/QRCode';
 import BitMailCard from '../components/BitMailCard';
+import ScanPanel from './ScanScreen';
 import { colors, LIGHTNING_ENABLED } from '@/theme';
 
 const PRIMARY = colors.primary;
@@ -39,45 +40,74 @@ function groupThousands(n: number): string {
     .replace(/\B(?=(\d{3})+(?!\d))/g, ',');
 }
 
+type Tab = 'address' | 'scan';
+
 export default function ReceiveScreen() {
+  // Receive now covers both sides of getting paid: showing your address
+  // ("Address") and finding payments already sent to it ("Scan"). Scan used to
+  // be its own tab but did little on its own, so it lives here as a segment.
+  const [tab, setTab] = useState<Tab>('address');
+
+  return (
+    <SafeAreaView style={styles.container} edges={['top']}>
+      <View style={styles.header}>
+        <Text style={styles.headerTitle}>Receive</Text>
+        <View style={styles.segment}>
+          <SegmentButton
+            label="Address"
+            active={tab === 'address'}
+            onPress={() => setTab('address')}
+          />
+          <SegmentButton
+            label="Scan"
+            active={tab === 'scan'}
+            onPress={() => setTab('scan')}
+          />
+        </View>
+      </View>
+      {tab === 'address' ? <AddressReceive /> : <ScanPanel />}
+    </SafeAreaView>
+  );
+}
+
+// The "get paid" side: your reusable Silent Payments address (plus an invoice
+// generator if Lightning is ever enabled).
+function AddressReceive() {
   const [mode, setMode] = useState<Mode>(
     LIGHTNING_ENABLED ? 'lightning' : 'onchain',
   );
 
   return (
-    <SafeAreaView style={styles.container} edges={['top']}>
-      <KeyboardAvoidingView
-        style={styles.flex}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-        <View style={styles.header}>
-          <Text style={styles.headerTitle}>Receive</Text>
-          {LIGHTNING_ENABLED ? (
-            <View style={styles.segment}>
-              <SegmentButton
-                label="Lightning"
-                active={mode === 'lightning'}
-                onPress={() => setMode('lightning')}
-              />
-              <SegmentButton
-                label="On-chain"
-                active={mode === 'onchain'}
-                onPress={() => setMode('onchain')}
-              />
-            </View>
-          ) : null}
+    <KeyboardAvoidingView
+      style={styles.flex}
+      behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+      {LIGHTNING_ENABLED ? (
+        <View style={styles.subSegmentWrap}>
+          <View style={styles.segment}>
+            <SegmentButton
+              label="Lightning"
+              active={mode === 'lightning'}
+              onPress={() => setMode('lightning')}
+            />
+            <SegmentButton
+              label="On-chain"
+              active={mode === 'onchain'}
+              onPress={() => setMode('onchain')}
+            />
+          </View>
         </View>
-        <ScrollView
-          style={styles.flex}
-          contentContainerStyle={styles.content}
-          keyboardShouldPersistTaps="handled">
-          {LIGHTNING_ENABLED && mode === 'lightning' ? (
-            <LightningReceive />
-          ) : (
-            <OnchainReceive />
-          )}
-        </ScrollView>
-      </KeyboardAvoidingView>
-    </SafeAreaView>
+      ) : null}
+      <ScrollView
+        style={styles.flex}
+        contentContainerStyle={styles.content}
+        keyboardShouldPersistTaps="handled">
+        {LIGHTNING_ENABLED && mode === 'lightning' ? (
+          <LightningReceive />
+        ) : (
+          <OnchainReceive />
+        )}
+      </ScrollView>
+    </KeyboardAvoidingView>
   );
 }
 
@@ -271,7 +301,7 @@ function LightningReceive() {
         onChangeText={(t) => setAmount(t.replace(/[^0-9]/g, ''))}
         keyboardType="number-pad"
         placeholder="0"
-        placeholderTextColor="#aaa"
+        placeholderTextColor={colors.faint}
         returnKeyType="done"
       />
       <Text style={styles.label}>Memo (optional)</Text>
@@ -280,7 +310,7 @@ function LightningReceive() {
         value={memo}
         onChangeText={setMemo}
         placeholder="What's it for?"
-        placeholderTextColor="#aaa"
+        placeholderTextColor={colors.faint}
         maxLength={120}
         returnKeyType="done"
       />
@@ -383,89 +413,105 @@ function OnchainReceive() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#f5f5f5' },
+  container: { flex: 1, backgroundColor: colors.bg },
   flex: { flex: 1 },
-  header: { paddingHorizontal: 16, paddingTop: 8, paddingBottom: 4 },
-  headerTitle: { fontSize: 24, fontWeight: 'bold', color: '#000', marginBottom: 12 },
+  header: { paddingHorizontal: 16, paddingTop: 8, paddingBottom: 8 },
+  headerTitle: {
+    fontSize: 26,
+    fontWeight: '800',
+    color: colors.text,
+    marginBottom: 12,
+    letterSpacing: 0.3,
+  },
   segment: {
     flexDirection: 'row',
-    backgroundColor: '#e9e9ee',
+    backgroundColor: colors.surfaceAlt,
     borderRadius: 10,
     padding: 3,
   },
+  subSegmentWrap: { paddingHorizontal: 16, marginBottom: 4 },
   segmentBtn: {
     flex: 1,
-    paddingVertical: 8,
+    paddingVertical: 9,
     borderRadius: 8,
     alignItems: 'center',
   },
   segmentBtnActive: {
-    backgroundColor: '#fff',
+    backgroundColor: colors.surface,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.border,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.1,
-    shadowRadius: 1,
-    elevation: 1,
+    shadowOpacity: 0.3,
+    shadowRadius: 2,
+    elevation: 2,
   },
-  segmentText: { fontSize: 14, fontWeight: '600', color: '#666' },
+  segmentText: { fontSize: 14, fontWeight: '600', color: colors.muted },
   segmentTextActive: { color: PRIMARY },
 
   content: { padding: 16 },
   card: {
-    backgroundColor: '#fff',
-    borderRadius: 12,
+    backgroundColor: colors.surface,
+    borderRadius: 14,
     padding: 20,
     alignItems: 'center',
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.border,
   },
 
   label: {
     alignSelf: 'stretch',
     fontSize: 13,
     fontWeight: '600',
-    color: '#444',
+    color: colors.label,
     marginBottom: 6,
     marginTop: 10,
   },
   input: {
     alignSelf: 'stretch',
     borderWidth: 1,
-    borderColor: '#d1d1d6',
+    borderColor: colors.border,
     borderRadius: 8,
     paddingHorizontal: 12,
     paddingVertical: 10,
     fontSize: 16,
-    color: '#000',
-    backgroundColor: '#fafafa',
+    color: colors.text,
+    backgroundColor: colors.surfaceAlt,
   },
-  error: { color: '#c0392b', fontSize: 13, marginTop: 14, textAlign: 'center' },
+  error: { color: colors.danger, fontSize: 13, marginTop: 14, textAlign: 'center' },
 
   primaryBtn: {
     alignSelf: 'stretch',
     backgroundColor: PRIMARY,
-    borderRadius: 8,
+    borderRadius: 10,
     paddingVertical: 14,
     alignItems: 'center',
     marginTop: 22,
   },
-  primaryBtnText: { color: colors.onPrimary, fontSize: 16, fontWeight: '600' },
-  btnDisabled: { opacity: 0.5 },
+  primaryBtnText: {
+    color: colors.onPrimary,
+    fontSize: 16,
+    fontWeight: '700',
+    letterSpacing: 0.3,
+  },
+  btnDisabled: { opacity: 0.45 },
 
   mono: {
     fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
     fontSize: 13,
-    color: '#333',
+    color: colors.strong,
     marginTop: 16,
   },
   caption: {
     fontSize: 12,
-    color: '#888',
+    color: colors.faint,
     textAlign: 'center',
     marginTop: 10,
     paddingHorizontal: 8,
   },
   hrAddress: {
     fontSize: 15,
-    fontWeight: '600',
+    fontWeight: '700',
     color: PRIMARY,
     marginTop: 16,
     textAlign: 'center',
@@ -484,19 +530,19 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     alignItems: 'center',
   },
-  actionBtnText: { color: colors.onPrimary, fontSize: 14, fontWeight: '600' },
+  actionBtnText: { color: colors.onPrimary, fontSize: 14, fontWeight: '700' },
   actionBtnGhost: {
-    backgroundColor: '#fff',
+    backgroundColor: 'transparent',
     borderWidth: 1,
     borderColor: PRIMARY,
   },
   actionBtnGhostText: { color: PRIMARY },
 
   linkBtn: { marginTop: 16, paddingVertical: 6 },
-  linkBtnText: { color: '#c0392b', fontSize: 14, fontWeight: '600' },
+  linkBtnText: { color: colors.danger, fontSize: 14, fontWeight: '600' },
 
   pendingRow: { flexDirection: 'row', alignItems: 'center', marginTop: 16, gap: 8 },
-  pendingText: { fontSize: 14, color: '#666', marginTop: 8 },
+  pendingText: { fontSize: 14, color: colors.muted, marginTop: 8 },
 
   paidIcon: {
     fontSize: 48,
@@ -505,5 +551,5 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   paidTitle: { fontSize: 20, fontWeight: 'bold', color: GREEN },
-  paidSub: { fontSize: 15, color: '#666', marginTop: 4 },
+  paidSub: { fontSize: 15, color: colors.muted, marginTop: 4 },
 });

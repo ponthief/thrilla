@@ -75,7 +75,7 @@ export default function ForgotPasswordScreen({ onBackToLogin }: Props) {
               autoComplete="email"
               keyboardType="email-address"
               placeholder="you@example.com"
-              placeholderTextColor="#aaa"
+              placeholderTextColor={colors.faint}
               returnKeyType="go"
               onSubmitEditing={() => canSubmit && onSubmit()}
             />
@@ -114,32 +114,38 @@ export default function ForgotPasswordScreen({ onBackToLogin }: Props) {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#f5f5f5' },
+  container: { flex: 1, backgroundColor: colors.bg },
   flex: { flex: 1 },
   content: { flex: 1, justifyContent: 'center', padding: 24 },
   logo: { width: 72, height: 72, alignSelf: 'center', marginBottom: 10 },
   title: { fontSize: 30, fontWeight: 'bold', color: PRIMARY, textAlign: 'center' },
-  subtitle: { fontSize: 15, color: '#666', textAlign: 'center', marginBottom: 28 },
-  form: { backgroundColor: '#fff', borderRadius: 12, padding: 20 },
+  subtitle: { fontSize: 15, color: colors.muted, textAlign: 'center', marginBottom: 28 },
+  form: {
+    backgroundColor: colors.surface,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.border,
+    borderRadius: 12,
+    padding: 20,
+  },
   label: {
     fontSize: 13,
     fontWeight: '600',
-    color: '#444',
+    color: colors.label,
     marginBottom: 6,
     marginTop: 4,
   },
   input: {
     borderWidth: 1,
-    borderColor: '#d1d1d6',
+    borderColor: colors.border,
     borderRadius: 8,
     paddingHorizontal: 12,
     paddingVertical: 10,
     fontSize: 16,
-    color: '#000',
-    backgroundColor: '#fafafa',
+    color: colors.text,
+    backgroundColor: colors.surfaceAlt,
   },
-  hint: { fontSize: 12, color: '#999', marginTop: 8 },
-  error: { color: '#c0392b', fontSize: 13, marginTop: 14 },
+  hint: { fontSize: 12, color: colors.faint, marginTop: 8 },
+  error: { color: colors.danger, fontSize: 13, marginTop: 14 },
   success: { color: colors.green, fontSize: 13, marginTop: 14, lineHeight: 18 },
   primaryBtn: {
     backgroundColor: PRIMARY,
