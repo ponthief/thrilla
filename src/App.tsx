@@ -15,6 +15,8 @@ import RegisterScreen from './screens/RegisterScreen';
 import ForgotPasswordScreen from './screens/ForgotPasswordScreen';
 import DeviceConfirmScreen from './screens/DeviceConfirmScreen';
 import { useAuthStore } from '@stores/authStore';
+import { useIdleLogout } from './hooks/useIdleLogout';
+import { touchActivity } from '@services/sessionActivity';
 import { colors, DEVICE_TRUST_ENABLED } from '@/theme';
 
 type TabKey = 'wallet' | 'send' | 'receive' | 'scan' | 'settings';
@@ -101,6 +103,9 @@ const App = () => {
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
   const deviceStatus = useAuthStore((s) => s.deviceStatus);
 
+  // Idle session timeout (mirrors web): sign out after inactivity.
+  useIdleLogout();
+
   // When device-trust is on, an authenticated-but-unconfirmed device must clear
   // the confirmation flow before reaching the wallet.
   const needsDeviceConfirm =
@@ -108,18 +113,30 @@ const App = () => {
 
   return (
     <SafeAreaProvider>
-      {!isAuthenticated ? (
-        <AuthNavigator />
-      ) : needsDeviceConfirm ? (
-        <DeviceConfirmScreen />
-      ) : (
-        <Shell />
-      )}
+      {/* Passive activity tracker: every touch refreshes the idle timer without
+          intercepting the gesture (capture handler returns false). */}
+      <View
+        style={styles.appRoot}
+        onStartShouldSetResponderCapture={() => {
+          touchActivity();
+          return false;
+        }}>
+        {!isAuthenticated ? (
+          <AuthNavigator />
+        ) : needsDeviceConfirm ? (
+          <DeviceConfirmScreen />
+        ) : (
+          <Shell />
+        )}
+      </View>
     </SafeAreaProvider>
   );
 };
 
 const styles = StyleSheet.create({
+  appRoot: {
+    flex: 1,
+  },
   root: {
     flex: 1,
     backgroundColor: '#f5f5f5',
