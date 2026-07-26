@@ -159,7 +159,7 @@ export default function SettingsScreen() {
           </View>
         </View>
 
-        <TouchableOpacity style={styles.logout} onPress={logout}>
+        <TouchableOpacity style={styles.logout} onPress={() => logout()}>
           <Text style={styles.logoutText}>Log Out</Text>
         </TouchableOpacity>
       </ScrollView>

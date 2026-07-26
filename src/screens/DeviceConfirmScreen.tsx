@@ -145,7 +145,7 @@ export default function DeviceConfirmScreen() {
             )}
           </View>
 
-          <TouchableOpacity style={styles.logout} onPress={logout}>
+          <TouchableOpacity style={styles.logout} onPress={() => logout()}>
             <Text style={styles.logoutText}>Log out</Text>
           </TouchableOpacity>
         </View>

@@ -23,7 +23,7 @@ interface AuthState {
   error: string | null;
   login: (username: string, password: string) => Promise<boolean>;
   setTrusted: () => void;
-  logout: () => void;
+  logout: (reason?: string) => void;
 }
 
 export const useAuthStore = create<AuthState>((set) => ({
@@ -95,7 +95,8 @@ export const useAuthStore = create<AuthState>((set) => ({
   // Called by the device-confirmation flow once a code is verified.
   setTrusted: () => set({ deviceStatus: 'trusted' }),
 
-  logout: () => {
+  // `reason`, when given (e.g. idle timeout), is surfaced on the login screen.
+  logout: (reason?: string) => {
     // New session should re-evaluate catch-up scanning for every wallet.
     resetCatchUp();
     useBitmailAlert.getState().clear();
@@ -111,7 +112,7 @@ export const useAuthStore = create<AuthState>((set) => ({
       username: null,
       isAuthenticated: false,
       deviceStatus: 'trusted',
-      error: null,
+      error: reason || null,
     });
   },
 }));
