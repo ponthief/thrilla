@@ -17,6 +17,7 @@ import Clipboard from '@react-native-clipboard/clipboard';
 import { useAuthStore } from '@stores/authStore';
 import * as api from '@services/api';
 import QRCode from '../components/QRCode';
+import BitMailCard from '../components/BitMailCard';
 import { colors } from '@/theme';
 
 const PRIMARY = colors.primary;
@@ -354,18 +355,22 @@ function OnchainReceive() {
   const hr = wallet.hr_address;
 
   return (
-    <View style={styles.card}>
-      <QRCode value={address} size={240} />
-      {hr ? <Text style={styles.hrAddress}>{hr}</Text> : null}
-      <Text style={styles.mono}>{truncateMiddle(address, 16, 12)}</Text>
-      <Text style={styles.caption}>
-        Reusable Silent Payments address — safe to share and reuse.
-      </Text>
-      <View style={styles.actionRow}>
-        <CopyButton value={address} label="Copy address" />
-        <ShareButton value={address} />
+    <>
+      <View style={styles.card}>
+        <QRCode value={address} size={240} />
+        {hr ? <Text style={styles.hrAddress}>{hr}</Text> : null}
+        <Text style={styles.mono}>{truncateMiddle(address, 16, 12)}</Text>
+        <Text style={styles.caption}>
+          Reusable Silent Payments address — safe to share and reuse.
+        </Text>
+        <View style={styles.actionRow}>
+          <CopyButton value={address} label="Copy address" />
+          <ShareButton value={address} />
+        </View>
       </View>
-    </View>
+
+      <BitMailCard wallet={wallet} />
+    </>
   );
 }
 

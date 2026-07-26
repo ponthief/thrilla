@@ -137,6 +137,60 @@ export async function getLnbitsWallets(token: string): Promise<LnbitsWallet[]> {
   return req('/api/v1/wallets', { headers: bearer(token) });
 }
 
+// ── BitMail (BIP-353 human-readable address) ────────────────────────────────
+// A user requests a username; an admin approves it and the DNS record is
+// published, after which the wallet's hr_address (e.g. alice@domain) resolves to
+// its silent-payment address. Only meaningful when the server has a domain
+// configured (getBitmailDomain returns non-empty).
+
+export interface Bip353Request {
+  id: string;
+  wallet_id: string;
+  requested_username: string;
+  final_username?: string | null;
+  status: 'pending' | 'approved' | 'rejected' | 'cancelled';
+  message?: string | null;
+  reject_reason?: string | null;
+}
+
+// The configured BitMail domain (empty string = feature unavailable). Uses inkey.
+export async function getBitmailDomain(inkey: string): Promise<{ domain: string }> {
+  return req(`${SILNT}/api/v1/bitmail/domain`, { headers: apiKey(inkey) });
+}
+
+// Submit a username request for a wallet (address_id null = the base SP address).
+export async function createBip353Request(
+  inkey: string,
+  data: { wallet_id: string; requested_username: string; message?: string },
+): Promise<unknown> {
+  return req(`${SILNT}/api/v1/bip353/request`, {
+    method: 'POST',
+    headers: apiKey(inkey),
+    body: JSON.stringify({ address_id: null, ...data }),
+  });
+}
+
+// The current user's BitMail requests (all statuses). Uses inkey.
+export async function listMyBip353Requests(
+  inkey: string,
+): Promise<Bip353Request[]> {
+  const res = await req<any>(`${SILNT}/api/v1/bip353/requests`, {
+    headers: apiKey(inkey),
+  });
+  return res?.requests ?? [];
+}
+
+// Cancel a pending request. Uses inkey.
+export async function cancelBip353Request(
+  inkey: string,
+  reqId: string,
+): Promise<unknown> {
+  return req(`${SILNT}/api/v1/bip353/requests/${encodeURIComponent(reqId)}`, {
+    method: 'DELETE',
+    headers: apiKey(inkey),
+  });
+}
+
 // ── Auth: registration + password recovery ──────────────────────────────────
 // Both are public (no key). Registration sends a verification email and does
 // NOT create the account until the emailed link is opened; password reset
