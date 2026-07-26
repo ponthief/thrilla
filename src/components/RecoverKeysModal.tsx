@@ -116,7 +116,7 @@ export default function RecoverKeysModal({
               onChangeText={(t) => setHeight(t.replace(/[^0-9]/g, ''))}
               keyboardType="number-pad"
               placeholder="e.g. 840000"
-              placeholderTextColor="#aaa"
+              placeholderTextColor={colors.faint}
             />
 
             <TouchableOpacity
@@ -132,7 +132,7 @@ export default function RecoverKeysModal({
                 value={passphrase}
                 onChangeText={setPassphrase}
                 placeholder="BIP-39 passphrase (if you set one)"
-                placeholderTextColor="#aaa"
+                placeholderTextColor={colors.faint}
                 autoCapitalize="none"
                 secureTextEntry
               />
@@ -163,35 +163,37 @@ export default function RecoverKeysModal({
 const styles = StyleSheet.create({
   backdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.45)', justifyContent: 'flex-end' },
   sheet: {
-    backgroundColor: '#fff',
+    backgroundColor: colors.surface,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.border,
     borderTopLeftRadius: 16,
     borderTopRightRadius: 16,
     padding: 20,
     maxHeight: '90%',
   },
-  heading: { fontSize: 20, fontWeight: 'bold', color: '#000' },
-  sub: { fontSize: 13, color: '#666', marginTop: 8, lineHeight: 19 },
+  heading: { fontSize: 20, fontWeight: 'bold', color: colors.text },
+  sub: { fontSize: 13, color: colors.muted, marginTop: 8, lineHeight: 19 },
   label: {
     fontSize: 13,
     fontWeight: '600',
-    color: '#444',
+    color: colors.label,
     marginTop: 16,
     marginBottom: 6,
   },
   input: {
     borderWidth: 1,
-    borderColor: '#d1d1d6',
+    borderColor: colors.border,
     borderRadius: 8,
     paddingHorizontal: 12,
     paddingVertical: 10,
     fontSize: 16,
-    color: '#000',
-    backgroundColor: '#fafafa',
+    color: colors.text,
+    backgroundColor: colors.surfaceAlt,
   },
   mnemonic: { minHeight: 76, textAlignVertical: 'top' },
   advancedToggle: { marginTop: 16 },
   advancedText: { color: PRIMARY, fontSize: 13, fontWeight: '600' },
-  error: { color: '#c0392b', fontSize: 13, marginTop: 14 },
+  error: { color: colors.danger, fontSize: 13, marginTop: 14 },
   primaryBtn: {
     backgroundColor: PRIMARY,
     borderRadius: 8,
@@ -202,5 +204,5 @@ const styles = StyleSheet.create({
   primaryBtnText: { color: colors.onPrimary, fontSize: 16, fontWeight: '600' },
   btnDisabled: { opacity: 0.5 },
   linkBtn: { marginTop: 12, paddingVertical: 8, alignItems: 'center' },
-  linkBtnText: { color: '#666', fontSize: 14, fontWeight: '600' },
+  linkBtnText: { color: colors.muted, fontSize: 14, fontWeight: '600' },
 });

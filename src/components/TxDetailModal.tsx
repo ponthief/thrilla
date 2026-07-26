@@ -167,7 +167,7 @@ export default function TxDetailModal({
                       setLabelError(null);
                     }}
                     placeholder="Label this transaction"
-                    placeholderTextColor="#aaa"
+                    placeholderTextColor={colors.faint}
                     maxLength={60}
                   />
                   <TouchableOpacity
@@ -242,7 +242,7 @@ function Row({ label, children }: { label: string; children: React.ReactNode }) 
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#f5f5f5' },
+  container: { flex: 1, backgroundColor: colors.bg },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -250,27 +250,34 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 12,
   },
-  title: { fontSize: 22, fontWeight: 'bold', color: '#000' },
+  title: { fontSize: 22, fontWeight: 'bold', color: colors.text },
   close: { fontSize: 16, fontWeight: '600', color: PRIMARY },
   content: { padding: 16, paddingTop: 4 },
-  card: { backgroundColor: '#fff', borderRadius: 12, padding: 16, marginBottom: 12 },
-  cardTitle: { fontSize: 13, fontWeight: '600', color: '#666', marginBottom: 8 },
+  card: {
+    backgroundColor: colors.surface,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.border,
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 12,
+  },
+  cardTitle: { fontSize: 13, fontWeight: '600', color: colors.muted, marginBottom: 8 },
   row: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
     paddingVertical: 6,
   },
-  rowLabel: { fontSize: 14, color: '#666' },
+  rowLabel: { fontSize: 14, color: colors.muted },
   rowValue: { flex: 1, alignItems: 'flex-end' },
-  value: { fontSize: 14, color: '#000', fontWeight: '500' },
-  muted: { fontSize: 14, color: '#999' },
+  value: { fontSize: 14, color: colors.text, fontWeight: '500' },
+  muted: { fontSize: 14, color: colors.faint },
   ok: { fontSize: 14, color: colors.green, fontWeight: '600' },
   pending: { fontSize: 14, color: PRIMARY, fontWeight: '600' },
   mono: {
     fontFamily: 'monospace',
     fontSize: 12,
-    color: '#333',
+    color: colors.strong,
     marginBottom: 12,
   },
   actionRow: { flexDirection: 'row', gap: 10 },
@@ -282,7 +289,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   btnText: { color: colors.onPrimary, fontSize: 14, fontWeight: '600' },
-  btnGhost: { backgroundColor: '#fff', borderWidth: 1, borderColor: PRIMARY },
+  btnGhost: { backgroundColor: colors.surface, borderWidth: 1, borderColor: PRIMARY },
   btnGhostText: { color: PRIMARY },
   recipient: {
     flexDirection: 'row',
@@ -290,24 +297,24 @@ const styles = StyleSheet.create({
     paddingVertical: 6,
     gap: 12,
   },
-  recipientAddr: { flex: 1, fontSize: 12, color: '#333', fontFamily: 'monospace' },
-  recipientAmt: { fontSize: 13, color: '#000', fontWeight: '600' },
-  error: { color: '#c0392b', fontSize: 14, textAlign: 'center', marginTop: 24 },
+  recipientAddr: { flex: 1, fontSize: 12, color: colors.strong, fontFamily: 'monospace' },
+  recipientAmt: { fontSize: 13, color: colors.text, fontWeight: '600' },
+  error: { color: colors.danger, fontSize: 14, textAlign: 'center', marginTop: 24 },
   labelRow: { flexDirection: 'row', gap: 10, alignItems: 'center' },
   labelInput: {
     flex: 1,
     borderWidth: 1,
-    borderColor: '#d1d1d6',
+    borderColor: colors.border,
     borderRadius: 8,
     paddingHorizontal: 12,
     paddingVertical: 10,
     fontSize: 15,
-    color: '#000',
-    backgroundColor: '#fafafa',
+    color: colors.text,
+    backgroundColor: colors.surfaceAlt,
   },
   labelSave: { flex: 0, paddingHorizontal: 18 },
   disabled: { opacity: 0.5 },
   saved: { color: colors.green, fontSize: 13, fontWeight: '600', marginTop: 8 },
-  errorSm: { color: '#c0392b', fontSize: 13, marginTop: 8 },
-  labelHint: { fontSize: 12, color: '#999', marginTop: 8 },
+  errorSm: { color: colors.danger, fontSize: 13, marginTop: 8 },
+  labelHint: { fontSize: 12, color: colors.faint, marginTop: 8 },
 });

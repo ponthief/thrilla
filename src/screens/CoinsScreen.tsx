@@ -325,7 +325,7 @@ export default function CoinsScreen({ visible, onClose }: Props) {
                         value={draft}
                         onChangeText={setDraft}
                         placeholder="Label this coin"
-                        placeholderTextColor="#aaa"
+                        placeholderTextColor={colors.faint}
                         autoFocus
                         maxLength={60}
                       />
@@ -398,7 +398,7 @@ export default function CoinsScreen({ visible, onClose }: Props) {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#f5f5f5' },
+  container: { flex: 1, backgroundColor: colors.bg },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -406,20 +406,22 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 12,
   },
-  title: { fontSize: 22, fontWeight: 'bold', color: '#000' },
+  title: { fontSize: 22, fontWeight: 'bold', color: colors.text },
   close: { fontSize: 16, fontWeight: '600', color: PRIMARY },
   content: { padding: 16, paddingTop: 4 },
 
   statsRow: { flexDirection: 'row', gap: 12, marginBottom: 16 },
   stat: {
     flex: 1,
-    backgroundColor: '#fff',
+    backgroundColor: colors.surface,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.border,
     borderRadius: 10,
     paddingVertical: 14,
     alignItems: 'center',
   },
-  statValue: { fontSize: 18, fontWeight: '700', color: '#000' },
-  statLabel: { fontSize: 11, color: '#888', marginTop: 2 },
+  statValue: { fontSize: 18, fontWeight: '700', color: colors.text },
+  statLabel: { fontSize: 11, color: colors.faint, marginTop: 2 },
   dustColor: { color: PRIMARY },
 
   dustBtn: {
@@ -435,34 +437,41 @@ const styles = StyleSheet.create({
   filterRow: { flexDirection: 'row', gap: 8, marginBottom: 14, flexWrap: 'wrap' },
   filterChip: {
     borderWidth: 1,
-    borderColor: '#d1d1d6',
+    borderColor: colors.border,
     borderRadius: 16,
     paddingHorizontal: 14,
     paddingVertical: 6,
   },
   filterChipOn: { borderColor: PRIMARY, backgroundColor: 'rgba(249,115,22,0.10)' },
-  filterText: { fontSize: 13, color: '#666', fontWeight: '600' },
+  filterText: { fontSize: 13, color: colors.muted, fontWeight: '600' },
   filterTextOn: { color: PRIMARY },
 
-  error: { color: '#c0392b', fontSize: 13, marginBottom: 12 },
-  empty: { fontSize: 14, color: '#999', textAlign: 'center', marginTop: 24 },
+  error: { color: colors.danger, fontSize: 13, marginBottom: 12 },
+  empty: { fontSize: 14, color: colors.faint, textAlign: 'center', marginTop: 24 },
 
-  coin: { backgroundColor: '#fff', borderRadius: 10, padding: 14, marginBottom: 10 },
+  coin: {
+    backgroundColor: colors.surface,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.border,
+    borderRadius: 10,
+    padding: 14,
+    marginBottom: 10,
+  },
   coinTop: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
   },
-  amount: { fontSize: 16, fontWeight: '700', color: '#000' },
+  amount: { fontSize: 16, fontWeight: '700', color: colors.text },
   badges: { flexDirection: 'row', gap: 6 },
   badge: { borderRadius: 5, paddingHorizontal: 8, paddingVertical: 3 },
-  badgeGray: { backgroundColor: '#eee' },
-  badgeGrayText: { fontSize: 11, color: '#666', fontWeight: '600' },
+  badgeGray: { backgroundColor: colors.surfaceAlt },
+  badgeGrayText: { fontSize: 11, color: colors.muted, fontWeight: '600' },
   badgeDust: { backgroundColor: 'rgba(249,115,22,0.14)' },
   badgeDustText: { fontSize: 11, color: PRIMARY, fontWeight: '700' },
   outpoint: {
     fontSize: 12,
-    color: '#aaa',
+    color: colors.faint,
     marginTop: 4,
     fontFamily: 'monospace',
   },
@@ -472,8 +481,8 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     marginTop: 12,
   },
-  label: { fontSize: 14, color: '#333', fontWeight: '500' },
-  labelAdd: { fontSize: 14, color: '#aaa' },
+  label: { fontSize: 14, color: colors.strong, fontWeight: '500' },
+  labelAdd: { fontSize: 14, color: colors.faint },
   freezeBtn: {
     borderWidth: 1,
     borderColor: PRIMARY,
@@ -488,13 +497,13 @@ const styles = StyleSheet.create({
   labelInput: {
     flex: 1,
     borderWidth: 1,
-    borderColor: '#d1d1d6',
+    borderColor: colors.border,
     borderRadius: 8,
     paddingHorizontal: 10,
     paddingVertical: 8,
     fontSize: 14,
-    color: '#000',
-    backgroundColor: '#fafafa',
+    color: colors.text,
+    backgroundColor: colors.surfaceAlt,
   },
   smallBtn: {
     backgroundColor: PRIMARY,
@@ -504,11 +513,11 @@ const styles = StyleSheet.create({
   },
   smallBtnText: { color: colors.onPrimary, fontSize: 13, fontWeight: '600' },
   smallGhost: { paddingHorizontal: 8, paddingVertical: 9 },
-  smallGhostText: { color: '#666', fontSize: 13, fontWeight: '600' },
+  smallGhostText: { color: colors.muted, fontSize: 13, fontWeight: '600' },
 
   hint: {
     fontSize: 12,
-    color: '#bbb',
+    color: colors.faint,
     textAlign: 'center',
     marginTop: 8,
     lineHeight: 17,

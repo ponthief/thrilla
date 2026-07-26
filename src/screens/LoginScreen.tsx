@@ -59,7 +59,7 @@ export default function LoginScreen({ onCreateAccount, onForgotPassword }: Props
               autoCorrect={false}
               autoComplete="username"
               placeholder="username"
-              placeholderTextColor="#aaa"
+              placeholderTextColor={colors.faint}
               returnKeyType="next"
             />
 
@@ -72,7 +72,7 @@ export default function LoginScreen({ onCreateAccount, onForgotPassword }: Props
               autoCapitalize="none"
               autoComplete="password"
               placeholder="password"
-              placeholderTextColor="#aaa"
+              placeholderTextColor={colors.faint}
               returnKeyType="go"
               onSubmitEditing={onSubmit}
             />
@@ -113,7 +113,7 @@ export default function LoginScreen({ onCreateAccount, onForgotPassword }: Props
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#f5f5f5' },
+  container: { flex: 1, backgroundColor: colors.bg },
   flex: { flex: 1 },
   content: { flex: 1, justifyContent: 'center', padding: 24 },
   logo: { width: 88, height: 88, alignSelf: 'center', marginBottom: 12 },
@@ -125,34 +125,36 @@ const styles = StyleSheet.create({
   },
   subtitle: {
     fontSize: 15,
-    color: '#666',
+    color: colors.muted,
     textAlign: 'center',
     marginBottom: 32,
   },
   form: {
-    backgroundColor: '#fff',
+    backgroundColor: colors.surface,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.border,
     borderRadius: 12,
     padding: 20,
   },
   label: {
     fontSize: 13,
     fontWeight: '600',
-    color: '#444',
+    color: colors.label,
     marginBottom: 6,
     marginTop: 12,
   },
   input: {
     borderWidth: 1,
-    borderColor: '#d1d1d6',
+    borderColor: colors.border,
     borderRadius: 8,
     paddingHorizontal: 12,
     paddingVertical: 10,
     fontSize: 16,
-    color: '#000',
-    backgroundColor: '#fafafa',
+    color: colors.text,
+    backgroundColor: colors.surfaceAlt,
   },
   error: {
-    color: '#c0392b',
+    color: colors.danger,
     fontSize: 13,
     marginTop: 14,
   },
@@ -168,6 +170,6 @@ const styles = StyleSheet.create({
   forgotLink: { marginTop: 16, alignItems: 'center' },
   forgotText: { color: PRIMARY, fontSize: 14, fontWeight: '600' },
   footer: { marginTop: 24, alignItems: 'center' },
-  footerText: { color: '#666', fontSize: 14 },
+  footerText: { color: colors.muted, fontSize: 14 },
   footerLink: { color: PRIMARY, fontWeight: '600' },
 });

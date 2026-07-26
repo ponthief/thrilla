@@ -15,7 +15,6 @@ import {
 import WalletScreen from './screens/WalletScreen';
 import SendScreen from './screens/SendScreen';
 import ReceiveScreen from './screens/ReceiveScreen';
-import ScanScreen from './screens/ScanScreen';
 import SettingsScreen from './screens/SettingsScreen';
 import LoginScreen from './screens/LoginScreen';
 import RegisterScreen from './screens/RegisterScreen';
@@ -28,18 +27,18 @@ import { useIdleLogout } from './hooks/useIdleLogout';
 import { touchActivity } from '@services/sessionActivity';
 import { colors, DEVICE_TRUST_ENABLED } from '@/theme';
 
-type TabKey = 'wallet' | 'send' | 'receive' | 'scan' | 'settings';
+// Scan lives inside Receive now (Address / Scan toggle), so it's no longer a tab.
+type TabKey = 'wallet' | 'send' | 'receive' | 'settings';
 
 const TABS: { key: TabKey; label: string; icon: string; Screen: React.ComponentType }[] = [
   { key: 'wallet', label: 'Wallet', icon: '₿', Screen: WalletScreen },
   { key: 'send', label: 'Send', icon: '↑', Screen: SendScreen },
   { key: 'receive', label: 'Receive', icon: '↓', Screen: ReceiveScreen },
-  { key: 'scan', label: 'Scan', icon: '⟳', Screen: ScanScreen },
   { key: 'settings', label: 'Settings', icon: '⚙', Screen: SettingsScreen },
 ];
 
 const PRIMARY = colors.primary;
-const INACTIVE = '#8e8e93';
+const INACTIVE = colors.inactive;
 
 function TabBar({
   active,
@@ -78,7 +77,7 @@ function Shell() {
 
   return (
     <View style={styles.root}>
-      <StatusBar barStyle="light-content" backgroundColor={PRIMARY} />
+      <StatusBar barStyle="light-content" backgroundColor={colors.bg} />
       <View style={styles.content}>
         <ActiveScreen />
       </View>
@@ -174,7 +173,7 @@ const styles = StyleSheet.create({
   },
   root: {
     flex: 1,
-    backgroundColor: '#f5f5f5',
+    backgroundColor: colors.bg,
   },
   content: {
     flex: 1,
@@ -182,8 +181,8 @@ const styles = StyleSheet.create({
   tabBar: {
     flexDirection: 'row',
     borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: '#d1d1d6',
-    backgroundColor: '#ffffff',
+    borderTopColor: colors.border,
+    backgroundColor: colors.surface,
     paddingTop: 8,
   },
   tabItem: {

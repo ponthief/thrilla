@@ -218,7 +218,7 @@ export default function BitMailCard({ wallet }: Props) {
                 setError(null);
               }}
               placeholder="name"
-              placeholderTextColor="#aaa"
+              placeholderTextColor={colors.faint}
               autoCapitalize="none"
               autoCorrect={false}
               maxLength={20}
@@ -268,14 +268,16 @@ export default function BitMailCard({ wallet }: Props) {
 
 const styles = StyleSheet.create({
   card: {
-    backgroundColor: '#fff',
+    backgroundColor: colors.surface,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.border,
     borderRadius: 12,
     padding: 20,
     marginTop: 16,
     alignSelf: 'stretch',
   },
-  title: { fontSize: 16, fontWeight: '700', color: '#000' },
-  caption: { fontSize: 13, color: '#666', marginTop: 6, lineHeight: 18 },
+  title: { fontSize: 16, fontWeight: '700', color: colors.text },
+  caption: { fontSize: 13, color: colors.muted, marginTop: 6, lineHeight: 18 },
   spinner: { marginTop: 12, alignSelf: 'flex-start' },
   address: {
     fontSize: 16,
@@ -287,15 +289,15 @@ const styles = StyleSheet.create({
   input: {
     flex: 1,
     borderWidth: 1,
-    borderColor: '#d1d1d6',
+    borderColor: colors.border,
     borderRadius: 8,
     paddingHorizontal: 12,
     paddingVertical: 10,
     fontSize: 16,
-    color: '#000',
-    backgroundColor: '#fafafa',
+    color: colors.text,
+    backgroundColor: colors.surfaceAlt,
   },
-  domain: { fontSize: 15, color: '#666', marginLeft: 8 },
+  domain: { fontSize: 15, color: colors.muted, marginLeft: 8 },
   primaryBtn: {
     backgroundColor: PRIMARY,
     borderRadius: 8,
@@ -327,19 +329,19 @@ const styles = StyleSheet.create({
     paddingVertical: 4,
   },
   badgeText: { color: PRIMARY, fontSize: 12, fontWeight: '700' },
-  cancel: { color: '#c0392b', fontSize: 14, fontWeight: '600' },
-  error: { color: '#c0392b', fontSize: 13, marginTop: 12 },
-  issue: { color: '#c0392b', fontSize: 12, marginTop: 8 },
+  cancel: { color: colors.danger, fontSize: 14, fontWeight: '600' },
+  error: { color: colors.danger, fontSize: 13, marginTop: 12 },
+  issue: { color: colors.danger, fontSize: 12, marginTop: 8 },
   available: { color: colors.green, fontSize: 12, fontWeight: '600', marginTop: 8 },
   tamper: {
-    backgroundColor: '#fdecea',
-    borderColor: '#c0392b',
+    backgroundColor: colors.surfaceAlt,
+    borderColor: colors.danger,
     borderWidth: 1,
     borderRadius: 8,
     padding: 12,
     marginTop: 12,
   },
-  tamperTitle: { fontSize: 14, fontWeight: '700', color: '#c0392b' },
-  tamperBody: { fontSize: 12, color: '#7d2820', marginTop: 4, lineHeight: 17 },
+  tamperTitle: { fontSize: 14, fontWeight: '700', color: colors.danger },
+  tamperBody: { fontSize: 12, color: colors.danger, marginTop: 4, lineHeight: 17 },
 });
 

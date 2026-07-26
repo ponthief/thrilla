@@ -136,7 +136,7 @@ export default function RegisterScreen({ onBackToLogin }: Props) {
               autoCorrect={false}
               autoComplete="username"
               placeholder="satoshi"
-              placeholderTextColor="#aaa"
+              placeholderTextColor={colors.faint}
               maxLength={32}
             />
 
@@ -150,7 +150,7 @@ export default function RegisterScreen({ onBackToLogin }: Props) {
               autoComplete="email"
               keyboardType="email-address"
               placeholder="you@example.com"
-              placeholderTextColor="#aaa"
+              placeholderTextColor={colors.faint}
             />
 
             <Text style={styles.label}>Password</Text>
@@ -163,7 +163,7 @@ export default function RegisterScreen({ onBackToLogin }: Props) {
                 autoCapitalize="none"
                 autoComplete="password-new"
                 placeholder="••••••••••••"
-                placeholderTextColor="#aaa"
+                placeholderTextColor={colors.faint}
               />
               <TouchableOpacity
                 style={styles.reveal}
@@ -185,7 +185,7 @@ export default function RegisterScreen({ onBackToLogin }: Props) {
               autoCapitalize="none"
               autoComplete="password-new"
               placeholder="••••••••••••"
-              placeholderTextColor="#aaa"
+              placeholderTextColor={colors.faint}
             />
             {confirm.length > 0 ? (
               passwordsMatch ? (
@@ -206,7 +206,7 @@ export default function RegisterScreen({ onBackToLogin }: Props) {
                 onChangeText={(t) => setCaptchaAnswer(t.replace(/[^0-9]/g, ''))}
                 keyboardType="number-pad"
                 placeholder="?"
-                placeholderTextColor="#aaa"
+                placeholderTextColor={colors.faint}
               />
               <TouchableOpacity style={styles.refresh} onPress={newCaptcha}>
                 <Text style={styles.refreshText}>↻</Text>
@@ -239,56 +239,62 @@ export default function RegisterScreen({ onBackToLogin }: Props) {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#f5f5f5' },
+  container: { flex: 1, backgroundColor: colors.bg },
   flex: { flex: 1 },
   scroll: { padding: 24, paddingTop: 40 },
   logo: { width: 72, height: 72, alignSelf: 'center', marginBottom: 10 },
   title: { fontSize: 30, fontWeight: 'bold', color: PRIMARY, textAlign: 'center' },
-  subtitle: { fontSize: 15, color: '#666', textAlign: 'center', marginBottom: 28 },
-  form: { backgroundColor: '#fff', borderRadius: 12, padding: 20 },
+  subtitle: { fontSize: 15, color: colors.muted, textAlign: 'center', marginBottom: 28 },
+  form: {
+    backgroundColor: colors.surface,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.border,
+    borderRadius: 12,
+    padding: 20,
+  },
   label: {
     fontSize: 13,
     fontWeight: '600',
-    color: '#444',
+    color: colors.label,
     marginBottom: 6,
     marginTop: 12,
   },
   input: {
     borderWidth: 1,
-    borderColor: '#d1d1d6',
+    borderColor: colors.border,
     borderRadius: 8,
     paddingHorizontal: 12,
     paddingVertical: 10,
     fontSize: 16,
-    color: '#000',
-    backgroundColor: '#fafafa',
+    color: colors.text,
+    backgroundColor: colors.surfaceAlt,
   },
-  inputError: { borderColor: '#ef4444' },
+  inputError: { borderColor: colors.danger },
   passwordWrap: { position: 'relative', justifyContent: 'center' },
   passwordInput: { paddingRight: 44 },
   reveal: { position: 'absolute', right: 8, padding: 8 },
   revealText: { fontSize: 16 },
-  hint: { fontSize: 12, color: '#999', marginTop: 6 },
+  hint: { fontSize: 12, color: colors.faint, marginTop: 6 },
   matchOk: { fontSize: 12, color: PRIMARY, marginTop: 6 },
-  matchBad: { fontSize: 12, color: '#ef4444', marginTop: 6 },
+  matchBad: { fontSize: 12, color: colors.danger, marginTop: 6 },
   captchaRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   captchaQuestion: {
     flex: 1,
     fontSize: 16,
     fontWeight: '600',
-    color: '#000',
+    color: colors.text,
     letterSpacing: 1,
   },
   captchaInput: { width: 72, textAlign: 'center' },
   refresh: {
     borderWidth: 1,
-    borderColor: '#d1d1d6',
+    borderColor: colors.border,
     borderRadius: 8,
     paddingHorizontal: 12,
     paddingVertical: 10,
   },
-  refreshText: { fontSize: 16, color: '#666' },
-  error: { color: '#c0392b', fontSize: 13, marginTop: 14 },
+  refreshText: { fontSize: 16, color: colors.muted },
+  error: { color: colors.danger, fontSize: 13, marginTop: 14 },
   primaryBtn: {
     backgroundColor: PRIMARY,
     borderRadius: 8,
@@ -299,14 +305,14 @@ const styles = StyleSheet.create({
   primaryBtnText: { color: colors.onPrimary, fontSize: 16, fontWeight: '600' },
   btnDisabled: { opacity: 0.5 },
   footer: { marginTop: 24, alignItems: 'center' },
-  footerText: { color: '#666', fontSize: 14 },
+  footerText: { color: colors.muted, fontSize: 14 },
   footerLink: { color: PRIMARY, fontWeight: '600' },
 
   // Success state
   sentWrap: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 32 },
   sentIcon: { fontSize: 48, marginBottom: 12 },
-  sentTitle: { fontSize: 22, fontWeight: 'bold', color: '#000', marginBottom: 8 },
-  sentSub: { fontSize: 14, color: '#666', textAlign: 'center' },
+  sentTitle: { fontSize: 22, fontWeight: 'bold', color: colors.text, marginBottom: 8 },
+  sentSub: { fontSize: 14, color: colors.muted, textAlign: 'center' },
   sentEmail: {
     fontSize: 14,
     color: PRIMARY,
@@ -317,7 +323,7 @@ const styles = StyleSheet.create({
   },
   sentHint: {
     fontSize: 13,
-    color: '#666',
+    color: colors.muted,
     textAlign: 'center',
     marginBottom: 28,
     lineHeight: 19,

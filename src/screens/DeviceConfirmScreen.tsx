@@ -116,7 +116,7 @@ export default function DeviceConfirmScreen() {
                   }}
                   keyboardType="number-pad"
                   placeholder="123456"
-                  placeholderTextColor="#bbb"
+                  placeholderTextColor={colors.faint}
                   maxLength={6}
                   autoFocus
                   textAlign="center"
@@ -155,35 +155,41 @@ export default function DeviceConfirmScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#f5f5f5' },
+  container: { flex: 1, backgroundColor: colors.bg },
   flex: { flex: 1 },
   content: { flex: 1, justifyContent: 'center', padding: 24 },
   badge: { fontSize: 44, textAlign: 'center', marginBottom: 8 },
   title: {
     fontSize: 26,
     fontWeight: 'bold',
-    color: '#000',
+    color: colors.text,
     textAlign: 'center',
   },
   subtitle: {
     fontSize: 14,
-    color: '#666',
+    color: colors.muted,
     textAlign: 'center',
     marginTop: 10,
     marginBottom: 24,
     lineHeight: 20,
   },
-  card: { backgroundColor: '#fff', borderRadius: 12, padding: 20 },
-  body: { fontSize: 14, color: '#444', lineHeight: 20 },
+  card: {
+    backgroundColor: colors.surface,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.border,
+    borderRadius: 12,
+    padding: 20,
+  },
+  body: { fontSize: 14, color: colors.label, lineHeight: 20 },
   codeInput: {
     borderWidth: 1,
-    borderColor: '#d1d1d6',
+    borderColor: colors.border,
     borderRadius: 8,
     paddingVertical: 14,
     fontSize: 28,
     letterSpacing: 8,
-    color: '#000',
-    backgroundColor: '#fafafa',
+    color: colors.text,
+    backgroundColor: colors.surfaceAlt,
     marginTop: 16,
   },
   primaryBtn: {
@@ -197,7 +203,7 @@ const styles = StyleSheet.create({
   btnDisabled: { opacity: 0.5 },
   resend: { marginTop: 16, alignItems: 'center' },
   resendText: { color: PRIMARY, fontSize: 14, fontWeight: '600' },
-  error: { color: '#c0392b', fontSize: 13, marginTop: 14 },
+  error: { color: colors.danger, fontSize: 13, marginTop: 14 },
   logout: { marginTop: 24, alignItems: 'center' },
-  logoutText: { color: '#666', fontSize: 14, fontWeight: '600' },
+  logoutText: { color: colors.muted, fontSize: 14, fontWeight: '600' },
 });

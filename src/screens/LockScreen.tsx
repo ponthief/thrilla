@@ -76,13 +76,13 @@ export default function LockScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#f5f5f5' },
+  container: { flex: 1, backgroundColor: colors.bg },
   content: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 24 },
   logo: { width: 88, height: 88, marginBottom: 16 },
-  title: { fontSize: 24, fontWeight: 'bold', color: '#000' },
+  title: { fontSize: 24, fontWeight: 'bold', color: colors.text },
   subtitle: {
     fontSize: 14,
-    color: '#666',
+    color: colors.muted,
     textAlign: 'center',
     marginTop: 10,
     marginBottom: 28,
@@ -99,5 +99,5 @@ const styles = StyleSheet.create({
   buttonDisabled: { opacity: 0.5 },
   buttonText: { color: colors.onPrimary, fontSize: 16, fontWeight: '600' },
   logout: { marginTop: 20 },
-  logoutText: { color: '#666', fontSize: 14, fontWeight: '600' },
+  logoutText: { color: colors.muted, fontSize: 14, fontWeight: '600' },
 });

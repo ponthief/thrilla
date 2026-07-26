@@ -206,7 +206,7 @@ export default function CreateWalletModal({ visible, onClose, onCreated }: Props
                 value={title}
                 onChangeText={setTitle}
                 placeholder="My Wallet"
-                placeholderTextColor="#aaa"
+                placeholderTextColor={colors.faint}
                 maxLength={40}
                 autoFocus
               />
@@ -225,7 +225,7 @@ export default function CreateWalletModal({ visible, onClose, onCreated }: Props
                     value={birthHeight}
                     onChangeText={(t) => setBirthHeight(t.replace(/[^0-9]/g, ''))}
                     placeholder="e.g. 840000"
-                    placeholderTextColor="#aaa"
+                    placeholderTextColor={colors.faint}
                     keyboardType="number-pad"
                   />
                   <Text style={styles.hint}>
@@ -250,7 +250,7 @@ export default function CreateWalletModal({ visible, onClose, onCreated }: Props
                     value={passphrase}
                     onChangeText={setPassphrase}
                     placeholder="Leave blank for none"
-                    placeholderTextColor="#aaa"
+                    placeholderTextColor={colors.faint}
                     autoCapitalize="none"
                     secureTextEntry
                   />
@@ -334,13 +334,15 @@ const styles = StyleSheet.create({
     justifyContent: 'flex-end',
   },
   sheet: {
-    backgroundColor: '#fff',
+    backgroundColor: colors.surface,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.border,
     borderTopLeftRadius: 16,
     borderTopRightRadius: 16,
     padding: 20,
     maxHeight: '90%',
   },
-  heading: { fontSize: 20, fontWeight: 'bold', color: '#000' },
+  heading: { fontSize: 20, fontWeight: 'bold', color: colors.text },
   networkTag: {
     alignSelf: 'flex-start',
     marginTop: 6,
@@ -356,37 +358,37 @@ const styles = StyleSheet.create({
   },
   segment: {
     flexDirection: 'row',
-    backgroundColor: '#e9e9ee',
+    backgroundColor: colors.surfaceAlt,
     borderRadius: 10,
     padding: 3,
     marginTop: 14,
   },
   segBtn: { flex: 1, paddingVertical: 8, borderRadius: 8, alignItems: 'center' },
-  segBtnOn: { backgroundColor: '#fff' },
-  segText: { fontSize: 14, fontWeight: '600', color: '#666' },
+  segBtnOn: { backgroundColor: colors.surface },
+  segText: { fontSize: 14, fontWeight: '600', color: colors.muted },
   segTextOn: { color: PRIMARY },
   mnemonicInput: { minHeight: 76, textAlignVertical: 'top' },
   label: {
     fontSize: 13,
     fontWeight: '600',
-    color: '#444',
+    color: colors.label,
     marginTop: 14,
     marginBottom: 6,
   },
   input: {
     borderWidth: 1,
-    borderColor: '#d1d1d6',
+    borderColor: colors.border,
     borderRadius: 8,
     paddingHorizontal: 12,
     paddingVertical: 10,
     fontSize: 16,
-    color: '#000',
-    backgroundColor: '#fafafa',
+    color: colors.text,
+    backgroundColor: colors.surfaceAlt,
   },
-  hint: { fontSize: 12, color: '#999', marginTop: 6 },
+  hint: { fontSize: 12, color: colors.faint, marginTop: 6 },
   advancedToggle: { marginTop: 16 },
   advancedText: { color: PRIMARY, fontSize: 13, fontWeight: '600' },
-  error: { color: '#c0392b', fontSize: 13, marginTop: 14 },
+  error: { color: colors.danger, fontSize: 13, marginTop: 14 },
   primaryBtn: {
     backgroundColor: PRIMARY,
     borderRadius: 8,
@@ -397,11 +399,11 @@ const styles = StyleSheet.create({
   primaryBtnText: { color: colors.onPrimary, fontSize: 16, fontWeight: '600' },
   btnDisabled: { opacity: 0.5 },
   linkBtn: { marginTop: 12, paddingVertical: 8, alignItems: 'center' },
-  linkBtnText: { color: '#666', fontSize: 14, fontWeight: '600' },
+  linkBtnText: { color: colors.muted, fontSize: 14, fontWeight: '600' },
 
   warn: {
     fontSize: 13,
-    color: '#c0392b',
+    color: colors.danger,
     marginTop: 10,
     marginBottom: 16,
     lineHeight: 19,
@@ -415,7 +417,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     width: '48%',
-    backgroundColor: '#f5f5f5',
+    backgroundColor: colors.bg,
     borderRadius: 8,
     paddingVertical: 8,
     paddingHorizontal: 10,
@@ -423,11 +425,11 @@ const styles = StyleSheet.create({
   },
   wordIndex: {
     fontSize: 11,
-    color: '#999',
+    color: colors.faint,
     width: 20,
     fontVariant: ['tabular-nums'],
   },
-  wordText: { fontSize: 15, fontWeight: '600', color: '#000' },
+  wordText: { fontSize: 15, fontWeight: '600', color: colors.text },
   copyBtn: {
     borderWidth: 1,
     borderColor: PRIMARY,
@@ -450,5 +452,5 @@ const styles = StyleSheet.create({
   },
   checkboxOn: { backgroundColor: PRIMARY },
   checkMark: { color: colors.onPrimary, fontSize: 14, fontWeight: 'bold' },
-  checkLabel: { flex: 1, fontSize: 14, color: '#333' },
+  checkLabel: { flex: 1, fontSize: 14, color: colors.strong },
 });
