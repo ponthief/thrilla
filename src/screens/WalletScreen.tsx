@@ -19,6 +19,7 @@ import CoinsScreen from './CoinsScreen';
 import CreateWalletModal from '../components/CreateWalletModal';
 import RecoverKeysModal from '../components/RecoverKeysModal';
 import TransactionList, { TxItem } from '../components/TransactionList';
+import TxDetailModal from '../components/TxDetailModal';
 import { useCatchUpScan } from '../hooks/useCatchUpScan';
 
 function normalizeTime(t?: number | string | null): number | null {
@@ -74,6 +75,7 @@ export default function WalletScreen() {
   const [showCreate, setShowCreate] = useState(false);
   const [showRecover, setShowRecover] = useState(false);
   const [showCoins, setShowCoins] = useState(false);
+  const [detailTxid, setDetailTxid] = useState<string | null>(null);
   const [keysMissing, setKeysMissing] = useState(false);
 
   const [spWallet, setSpWallet] = useState<api.SilntWallet | null>(null);
@@ -347,6 +349,7 @@ export default function WalletScreen() {
                   ? 'No transactions yet'
                   : 'No Lightning payments yet'
               }
+              onPressItem={isSp ? (id) => setDetailTxid(id) : undefined}
             />
 
             <Text style={styles.hint}>Pull down to refresh</Text>
@@ -382,6 +385,13 @@ export default function WalletScreen() {
           setShowCoins(false);
           load();
         }}
+      />
+
+      <TxDetailModal
+        visible={!!detailTxid}
+        walletId={spWallet?.id ?? null}
+        txid={detailTxid}
+        onClose={() => setDetailTxid(null)}
       />
     </SafeAreaView>
   );

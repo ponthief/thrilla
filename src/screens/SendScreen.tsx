@@ -495,6 +495,16 @@ export default function SendScreen() {
             </View>
           ) : null}
 
+          {selectedUtxos.length > 1 ? (
+            <View style={styles.privacyWarn}>
+              <Text style={styles.privacyText}>
+                ⚠ Combining {selectedUtxos.length} coins in one transaction links
+                them together on-chain, which reduces your privacy. Spend a single
+                coin when you can.
+              </Text>
+            </View>
+          ) : null}
+
           {insufficient ? (
             <Text style={styles.error}>
               Selected coins don't cover the amount plus fee.
@@ -701,6 +711,13 @@ const styles = StyleSheet.create({
     lineHeight: 18,
   },
   error: { color: '#c0392b', fontSize: 13, marginTop: 14, textAlign: 'center' },
+  privacyWarn: {
+    backgroundColor: 'rgba(249,115,22,0.10)',
+    borderRadius: 8,
+    padding: 12,
+    marginTop: 14,
+  },
+  privacyText: { fontSize: 13, color: '#8a4b12', lineHeight: 18 },
 
   doneIcon: {
     fontSize: 48,

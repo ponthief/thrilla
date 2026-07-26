@@ -344,6 +344,35 @@ export interface SpTransaction {
   labels?: string[];
 }
 
+// Enriched detail for one on-chain transaction (confirmation, block, fee,
+// recipients, explorer link), fetched on demand.
+export interface TxRecipient {
+  address?: string | null;
+  amount?: number;
+  type?: string;
+}
+export interface WalletTxDetail {
+  txid: string;
+  confirmed: boolean | null;
+  block_height: number | null;
+  block_time: number | null;
+  fee_sats: number | null;
+  recipients: TxRecipient[];
+  explorer_url: string;
+  own_outputs?: unknown[];
+  spent_inputs?: unknown[];
+}
+export async function getWalletTransaction(
+  inkey: string,
+  walletId: string,
+  txid: string,
+): Promise<WalletTxDetail> {
+  return req(
+    `${SILNT}/api/v1/wallet/${walletId}/transactions/${encodeURIComponent(txid)}`,
+    { headers: apiKey(inkey) },
+  );
+}
+
 // On-chain transaction history for an SP wallet (most recent first).
 export async function listWalletTransactions(
   inkey: string,
