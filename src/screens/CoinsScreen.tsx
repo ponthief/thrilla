@@ -104,17 +104,17 @@ export default function CoinsScreen({ visible, onClose }: Props) {
         .reduce((s, u) => s + u.amount, 0),
     [utxos],
   );
-  // All unspent suspected-dust coins — this drives the "dust" stat, so it agrees
-  // with the per-coin dust badge (which shows on any suspected-dust coin). A
-  // frozen dust coin is still dust, so it stays counted.
+  // Actionable dust: unspent suspected-dust coins that aren't frozen yet.
+  // Freezing a dust coin handles it (it's excluded from sends), so it drops out
+  // of this list — the "dust" stat falls to 0 and the coin loses its dust badge.
+  // The per-coin dust badge is gated the same way, so the count and badge stay in
+  // agreement. This also drives "Freeze all dust".
   const dustCoins = useMemo(
-    () => utxos.filter((u) => u.utxo_state === 'unspent' && isDust(u)),
+    () =>
+      utxos.filter(
+        (u) => u.utxo_state === 'unspent' && isDust(u) && !u.frozen,
+      ),
     [utxos, isDust],
-  );
-  // The subset that can still be frozen — what "Freeze all dust" acts on.
-  const freezableDust = useMemo(
-    () => dustCoins.filter((u) => !u.frozen),
-    [dustCoins],
   );
 
   // Coins shown for the selected state filter, unfrozen first then by amount.
@@ -147,10 +147,10 @@ export default function CoinsScreen({ visible, onClose }: Props) {
   );
 
   const freezeAllDust = useCallback(async () => {
-    if (!inkey || !freezableDust.length) return;
+    if (!inkey || !dustCoins.length) return;
     setBulkBusy(true);
     try {
-      for (const u of freezableDust) {
+      for (const u of dustCoins) {
         await api.setUtxoFrozen(inkey, u.txid, u.vout, true);
       }
       await load();
@@ -159,7 +159,7 @@ export default function CoinsScreen({ visible, onClose }: Props) {
     } finally {
       setBulkBusy(false);
     }
-  }, [inkey, freezableDust, load]);
+  }, [inkey, dustCoins, load]);
 
   const saveLabel = useCallback(
     async (u: api.Utxo) => {
@@ -245,7 +245,7 @@ export default function CoinsScreen({ visible, onClose }: Props) {
             </View>
           </View>
 
-          {freezableDust.length > 0 ? (
+          {dustCoins.length > 0 ? (
             <TouchableOpacity
               style={[styles.dustBtn, bulkBusy && styles.disabled]}
               onPress={freezeAllDust}
@@ -254,8 +254,8 @@ export default function CoinsScreen({ visible, onClose }: Props) {
                 <ActivityIndicator color={colors.onPrimary} />
               ) : (
                 <Text style={styles.dustBtnText}>
-                  Freeze {freezableDust.length} suspected-dust coin
-                  {freezableDust.length === 1 ? '' : 's'}
+                  Freeze {dustCoins.length} suspected-dust coin
+                  {dustCoins.length === 1 ? '' : 's'}
                 </Text>
               )}
             </TouchableOpacity>
@@ -286,7 +286,9 @@ export default function CoinsScreen({ visible, onClose }: Props) {
           ) : (
             displayed.map((u) => {
               const k = key(u);
-              const dust = isDust(u);
+              // Frozen dust is treated as handled, so it shows only the "frozen"
+              // badge — matching the dust stat, which also excludes frozen dust.
+              const dust = isDust(u) && !u.frozen;
               const busy = busyKey === k;
               const editing = editingKey === k;
               return (
