@@ -22,6 +22,8 @@ export default function SettingsScreen() {
   const [dustDraft, setDustDraft] = useState('');
   const [loadingPrefs, setLoadingPrefs] = useState(true);
   const [savingDust, setSavingDust] = useState(false);
+  const [dustError, setDustError] = useState<string | null>(null);
+  const [dustSaved, setDustSaved] = useState(false);
 
   const loadPrefs = useCallback(async () => {
     if (!inkey) return;
@@ -47,15 +49,23 @@ export default function SettingsScreen() {
   const saveDust = useCallback(async () => {
     if (!inkey) return;
     setSavingDust(true);
+    setDustError(null);
+    setDustSaved(false);
     try {
       const n = Number(dustDraft);
       // Empty / 0 clears the override → back to the admin default.
       const value = dustDraft.trim() === '' || !Number.isFinite(n) || n <= 0 ? null : n;
+      if (value != null && value > 10000) {
+        setDustError('Maximum is 10,000 sats.');
+        setSavingDust(false);
+        return;
+      }
       const p = await api.updateUserPrefs(inkey, value);
       setPrefs(p);
       setDustDraft(p.dust_threshold_sats != null ? String(p.dust_threshold_sats) : '');
-    } catch {
-      /* ignore */
+      setDustSaved(true);
+    } catch (e: any) {
+      setDustError(e?.message || 'Could not save. Please try again.');
     } finally {
       setSavingDust(false);
     }
@@ -90,7 +100,11 @@ export default function SettingsScreen() {
                   <TextInput
                     style={styles.input}
                     value={dustDraft}
-                    onChangeText={(t) => setDustDraft(t.replace(/[^0-9]/g, ''))}
+                    onChangeText={(t) => {
+                      setDustDraft(t.replace(/[^0-9]/g, ''));
+                      setDustSaved(false);
+                      setDustError(null);
+                    }}
                     keyboardType="number-pad"
                     placeholder={
                       prefs ? String(prefs.admin_default_dust) : 'default'
@@ -108,10 +122,14 @@ export default function SettingsScreen() {
                     )}
                   </TouchableOpacity>
                 </View>
+                {dustError ? <Text style={styles.dustError}>{dustError}</Text> : null}
+                {dustSaved ? (
+                  <Text style={styles.dustSaved}>✓ Saved</Text>
+                ) : null}
                 {prefs ? (
                   <Text style={styles.effective}>
                     Currently using {prefs.effective_dust_threshold} sats
-                    {prefs.dust_threshold_sats == null ? ' (server default)' : ''}
+                    {prefs.dust_threshold_sats == null ? ' (server default)' : ' (your override)'}
                   </Text>
                 ) : null}
               </>
@@ -166,6 +184,8 @@ const styles = StyleSheet.create({
   },
   help: { fontSize: 12, color: '#888', marginTop: 4, lineHeight: 17 },
   effective: { fontSize: 12, color: '#666', marginTop: 10, fontWeight: '600' },
+  dustError: { fontSize: 13, color: '#c0392b', marginTop: 10 },
+  dustSaved: { fontSize: 13, color: colors.green, marginTop: 10, fontWeight: '600' },
   inputRow: { flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 12 },
   input: {
     flex: 1,

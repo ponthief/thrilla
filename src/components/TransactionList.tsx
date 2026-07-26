@@ -1,5 +1,11 @@
 import React from 'react';
-import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
+import {
+  ActivityIndicator,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
+} from 'react-native';
 import { colors } from '@/theme';
 
 export interface TxItem {
@@ -36,6 +42,7 @@ interface Props {
   items: TxItem[];
   loading: boolean;
   emptyText?: string;
+  onPressItem?: (id: string) => void; // tappable rows (SP tx → detail)
 }
 
 export default function TransactionList({
@@ -43,6 +50,7 @@ export default function TransactionList({
   items,
   loading,
   emptyText = 'No transactions yet',
+  onPressItem,
 }: Props) {
   return (
     <View style={styles.card}>
@@ -52,29 +60,35 @@ export default function TransactionList({
       ) : items.length === 0 ? (
         <Text style={styles.empty}>{emptyText}</Text>
       ) : (
-        items.map((tx, i) => (
-          <View
-            key={tx.id || String(i)}
-            style={[styles.row, i > 0 && styles.rowDivider]}>
-            <View style={styles.rowLeft}>
-              <Text style={styles.rowLabel} numberOfLines={1}>
-                {tx.label}
+        items.map((tx, i) => {
+          const tappable = !!onPressItem && !!tx.id;
+          const Wrapper: any = tappable ? TouchableOpacity : View;
+          return (
+            <Wrapper
+              key={tx.id || String(i)}
+              style={[styles.row, i > 0 && styles.rowDivider]}
+              onPress={tappable ? () => onPressItem!(tx.id) : undefined}>
+              <View style={styles.rowLeft}>
+                <Text style={styles.rowLabel} numberOfLines={1}>
+                  {tx.label}
+                </Text>
+                <Text style={styles.rowMeta}>
+                  {tx.pending ? 'pending' : fmtDate(tx.timestamp) || 'settled'}
+                </Text>
+              </View>
+              <Text
+                style={[
+                  styles.amount,
+                  tx.direction === 'in' ? styles.amountIn : styles.amountOut,
+                ]}
+                numberOfLines={1}>
+                {tx.direction === 'in' ? '+' : '−'}
+                {groupThousands(tx.amountSats)} sats
               </Text>
-              <Text style={styles.rowMeta}>
-                {tx.pending ? 'pending' : fmtDate(tx.timestamp) || 'settled'}
-              </Text>
-            </View>
-            <Text
-              style={[
-                styles.amount,
-                tx.direction === 'in' ? styles.amountIn : styles.amountOut,
-              ]}
-              numberOfLines={1}>
-              {tx.direction === 'in' ? '+' : '−'}
-              {groupThousands(tx.amountSats)} sats
-            </Text>
-          </View>
-        ))
+              {tappable ? <Text style={styles.chevron}>›</Text> : null}
+            </Wrapper>
+          );
+        })
       )}
     </View>
   );
@@ -103,4 +117,5 @@ const styles = StyleSheet.create({
   amount: { fontSize: 14, fontWeight: '600' },
   amountIn: { color: colors.green },
   amountOut: { color: '#333' },
+  chevron: { fontSize: 20, color: '#ccc', marginLeft: 8 },
 });
