@@ -399,6 +399,32 @@ export async function getUtxos(inkey: string, walletId: string): Promise<Utxo[]>
   return res?.utxos ?? [];
 }
 
+// ── User preferences (dust threshold) ───────────────────────────────────────
+// The dust threshold lives server-side per user so the backend can recompute the
+// change-aware `suspected_dust` flag from it (change outputs are never dust).
+export interface UserPrefs {
+  dust_threshold_sats: number | null; // user override, null = use admin default
+  admin_default_dust: number;
+  effective_dust_threshold: number;
+}
+
+export async function getUserPrefs(inkey: string): Promise<UserPrefs> {
+  return req(`${SILNT}/api/v1/user/prefs`, { headers: apiKey(inkey) });
+}
+
+// Set (or clear, with null/0) the user's dust threshold. The backend re-evaluates
+// existing UTXOs so `suspected_dust` updates immediately.
+export async function updateUserPrefs(
+  inkey: string,
+  dustThresholdSats: number | null,
+): Promise<UserPrefs> {
+  return req(`${SILNT}/api/v1/user/prefs`, {
+    method: 'PUT',
+    headers: apiKey(inkey),
+    body: JSON.stringify({ dust_threshold_sats: dustThresholdSats }),
+  });
+}
+
 // Freeze/unfreeze a UTXO (frozen coins are excluded from send selection). inkey.
 export async function setUtxoFrozen(
   inkey: string,

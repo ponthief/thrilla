@@ -13,7 +13,6 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAuthStore } from '@stores/authStore';
-import { useSettingsStore } from '@stores/settingsStore';
 import * as api from '@services/api';
 import { colors } from '@/theme';
 
@@ -44,7 +43,6 @@ interface Props {
 export default function CoinsScreen({ visible, onClose }: Props) {
   const inkey = useAuthStore((s) => s.inkey);
   const adminkey = useAuthStore((s) => s.adminkey);
-  const dustThreshold = useSettingsStore((s) => s.dustThreshold);
 
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -58,10 +56,9 @@ export default function CoinsScreen({ visible, onClose }: Props) {
   const [draft, setDraft] = useState('');
   const [stateFilter, setStateFilter] = useState('unspent');
 
-  const isDust = useCallback(
-    (u: api.Utxo) => !!u.suspected_dust || u.amount <= dustThreshold,
-    [dustThreshold],
-  );
+  // Dust is the backend's change-aware flag: a small output is only dust if it
+  // is NOT the wallet's own change (change is never flagged, regardless of size).
+  const isDust = useCallback((u: api.Utxo) => !!u.suspected_dust, []);
 
   const load = useCallback(async () => {
     if (!inkey) {
@@ -249,8 +246,8 @@ export default function CoinsScreen({ visible, onClose }: Props) {
                 <ActivityIndicator color={colors.onPrimary} />
               ) : (
                 <Text style={styles.dustBtnText}>
-                  Freeze {dustCoins.length} dust coin
-                  {dustCoins.length === 1 ? '' : 's'} (≤ {groupThousands(dustThreshold)} sats)
+                  Freeze {dustCoins.length} suspected-dust coin
+                  {dustCoins.length === 1 ? '' : 's'}
                 </Text>
               )}
             </TouchableOpacity>
@@ -381,8 +378,8 @@ export default function CoinsScreen({ visible, onClose }: Props) {
           )}
 
           <Text style={styles.hint}>
-            Frozen coins are excluded when sending. Set the dust threshold in
-            Settings.
+            Frozen coins are excluded when sending. Dust = small coins from
+            others; your own change is never flagged. Set the threshold in Settings.
           </Text>
         </ScrollView>
       </SafeAreaView>
