@@ -1,0 +1,10 @@
+{
+  "name": "Thrilla",
+  "displayName": "Thrilla",
+  "android": {
+    "package": "com.thrilla_btc.thrilla"
+  },
+  "ios": {
+    "bundleIdentifier": "com.thrilla-btc.thrilla"
+  }
+}

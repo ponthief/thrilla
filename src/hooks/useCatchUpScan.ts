@@ -1,0 +1,190 @@
+import { useCallback, useEffect, useRef, useState } from 'react';
+import * as api from '@services/api';
+import { getWalletKeys } from '@services/secureKeys';
+import { markScanStarted } from '@services/scanCooldown';
+
+// Wallets already evaluated this app session, so returning to the Wallet tab
+// doesn't re-trigger a scan/prompt. Cleared on create/import (id may be reused)
+// and on logout.
+const evaluated = new Set<string>();
+export function resetCatchUp(walletId?: string) {
+  if (walletId) evaluated.delete(walletId);
+  else evaluated.clear();
+}
+
+const DEFAULT_THRESHOLD = 432;
+const POLL_MS = 2500;
+
+export type ScanStatus = 'idle' | 'scanning' | 'prompt' | 'done';
+
+/**
+ * Catch-up scanning when the wallet screen opens, mirroring the web's
+ * useLoginScan:
+ *   gap == 0            → nothing
+ *   0 < gap < threshold → scan silently
+ *   gap >= threshold    → prompt the user
+ * Needs the wallet's keys in the keystore; skips silently if absent (can't scan).
+ */
+export function useCatchUpScan(
+  inkey: string | null,
+  wallet: api.SilntWallet | null,
+  onComplete?: () => void,
+) {
+  const [status, setStatus] = useState<ScanStatus>('idle');
+  const [gap, setGap] = useState(0);
+  const [progress, setProgress] = useState<api.ScanProgress | null>(null);
+
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const onCompleteRef = useRef(onComplete);
+  onCompleteRef.current = onComplete;
+
+  const stopPoll = useCallback(() => {
+    if (pollRef.current) {
+      clearInterval(pollRef.current);
+      pollRef.current = null;
+    }
+  }, []);
+
+  const poll = useCallback(
+    (walletId: string) => {
+      stopPoll();
+      pollRef.current = setInterval(async () => {
+        if (!inkey) return;
+        try {
+          const p = await api.getScanProgress(inkey, walletId);
+          setProgress(p);
+          if (!p.active) {
+            stopPoll();
+            setStatus('done');
+            onCompleteRef.current?.();
+          }
+        } catch {
+          /* transient — keep polling */
+        }
+      }, POLL_MS);
+    },
+    [inkey, stopPoll],
+  );
+
+  const begin = useCallback(
+    async (walletId: string, scanSecret: string, spendKey: string, from: number) => {
+      if (!inkey) return;
+      setStatus('scanning');
+      setProgress({ active: true, current: 0, total: 0, found: 0 });
+      try {
+        await api.startScan(inkey, walletId, scanSecret, spendKey, from, null);
+        markScanStarted(walletId);
+        poll(walletId);
+      } catch (e: any) {
+        // 429 / cooldown / already-running are benign for a catch-up — if a scan
+        // is actually running, pick up its progress; otherwise back off.
+        const msg = (e?.message || '').toLowerCase();
+        if (/recently|already|budget|too many/.test(msg)) {
+          poll(walletId);
+        } else {
+          setStatus('idle');
+        }
+      }
+    },
+    [inkey, poll],
+  );
+
+  // Evaluate once per wallet id when it (or the session) changes.
+  useEffect(() => {
+    let cancelled = false;
+    const walletId = wallet?.id;
+
+    async function run() {
+      if (!inkey || !walletId) return;
+      if (evaluated.has(walletId)) return;
+      evaluated.add(walletId);
+
+      const keys = await getWalletKeys(walletId);
+      if (!keys || cancelled) return; // no keys on this device — can't scan
+
+      // Auto-vs-prompt threshold from the backend config (renamed on master
+      // from /blindbit/config to /backend/config). Falls back to the backend's
+      // own default if the endpoint is unavailable.
+      let threshold = DEFAULT_THRESHOLD;
+      try {
+        const cfg = await api.getBackendConfig(inkey);
+        if (cfg.login_scan_enabled === false) return;
+        threshold =
+          Number(cfg.login_scan_auto_threshold ?? DEFAULT_THRESHOLD) ||
+          DEFAULT_THRESHOLD;
+      } catch {
+        /* endpoint unavailable — use the default threshold */
+      }
+      if (cancelled) return;
+
+      let tip = 0;
+      try {
+        const info = await api.getChainTip(inkey);
+        tip = Number(info?.height);
+      } catch {
+        return;
+      }
+      if (!tip || Number.isNaN(tip) || cancelled) return;
+
+      // last_scan_height = progress; last_height = birth (static). A fresh wallet
+      // born at the tip has no progress yet but is up to date — take the max.
+      const last = Math.max(
+        Number(wallet?.last_scan_height ?? 0),
+        Number(wallet?.last_height ?? 0),
+      );
+      if (!last) return;
+      const g = tip - last;
+      if (g <= 0) return;
+
+      // Already scanning (e.g. left and came back)? Attach to it.
+      try {
+        const p = await api.getScanProgress(inkey, walletId);
+        if (p?.active) {
+          setProgress(p);
+          setStatus('scanning');
+          poll(walletId);
+          return;
+        }
+      } catch {
+        /* fall through */
+      }
+      if (cancelled) return;
+
+      setGap(g);
+      if (g < threshold) {
+        begin(walletId, keys.scanSecret, keys.spendKey, last);
+      } else {
+        setStatus('prompt');
+      }
+    }
+
+    run();
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [inkey, wallet?.id]);
+
+  useEffect(() => stopPoll, [stopPoll]);
+
+  const accept = useCallback(async () => {
+    if (!wallet?.id) return;
+    const keys = await getWalletKeys(wallet.id);
+    if (!keys) {
+      setStatus('idle');
+      return;
+    }
+    const from = Math.max(
+      Number(wallet.last_scan_height ?? 0),
+      Number(wallet.last_height ?? 0),
+    );
+    begin(wallet.id, keys.scanSecret, keys.spendKey, from);
+  }, [wallet, begin]);
+
+  const dismiss = useCallback(() => {
+    stopPoll();
+    setStatus('idle');
+  }, [stopPoll]);
+
+  return { status, gap, progress, accept, dismiss };
+}
