@@ -14,7 +14,7 @@ export const LIGHTNING_ENABLED = false;
 // Flipping to true forces EVERY existing Android user to enroll one device
 // (max 5 per account) on their next login. There is no partial rollout — the
 // gate is all-or-nothing per client.
-export const DEVICE_TRUST_ENABLED = false;
+export const DEVICE_TRUST_ENABLED = true;
 
 // Brand palette, mirroring the web app's CSS custom properties (src/style.css).
 // Keeping these in one place means every screen shares the same orange the web
