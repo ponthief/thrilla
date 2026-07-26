@@ -64,21 +64,29 @@ export default function SeedInput({ value, onChangeText, placeholder }: Props) {
           <Text style={styles.toggle}>{revealed ? '🙈 Hide' : '👁 Show'}</Text>
         </TouchableOpacity>
       </View>
-      <TextInput
-        style={styles.input}
-        value={value}
-        onChangeText={onChangeText}
-        placeholder={placeholder}
-        placeholderTextColor="#aaa"
-        autoCapitalize="none"
-        autoCorrect={false}
-        autoComplete="off"
-        spellCheck={false}
-        // secureTextEntry masks the words when hidden. It can't combine with
-        // multiline, so we only wrap (multiline) while revealed.
-        secureTextEntry={!revealed}
-        multiline={revealed}
-      />
+      {/* Always multiline (words wrap in both states). secureTextEntry can't
+          combine with multiline, so we mask manually: the real text is made
+          transparent when hidden and a dot overlay is drawn on top. */}
+      <View>
+        <TextInput
+          style={[styles.input, !revealed && styles.inputHidden]}
+          value={value}
+          onChangeText={onChangeText}
+          placeholder={placeholder}
+          placeholderTextColor="#aaa"
+          autoCapitalize="none"
+          autoCorrect={false}
+          autoComplete="off"
+          spellCheck={false}
+          caretHidden={!revealed}
+          multiline
+        />
+        {!revealed && value.length > 0 ? (
+          <View style={styles.maskWrap} pointerEvents="none">
+            <Text style={styles.mask}>{value.replace(/\S/g, '•')}</Text>
+          </View>
+        ) : null}
+      </View>
       {suggestions.length ? (
         <ScrollView
           horizontal
@@ -112,11 +120,23 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     paddingVertical: 10,
     fontSize: 16,
+    lineHeight: 22,
     color: '#000',
     backgroundColor: '#fafafa',
     minHeight: 76,
     textAlignVertical: 'top',
     fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+  },
+  inputHidden: { color: 'transparent' },
+  // Dot overlay aligned to the input's text box (matches padding). Monospace
+  // makes '•' the same width as every letter, so wrapping is identical.
+  maskWrap: { position: 'absolute', top: 10, left: 12, right: 12, bottom: 10 },
+  mask: {
+    fontSize: 16,
+    lineHeight: 22,
+    color: '#000',
+    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+    includeFontPadding: false,
   },
   sugRow: { marginTop: 8 },
   sugContent: { paddingRight: 8 },
