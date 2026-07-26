@@ -14,7 +14,7 @@ import { useWalletStore } from '@stores/walletStore';
 import { useBitmailAlert } from '@stores/bitmailAlert';
 import * as api from '@services/api';
 import { hasWalletKeys } from '@services/secureKeys';
-import { colors } from '@/theme';
+import { colors, LIGHTNING_ENABLED } from '@/theme';
 import CoinsScreen from './CoinsScreen';
 import CreateWalletModal from '../components/CreateWalletModal';
 import RecoverKeysModal from '../components/RecoverKeysModal';
@@ -95,11 +95,9 @@ export default function WalletScreen() {
       setLoading(false);
       return;
     }
-    const [spRes, lnRes, rateRes, lnPayRes] = await Promise.allSettled([
+    const [spRes, rateRes] = await Promise.allSettled([
       api.getSilntWallets(inkey),
-      api.lnGetWallet(inkey),
       api.getUsdRate(inkey),
-      api.lnListPayments(inkey, 25),
     ]);
 
     let newSpSats: number | null = null;
@@ -154,18 +152,23 @@ export default function WalletScreen() {
       setSpError(spRes.reason?.message || 'Failed to load balance');
     }
 
-    setLnTxs(
-      lnPayRes.status === 'fulfilled' ? lnPayRes.value.map(lnPayToItem) : [],
-    );
-
     let newLnSats: number | null = null;
-    if (lnRes.status === 'fulfilled') {
-      newLnSats = Math.floor((lnRes.value.balance ?? 0) / 1000); // msat → sats
-      setLnSats(newLnSats);
-      setLnName(lnRes.value.name || 'Lightning');
-      setLnError(null);
-    } else {
-      setLnError(lnRes.reason?.message || 'Failed to load balance');
+    if (LIGHTNING_ENABLED) {
+      const [lnRes, lnPayRes] = await Promise.allSettled([
+        api.lnGetWallet(inkey),
+        api.lnListPayments(inkey, 25),
+      ]);
+      setLnTxs(
+        lnPayRes.status === 'fulfilled' ? lnPayRes.value.map(lnPayToItem) : [],
+      );
+      if (lnRes.status === 'fulfilled') {
+        newLnSats = Math.floor((lnRes.value.balance ?? 0) / 1000); // msat → sats
+        setLnSats(newLnSats);
+        setLnName(lnRes.value.name || 'Lightning');
+        setLnError(null);
+      } else {
+        setLnError(lnRes.reason?.message || 'Failed to load balance');
+      }
     }
 
     // Fiat is best-effort; a failure must not blank a balance.
@@ -195,7 +198,7 @@ export default function WalletScreen() {
   // Reload balances when a scan finishes so newly found funds show up.
   const scan = useCatchUpScan(inkey, spWallet, load);
 
-  const isSp = kind === 'sp';
+  const isSp = LIGHTNING_ENABLED ? kind === 'sp' : true;
   const sats = isSp ? spWallet?.balance ?? null : lnSats;
   const error = isSp ? spError : lnError;
   const name = isSp
@@ -220,18 +223,20 @@ export default function WalletScreen() {
         refreshControl={
           <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
         }>
-        <View style={styles.segment}>
-          <SegmentButton
-            label="Silent Payments"
-            active={isSp}
-            onPress={() => setKind('sp')}
-          />
-          <SegmentButton
-            label="Lightning"
-            active={!isSp}
-            onPress={() => setKind('ln')}
-          />
-        </View>
+        {LIGHTNING_ENABLED ? (
+          <View style={styles.segment}>
+            <SegmentButton
+              label="Silent Payments"
+              active={isSp}
+              onPress={() => setKind('sp')}
+            />
+            <SegmentButton
+              label="Lightning"
+              active={!isSp}
+              onPress={() => setKind('ln')}
+            />
+          </View>
+        ) : null}
 
         {isSp && tamper ? (
           <View style={styles.tamperCard}>

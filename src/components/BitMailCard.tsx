@@ -53,6 +53,31 @@ export default function BitMailCard({ wallet }: Props) {
   const [username, setUsername] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [avail, setAvail] = useState<'idle' | 'checking' | 'ok' | 'taken'>('idle');
+
+  // Debounced live availability check once the name passes local validation.
+  useEffect(() => {
+    const u = username.trim().toLowerCase();
+    if (!inkey || !USERNAME_RE.test(u) || RESERVED_USERNAMES.has(u)) {
+      setAvail('idle');
+      return;
+    }
+    setAvail('checking');
+    let cancelled = false;
+    const t = setTimeout(async () => {
+      try {
+        const res = await api.checkBip353Available(inkey, u);
+        if (!cancelled) setAvail(res.available ? 'ok' : 'taken');
+      } catch {
+        // Endpoint unavailable (older backend) — don't block; submit still validates.
+        if (!cancelled) setAvail('idle');
+      }
+    }, 450);
+    return () => {
+      cancelled = true;
+      clearTimeout(t);
+    };
+  }, [username, inkey]);
 
   const load = useCallback(async () => {
     if (!inkey) return;
@@ -202,26 +227,36 @@ export default function BitMailCard({ wallet }: Props) {
           </View>
           {usernameIssue(username) ? (
             <Text style={styles.issue}>{usernameIssue(username)}</Text>
+          ) : avail === 'checking' ? (
+            <Text style={styles.caption}>Checking availability…</Text>
+          ) : avail === 'ok' ? (
+            <Text style={styles.available}>✓ {username}@{domain} is available</Text>
+          ) : avail === 'taken' ? (
+            <Text style={styles.issue}>✗ That username is already taken</Text>
           ) : (
             <Text style={styles.caption}>
               3–20 chars: lowercase letters, digits, - or _.
             </Text>
           )}
           {error ? <Text style={styles.error}>{error}</Text> : null}
-          <TouchableOpacity
-            style={[
-              styles.primaryBtn,
-              (busy || !USERNAME_RE.test(username) || RESERVED_USERNAMES.has(username)) &&
-                styles.btnDisabled,
-            ]}
-            onPress={onRequest}
-            disabled={busy || !USERNAME_RE.test(username) || RESERVED_USERNAMES.has(username)}>
-            {busy ? (
-              <ActivityIndicator color={colors.onPrimary} />
-            ) : (
-              <Text style={styles.primaryBtnText}>Request BitMail</Text>
-            )}
-          </TouchableOpacity>
+          {(() => {
+            const invalid =
+              !USERNAME_RE.test(username) ||
+              RESERVED_USERNAMES.has(username) ||
+              avail === 'taken';
+            return (
+              <TouchableOpacity
+                style={[styles.primaryBtn, (busy || invalid) && styles.btnDisabled]}
+                onPress={onRequest}
+                disabled={busy || invalid}>
+                {busy ? (
+                  <ActivityIndicator color={colors.onPrimary} />
+                ) : (
+                  <Text style={styles.primaryBtnText}>Request BitMail</Text>
+                )}
+              </TouchableOpacity>
+            );
+          })()}
         </>
       )}
       {error && (current || pending) ? (
@@ -295,6 +330,7 @@ const styles = StyleSheet.create({
   cancel: { color: '#c0392b', fontSize: 14, fontWeight: '600' },
   error: { color: '#c0392b', fontSize: 13, marginTop: 12 },
   issue: { color: '#c0392b', fontSize: 12, marginTop: 8 },
+  available: { color: colors.green, fontSize: 12, fontWeight: '600', marginTop: 8 },
   tamper: {
     backgroundColor: '#fdecea',
     borderColor: '#c0392b',
