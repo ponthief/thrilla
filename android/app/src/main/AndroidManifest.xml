@@ -1,6 +1,10 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
     <uses-permission android:name="android.permission.INTERNET" />
+    <!-- App Lock unlock prompt (react-native-keychain biometric / device
+         credential). USE_FINGERPRINT covers API 23–27; USE_BIOMETRIC is API 28+. -->
+    <uses-permission android:name="android.permission.USE_BIOMETRIC" />
+    <uses-permission android:name="android.permission.USE_FINGERPRINT" />
     <!-- QR scanning (recipient address). Camera is optional so the app still
          installs on devices without one. -->
     <uses-permission android:name="android.permission.CAMERA" />
