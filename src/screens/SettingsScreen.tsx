@@ -1,5 +1,6 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import {
+  ActivityIndicator,
   StyleSheet,
   Text,
   View,
@@ -9,27 +10,56 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAuthStore } from '@stores/authStore';
-import { useSettingsStore } from '@stores/settingsStore';
+import * as api from '@services/api';
 import { colors } from '@/theme';
 
 export default function SettingsScreen() {
   const username = useAuthStore((state) => state.username);
+  const inkey = useAuthStore((state) => state.inkey);
   const logout = useAuthStore((state) => state.logout);
-  const dustThreshold = useSettingsStore((s) => s.dustThreshold);
-  const setDustThreshold = useSettingsStore((s) => s.setDustThreshold);
 
-  const [dustDraft, setDustDraft] = useState(String(dustThreshold));
+  const [prefs, setPrefs] = useState<api.UserPrefs | null>(null);
+  const [dustDraft, setDustDraft] = useState('');
+  const [loadingPrefs, setLoadingPrefs] = useState(true);
+  const [savingDust, setSavingDust] = useState(false);
 
-  // Keep the field in sync once settings hydrate from storage.
+  const loadPrefs = useCallback(async () => {
+    if (!inkey) return;
+    try {
+      const p = await api.getUserPrefs(inkey);
+      setPrefs(p);
+      setDustDraft(p.dust_threshold_sats != null ? String(p.dust_threshold_sats) : '');
+    } catch {
+      /* leave unset */
+    } finally {
+      setLoadingPrefs(false);
+    }
+  }, [inkey]);
+
   useEffect(() => {
-    setDustDraft(String(dustThreshold));
-  }, [dustThreshold]);
+    loadPrefs();
+  }, [loadPrefs]);
 
-  const dirty = dustDraft.trim() !== String(dustThreshold);
-  const saveDust = () => {
-    const n = Number(dustDraft);
-    setDustThreshold(Number.isFinite(n) && n >= 0 ? n : dustThreshold);
-  };
+  const currentOverride =
+    prefs?.dust_threshold_sats != null ? String(prefs.dust_threshold_sats) : '';
+  const dirty = dustDraft.trim() !== currentOverride;
+
+  const saveDust = useCallback(async () => {
+    if (!inkey) return;
+    setSavingDust(true);
+    try {
+      const n = Number(dustDraft);
+      // Empty / 0 clears the override → back to the admin default.
+      const value = dustDraft.trim() === '' || !Number.isFinite(n) || n <= 0 ? null : n;
+      const p = await api.updateUserPrefs(inkey, value);
+      setPrefs(p);
+      setDustDraft(p.dust_threshold_sats != null ? String(p.dust_threshold_sats) : '');
+    } catch {
+      /* ignore */
+    } finally {
+      setSavingDust(false);
+    }
+  }, [inkey, dustDraft]);
 
   return (
     <SafeAreaView style={styles.container}>
@@ -47,25 +77,45 @@ export default function SettingsScreen() {
           <View style={styles.column}>
             <Text style={styles.itemLabel}>Dust threshold (sats)</Text>
             <Text style={styles.help}>
-              Coins at or below this are flagged as dust in Coin Control so you
-              can freeze them.
+              Coins at or below this from other people are flagged as dust so you
+              can freeze them. Your own change is never flagged. Leave blank to use
+              the server default
+              {prefs ? ` (${prefs.admin_default_dust} sats)` : ''}.
             </Text>
-            <View style={styles.inputRow}>
-              <TextInput
-                style={styles.input}
-                value={dustDraft}
-                onChangeText={(t) => setDustDraft(t.replace(/[^0-9]/g, ''))}
-                keyboardType="number-pad"
-                placeholder="1000"
-                placeholderTextColor="#aaa"
-              />
-              <TouchableOpacity
-                style={[styles.saveBtn, !dirty && styles.saveDisabled]}
-                onPress={saveDust}
-                disabled={!dirty}>
-                <Text style={styles.saveText}>Save</Text>
-              </TouchableOpacity>
-            </View>
+            {loadingPrefs ? (
+              <ActivityIndicator style={{ marginTop: 12 }} color={colors.primary} />
+            ) : (
+              <>
+                <View style={styles.inputRow}>
+                  <TextInput
+                    style={styles.input}
+                    value={dustDraft}
+                    onChangeText={(t) => setDustDraft(t.replace(/[^0-9]/g, ''))}
+                    keyboardType="number-pad"
+                    placeholder={
+                      prefs ? String(prefs.admin_default_dust) : 'default'
+                    }
+                    placeholderTextColor="#aaa"
+                  />
+                  <TouchableOpacity
+                    style={[styles.saveBtn, (!dirty || savingDust) && styles.saveDisabled]}
+                    onPress={saveDust}
+                    disabled={!dirty || savingDust}>
+                    {savingDust ? (
+                      <ActivityIndicator color={colors.onPrimary} />
+                    ) : (
+                      <Text style={styles.saveText}>Save</Text>
+                    )}
+                  </TouchableOpacity>
+                </View>
+                {prefs ? (
+                  <Text style={styles.effective}>
+                    Currently using {prefs.effective_dust_threshold} sats
+                    {prefs.dust_threshold_sats == null ? ' (server default)' : ''}
+                  </Text>
+                ) : null}
+              </>
+            )}
           </View>
         </View>
 
@@ -115,6 +165,7 @@ const styles = StyleSheet.create({
     marginLeft: 8,
   },
   help: { fontSize: 12, color: '#888', marginTop: 4, lineHeight: 17 },
+  effective: { fontSize: 12, color: '#666', marginTop: 10, fontWeight: '600' },
   inputRow: { flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 12 },
   input: {
     flex: 1,
