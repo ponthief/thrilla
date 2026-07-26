@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
+  Alert,
   Modal,
   RefreshControl,
   ScrollView,
@@ -28,6 +29,13 @@ function key(u: api.Utxo): string {
   return `${u.txid}:${u.vout}`;
 }
 
+const STATE_FILTERS: { key: string; label: string }[] = [
+  { key: 'unspent', label: 'Unspent' },
+  { key: 'unconfirmed_spent', label: 'Pending' },
+  { key: 'spent', label: 'Spent' },
+  { key: 'all', label: 'All' },
+];
+
 interface Props {
   visible: boolean;
   onClose: () => void;
@@ -35,6 +43,7 @@ interface Props {
 
 export default function CoinsScreen({ visible, onClose }: Props) {
   const inkey = useAuthStore((s) => s.inkey);
+  const adminkey = useAuthStore((s) => s.adminkey);
   const dustThreshold = useSettingsStore((s) => s.dustThreshold);
 
   const [loading, setLoading] = useState(true);
@@ -47,6 +56,7 @@ export default function CoinsScreen({ visible, onClose }: Props) {
 
   const [editingKey, setEditingKey] = useState<string | null>(null);
   const [draft, setDraft] = useState('');
+  const [stateFilter, setStateFilter] = useState('unspent');
 
   const isDust = useCallback(
     (u: api.Utxo) => !!u.suspected_dust || u.amount <= dustThreshold,
@@ -69,12 +79,7 @@ export default function CoinsScreen({ visible, onClose }: Props) {
         return;
       }
       setWalletId(w.id);
-      const list = await api.getUtxos(inkey, w.id);
-      // Hide fully spent coins; keep unspent + pending. Unfrozen first.
-      const visible = list
-        .filter((u) => u.utxo_state !== 'spent')
-        .sort((a, b) => Number(a.frozen) - Number(b.frozen) || b.amount - a.amount);
-      setUtxos(visible);
+      setUtxos(await api.getUtxos(inkey, w.id));
     } catch (e: any) {
       setError(e?.message || 'Failed to load coins.');
     } finally {
@@ -106,6 +111,17 @@ export default function CoinsScreen({ visible, onClose }: Props) {
     () => utxos.filter((u) => u.utxo_state === 'unspent' && !u.frozen && isDust(u)),
     [utxos, isDust],
   );
+
+  // Coins shown for the selected state filter, unfrozen first then by amount.
+  const displayed = useMemo(() => {
+    const list =
+      stateFilter === 'all'
+        ? utxos
+        : utxos.filter((u) => u.utxo_state === stateFilter);
+    return [...list].sort(
+      (a, b) => Number(a.frozen) - Number(b.frozen) || b.amount - a.amount,
+    );
+  }, [utxos, stateFilter]);
 
   const setFrozen = useCallback(
     async (u: api.Utxo, frozen: boolean) => {
@@ -161,6 +177,35 @@ export default function CoinsScreen({ visible, onClose }: Props) {
     [inkey, walletId, draft],
   );
 
+  const restore = useCallback(
+    (u: api.Utxo) => {
+      if (!adminkey || !walletId) return;
+      Alert.alert(
+        'Restore coin?',
+        'Only do this if the spending transaction was dropped and will not confirm. The server verifies the tx is gone before restoring.',
+        [
+          { text: 'Cancel', style: 'cancel' },
+          {
+            text: 'Restore',
+            style: 'destructive',
+            onPress: async () => {
+              setBusyKey(key(u));
+              try {
+                await api.restoreUtxo(adminkey, walletId, u.txid, u.vout);
+                await load();
+              } catch (e: any) {
+                setError(e?.message || 'Restore failed.');
+              } finally {
+                setBusyKey(null);
+              }
+            },
+          },
+        ],
+      );
+    },
+    [adminkey, walletId, load],
+  );
+
   return (
     <Modal visible={visible} animationType="slide" onRequestClose={onClose}>
       <SafeAreaView style={styles.container} edges={['top']}>
@@ -182,7 +227,9 @@ export default function CoinsScreen({ visible, onClose }: Props) {
               <Text style={styles.statLabel}>spendable sats</Text>
             </View>
             <View style={styles.stat}>
-              <Text style={styles.statValue}>{utxos.length}</Text>
+              <Text style={styles.statValue}>
+                {utxos.filter((u) => u.utxo_state === 'unspent').length}
+              </Text>
               <Text style={styles.statLabel}>coins</Text>
             </View>
             <View style={styles.stat}>
@@ -209,14 +256,30 @@ export default function CoinsScreen({ visible, onClose }: Props) {
             </TouchableOpacity>
           ) : null}
 
+          <View style={styles.filterRow}>
+            {STATE_FILTERS.map((f) => {
+              const active = stateFilter === f.key;
+              return (
+                <TouchableOpacity
+                  key={f.key}
+                  style={[styles.filterChip, active && styles.filterChipOn]}
+                  onPress={() => setStateFilter(f.key)}>
+                  <Text style={[styles.filterText, active && styles.filterTextOn]}>
+                    {f.label}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+
           {error ? <Text style={styles.error}>{error}</Text> : null}
 
           {loading ? (
             <ActivityIndicator style={{ marginTop: 24 }} color={PRIMARY} />
-          ) : utxos.length === 0 && !error ? (
-            <Text style={styles.empty}>No coins yet.</Text>
+          ) : displayed.length === 0 && !error ? (
+            <Text style={styles.empty}>No coins in this view.</Text>
           ) : (
-            utxos.map((u) => {
+            displayed.map((u) => {
               const k = key(u);
               const dust = isDust(u);
               const busy = busyKey === k;
@@ -285,18 +348,31 @@ export default function CoinsScreen({ visible, onClose }: Props) {
                           {u.label || '+ label'}
                         </Text>
                       </TouchableOpacity>
-                      <TouchableOpacity
-                        style={styles.freezeBtn}
-                        onPress={() => setFrozen(u, !u.frozen)}
-                        disabled={busy}>
-                        {busy ? (
-                          <ActivityIndicator size="small" color={PRIMARY} />
-                        ) : (
-                          <Text style={styles.freezeText}>
-                            {u.frozen ? 'Unfreeze' : 'Freeze'}
-                          </Text>
-                        )}
-                      </TouchableOpacity>
+                      {u.utxo_state === 'unspent' ? (
+                        <TouchableOpacity
+                          style={styles.freezeBtn}
+                          onPress={() => setFrozen(u, !u.frozen)}
+                          disabled={busy}>
+                          {busy ? (
+                            <ActivityIndicator size="small" color={PRIMARY} />
+                          ) : (
+                            <Text style={styles.freezeText}>
+                              {u.frozen ? 'Unfreeze' : 'Freeze'}
+                            </Text>
+                          )}
+                        </TouchableOpacity>
+                      ) : u.utxo_state === 'unconfirmed_spent' ? (
+                        <TouchableOpacity
+                          style={styles.freezeBtn}
+                          onPress={() => restore(u)}
+                          disabled={busy}>
+                          {busy ? (
+                            <ActivityIndicator size="small" color={PRIMARY} />
+                          ) : (
+                            <Text style={styles.freezeText}>↩ Restore</Text>
+                          )}
+                        </TouchableOpacity>
+                      ) : null}
                     </View>
                   )}
                 </View>
@@ -348,6 +424,18 @@ const styles = StyleSheet.create({
   },
   dustBtnText: { color: colors.onPrimary, fontSize: 14, fontWeight: '600' },
   disabled: { opacity: 0.5 },
+
+  filterRow: { flexDirection: 'row', gap: 8, marginBottom: 14, flexWrap: 'wrap' },
+  filterChip: {
+    borderWidth: 1,
+    borderColor: '#d1d1d6',
+    borderRadius: 16,
+    paddingHorizontal: 14,
+    paddingVertical: 6,
+  },
+  filterChipOn: { borderColor: PRIMARY, backgroundColor: 'rgba(249,115,22,0.10)' },
+  filterText: { fontSize: 13, color: '#666', fontWeight: '600' },
+  filterTextOn: { color: PRIMARY },
 
   error: { color: '#c0392b', fontSize: 13, marginBottom: 12 },
   empty: { fontSize: 14, color: '#999', textAlign: 'center', marginTop: 24 },
