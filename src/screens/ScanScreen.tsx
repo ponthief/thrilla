@@ -321,7 +321,11 @@ export default function ScanPanel() {
           <Row
             label="Scanned to"
             value={
-              wallet?.last_scan_height
+              // last_scan_height is 0/1 (or ≤ birth) until a scan makes real
+              // progress, so only show a height once it's past the wallet's
+              // birth — otherwise a never-scanned wallet reads "Scanned to 1".
+              wallet &&
+              Number(wallet.last_scan_height) > Number(wallet.last_height || 0)
                 ? groupThousands(wallet.last_scan_height)
                 : '—'
             }

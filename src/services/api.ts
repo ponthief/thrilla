@@ -748,13 +748,26 @@ export interface AppConfig {
   network?: string;
   dust_threshold_sats?: number;
 }
-export async function getAppConfig(inkey: string): Promise<AppConfig> {
-  return req(`${SILNT}/api/v1/config`, { headers: apiKey(inkey) });
+// Network-scoped, like getSilntWallets/getBackendConfig: the backend defaults an
+// absent `network` to signet, so a mainnet build MUST send its NETWORK_LOCK or it
+// gets signet's min_scan_height / dust threshold.
+export async function getAppConfig(
+  inkey: string,
+  network: string | undefined = Config.NETWORK_LOCK || undefined,
+): Promise<AppConfig> {
+  const qs = network ? `?network=${encodeURIComponent(network)}` : '';
+  return req(`${SILNT}/api/v1/config${qs}`, { headers: apiKey(inkey) });
 }
 
-// Current chain tip via the siLNt oracle proxy (BlindBit /info).
-export async function getChainTip(inkey: string): Promise<ChainInfo> {
-  return req(`${SILNT}/api/v1/oracle/tip`, { headers: apiKey(inkey) });
+// Current chain tip via the siLNt oracle proxy (BlindBit /info). Network-scoped:
+// the backend picks the oracle by `network` and defaults to signet when it's
+// absent, so a mainnet build must pass its NETWORK_LOCK to get the mainnet tip.
+export async function getChainTip(
+  inkey: string,
+  network: string | undefined = Config.NETWORK_LOCK || undefined,
+): Promise<ChainInfo> {
+  const qs = network ? `?network=${encodeURIComponent(network)}` : '';
+  return req(`${SILNT}/api/v1/oracle/tip${qs}`, { headers: apiKey(inkey) });
 }
 
 // Backend config (login-scan toggle + auto threshold). Network-scoped, like the
