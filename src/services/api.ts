@@ -551,6 +551,41 @@ export async function broadcastTx(
   });
 }
 
+// ── Contacts (address book) ─────────────────────────────────────────────────
+// Server-stored per user. `value` is a Silent-Payments address or a BitMail
+// (name@domain); bech32 on-chain addresses can be sent to but not saved here
+// (the backend only accepts sp/bitmail contacts).
+export interface SpContact {
+  id: string;
+  label: string;
+  kind: string; // 'sp' | 'bitmail'
+  value: string;
+}
+
+export async function listContacts(inkey: string): Promise<SpContact[]> {
+  const res = await req<any>(`${SILNT}/api/v1/contacts`, { headers: apiKey(inkey) });
+  return res?.contacts ?? [];
+}
+
+export async function createContact(
+  inkey: string,
+  label: string,
+  value: string,
+): Promise<SpContact> {
+  return req(`${SILNT}/api/v1/contacts`, {
+    method: 'POST',
+    headers: apiKey(inkey),
+    body: JSON.stringify({ label, value }),
+  });
+}
+
+export async function deleteContact(inkey: string, cid: string): Promise<unknown> {
+  return req(`${SILNT}/api/v1/contacts/${encodeURIComponent(cid)}`, {
+    method: 'DELETE',
+    headers: apiKey(inkey),
+  });
+}
+
 // ── Scanning (catch-up) ─────────────────────────────────────────────────────
 // Silent Payments funds are discovered by scanning blocks with the wallet's
 // scan/spend keys (never stored server-side — passed transiently per scan).

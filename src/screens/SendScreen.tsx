@@ -18,6 +18,27 @@ import * as api from '@services/api';
 import { getWalletKeys } from '@services/secureKeys';
 import { colors } from '@/theme';
 import QRScanner from '../components/QRScanner';
+import ContactsModal from '../components/ContactsModal';
+
+type RecipientKind = 'sp' | 'onchain' | 'bitmail' | '';
+
+// Classify a recipient so we can label it and gate contact-saving (the backend
+// only saves sp/bitmail contacts, though sends also accept bech32 on-chain).
+function recipientKind(v: string): RecipientKind {
+  const s = v.trim().toLowerCase();
+  if (!s) return '';
+  if (s.includes('@')) return 'bitmail';
+  if (s.startsWith('sp1') || s.startsWith('tsp1')) return 'sp';
+  if (s.startsWith('bc1') || s.startsWith('tb1') || s.startsWith('bcrt1')) return 'onchain';
+  return '';
+}
+
+const KIND_LABEL: Record<RecipientKind, string> = {
+  sp: 'Silent Payment address',
+  onchain: 'On-chain address',
+  bitmail: 'BitMail',
+  '': '',
+};
 
 // Extract an SP address from a scanned value: a bare address, a bitcoin: URI, or
 // a URI carrying an `sp=` parameter.
@@ -86,6 +107,22 @@ export default function SendScreen() {
   const [txid, setTxid] = useState('');
   const [scanning, setScanning] = useState(false);
 
+  const [contacts, setContacts] = useState<api.SpContact[]>([]);
+  const [showContacts, setShowContacts] = useState(false);
+  const [savingContact, setSavingContact] = useState(false);
+  const [showSaveContact, setShowSaveContact] = useState(false);
+  const [contactLabel, setContactLabel] = useState('');
+  const [contactMsg, setContactMsg] = useState<string | null>(null);
+
+  const loadContacts = useCallback(async () => {
+    if (!inkey) return;
+    try {
+      setContacts(await api.listContacts(inkey));
+    } catch {
+      setContacts([]);
+    }
+  }, [inkey]);
+
   const load = useCallback(async () => {
     if (!inkey) {
       setLoading(false);
@@ -133,7 +170,45 @@ export default function SendScreen() {
 
   useEffect(() => {
     load();
-  }, [load]);
+    loadContacts();
+  }, [load, loadContacts]);
+
+  const rKind = recipientKind(recipient);
+  const saveable = rKind === 'sp' || rKind === 'bitmail';
+  const alreadySaved = contacts.some(
+    (c) => c.value.trim().toLowerCase() === recipient.trim().toLowerCase(),
+  );
+
+  const onSaveContact = useCallback(async () => {
+    if (!inkey) return;
+    const value = recipient.trim();
+    setSavingContact(true);
+    setContactMsg(null);
+    try {
+      await api.createContact(inkey, contactLabel.trim() || value, value);
+      setContactLabel('');
+      setShowSaveContact(false);
+      setContactMsg('Contact saved.');
+      await loadContacts();
+    } catch (e: any) {
+      setContactMsg(e?.message || 'Could not save contact.');
+    } finally {
+      setSavingContact(false);
+    }
+  }, [inkey, recipient, contactLabel, loadContacts]);
+
+  const onDeleteContact = useCallback(
+    async (id: string) => {
+      if (!inkey) return;
+      try {
+        await api.deleteContact(inkey, id);
+        await loadContacts();
+      } catch {
+        /* ignore */
+      }
+    },
+    [inkey, loadContacts],
+  );
 
   const toggleUtxo = useCallback((u: api.Utxo) => {
     setSelected((prev) => {
@@ -371,13 +446,19 @@ export default function SendScreen() {
             </Text>
           ) : null}
 
-          <Text style={styles.label}>Recipient (Silent Payment address)</Text>
+          <Text style={styles.label}>Recipient</Text>
+          <Text style={styles.recipientHelp}>
+            Silent Payment (sp1…), on-chain (bc1…), or BitMail (name@domain).
+          </Text>
           <View style={styles.recipientRow}>
             <TextInput
               style={[styles.input, styles.recipientInput]}
               value={recipient}
-              onChangeText={setRecipient}
-              placeholder="sp1…"
+              onChangeText={(t) => {
+                setRecipient(t);
+                setContactMsg(null);
+              }}
+              placeholder="sp1… / bc1… / name@domain"
               placeholderTextColor="#aaa"
               autoCapitalize="none"
               autoCorrect={false}
@@ -398,6 +479,54 @@ export default function SendScreen() {
               </TouchableOpacity>
             </View>
           </View>
+
+          {rKind ? (
+            <Text style={styles.kindHint}>Detected: {KIND_LABEL[rKind]}</Text>
+          ) : null}
+
+          <View style={styles.contactRow}>
+            <TouchableOpacity
+              style={styles.contactBtn}
+              onPress={() => setShowContacts(true)}>
+              <Text style={styles.contactBtnText}>
+                Contacts{contacts.length ? ` (${contacts.length})` : ''}
+              </Text>
+            </TouchableOpacity>
+            {saveable && !alreadySaved ? (
+              <TouchableOpacity
+                style={styles.contactBtn}
+                onPress={() => setShowSaveContact((v) => !v)}>
+                <Text style={styles.contactBtnText}>★ Save contact</Text>
+              </TouchableOpacity>
+            ) : null}
+            {alreadySaved ? (
+              <Text style={styles.savedHint}>✓ In contacts</Text>
+            ) : null}
+          </View>
+
+          {showSaveContact && saveable ? (
+            <View style={styles.saveContactRow}>
+              <TextInput
+                style={[styles.input, styles.contactLabelInput]}
+                value={contactLabel}
+                onChangeText={setContactLabel}
+                placeholder="Label (e.g. Alice)"
+                placeholderTextColor="#aaa"
+                maxLength={40}
+              />
+              <TouchableOpacity
+                style={[styles.pasteBtn, savingContact && styles.btnDisabled]}
+                onPress={onSaveContact}
+                disabled={savingContact}>
+                {savingContact ? (
+                  <ActivityIndicator color={PRIMARY} />
+                ) : (
+                  <Text style={styles.pasteText}>Save</Text>
+                )}
+              </TouchableOpacity>
+            </View>
+          ) : null}
+          {contactMsg ? <Text style={styles.contactMsg}>{contactMsg}</Text> : null}
 
           <Text style={styles.label}>Amount (sats)</Text>
           <TextInput
@@ -530,6 +659,14 @@ export default function SendScreen() {
         onClose={() => setScanning(false)}
         onScanned={(v) => setRecipient(parseScannedAddress(v))}
       />
+
+      <ContactsModal
+        visible={showContacts}
+        contacts={contacts}
+        onClose={() => setShowContacts(false)}
+        onPick={(v) => setRecipient(v)}
+        onDelete={onDeleteContact}
+      />
     </SafeAreaView>
   );
 }
@@ -594,9 +731,24 @@ const styles = StyleSheet.create({
     color: '#000',
     backgroundColor: '#fff',
   },
+  recipientHelp: { fontSize: 12, color: '#888', marginBottom: 8, marginTop: -2 },
   recipientRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 8 },
   recipientActions: { gap: 8 },
   recipientInput: { flex: 1, minHeight: 46 },
+  kindHint: { fontSize: 12, color: PRIMARY, fontWeight: '600', marginTop: 6 },
+  contactRow: { flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 12 },
+  contactBtn: {
+    borderWidth: 1,
+    borderColor: PRIMARY,
+    borderRadius: 8,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+  },
+  contactBtnText: { color: PRIMARY, fontSize: 13, fontWeight: '600' },
+  savedHint: { color: colors.green, fontSize: 13, fontWeight: '600' },
+  saveContactRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 10 },
+  contactLabelInput: { flex: 1 },
+  contactMsg: { fontSize: 13, color: '#666', marginTop: 8 },
   pasteBtn: {
     borderWidth: 1,
     borderColor: PRIMARY,
