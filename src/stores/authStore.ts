@@ -4,6 +4,7 @@ import * as deviceTrust from '@services/deviceTrust';
 import { DEVICE_TRUST_ENABLED } from '@/theme';
 import { resetCatchUp } from '../hooks/useCatchUpScan';
 import { useBitmailAlert } from './bitmailAlert';
+import { useAppLockStore } from './appLockStore';
 
 // Device-trust gate state. 'trusted' when the feature is off (nothing to gate)
 // or the device is confirmed; 'untrusted' means the app must show the
@@ -103,6 +104,10 @@ export const useAuthStore = create<AuthState>((set) => ({
     // Drop the in-memory device id; the keystore entry survives so the same
     // device stays trusted on the next login.
     deviceTrust.clearCurrent();
+    // Clear the transient app-lock state so "Log out" always leaves the lock
+    // screen and a fresh login never reappears locked (the enabled preference
+    // itself is untouched — the lock re-engages on the next background).
+    useAppLockStore.getState().unlock();
     set({
       token: null,
       inkey: null,

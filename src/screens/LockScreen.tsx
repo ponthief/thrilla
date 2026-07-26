@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useRef } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Image,
@@ -23,16 +23,27 @@ export default function LockScreen() {
   const setUnlocking = useAppLockStore((s) => s.setUnlocking);
   const logout = useAuthStore((s) => s.logout);
   const attempted = useRef(false);
+  const [failed, setFailed] = useState(false);
 
   const prompt = useCallback(async () => {
     if (unlocking) return;
     setUnlocking(true);
-    const ok = await appLock.authenticate();
-    if (ok) {
-      unlock();
-    } else {
-      setUnlocking(false);
+    setFailed(false);
+    try {
+      const ok = await appLock.authenticate();
+      if (ok) {
+        unlock();
+        return; // unlock() clears `unlocking`; the lock screen unmounts
+      }
+    } catch {
+      // authenticate() already swallows errors, but never let an unexpected
+      // throw wedge the button in its disabled/spinner state.
     }
+    // Failed / cancelled / unavailable: surface it (so it doesn't look like
+    // nothing happened) and re-enable the button so the user can retry or use
+    // "Log out instead". The Unlock button must never stay stuck disabled.
+    setFailed(true);
+    setUnlocking(false);
   }, [unlocking, setUnlocking, unlock]);
 
   // Prompt once automatically when the lock screen appears.
@@ -63,9 +74,15 @@ export default function LockScreen() {
           {unlocking ? (
             <ActivityIndicator color={colors.onPrimary} />
           ) : (
-            <Text style={styles.buttonText}>Unlock</Text>
+            <Text style={styles.buttonText}>{failed ? 'Try again' : 'Unlock'}</Text>
           )}
         </TouchableOpacity>
+
+        {failed ? (
+          <Text style={styles.error}>
+            Couldn't verify it's you. Try again, or log out.
+          </Text>
+        ) : null}
 
         <TouchableOpacity style={styles.logout} onPress={() => logout()}>
           <Text style={styles.logoutText}>Log out instead</Text>
@@ -98,6 +115,13 @@ const styles = StyleSheet.create({
   },
   buttonDisabled: { opacity: 0.5 },
   buttonText: { color: colors.onPrimary, fontSize: 16, fontWeight: '600' },
+  error: {
+    color: colors.danger,
+    fontSize: 13,
+    textAlign: 'center',
+    marginTop: 16,
+    paddingHorizontal: 8,
+  },
   logout: { marginTop: 20 },
   logoutText: { color: colors.muted, fontSize: 14, fontWeight: '600' },
 });
