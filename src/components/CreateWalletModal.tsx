@@ -16,6 +16,7 @@ import { useAuthStore } from '@stores/authStore';
 import * as api from '@services/api';
 import { storeWalletKeys } from '@services/secureKeys';
 import { resetCatchUp } from '../hooks/useCatchUpScan';
+import SeedInput from './SeedInput';
 import { colors } from '@/theme';
 
 const PRIMARY = colors.primary;
@@ -213,15 +214,10 @@ export default function CreateWalletModal({ visible, onClose, onCreated }: Props
               {mode === 'import' ? (
                 <>
                   <Text style={styles.label}>Recovery phrase (12 words)</Text>
-                  <TextInput
-                    style={[styles.input, styles.mnemonicInput]}
+                  <SeedInput
                     value={mnemonicInput}
                     onChangeText={setMnemonicInput}
                     placeholder="word1 word2 word3 …"
-                    placeholderTextColor="#aaa"
-                    autoCapitalize="none"
-                    autoCorrect={false}
-                    multiline
                   />
                   <Text style={styles.label}>Born at height (block)</Text>
                   <TextInput
