@@ -395,6 +395,21 @@ export async function setUtxoFrozen(
   });
 }
 
+// Restore a coin marked spent back to spendable (only when the spending tx was
+// dropped). Requires the admin key; the server verifies the tx is really gone.
+export async function restoreUtxo(
+  adminkey: string,
+  walletId: string,
+  txid: string,
+  vout: number,
+): Promise<unknown> {
+  return req(`${SILNT}/api/v1/utxos/restore`, {
+    method: 'POST',
+    headers: apiKey(adminkey),
+    body: JSON.stringify({ wallet_id: walletId, txid, vout }),
+  });
+}
+
 // Set/clear a UTXO's label. inkey.
 export async function updateUtxoLabel(
   inkey: string,
