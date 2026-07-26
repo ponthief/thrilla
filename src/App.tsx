@@ -13,8 +13,9 @@ import SettingsScreen from './screens/SettingsScreen';
 import LoginScreen from './screens/LoginScreen';
 import RegisterScreen from './screens/RegisterScreen';
 import ForgotPasswordScreen from './screens/ForgotPasswordScreen';
+import DeviceConfirmScreen from './screens/DeviceConfirmScreen';
 import { useAuthStore } from '@stores/authStore';
-import { colors } from '@/theme';
+import { colors, DEVICE_TRUST_ENABLED } from '@/theme';
 
 type TabKey = 'wallet' | 'send' | 'receive' | 'scan' | 'settings';
 
@@ -98,9 +99,22 @@ function AuthNavigator() {
 
 const App = () => {
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
+  const deviceStatus = useAuthStore((s) => s.deviceStatus);
+
+  // When device-trust is on, an authenticated-but-unconfirmed device must clear
+  // the confirmation flow before reaching the wallet.
+  const needsDeviceConfirm =
+    DEVICE_TRUST_ENABLED && isAuthenticated && deviceStatus !== 'trusted';
+
   return (
     <SafeAreaProvider>
-      {isAuthenticated ? <Shell /> : <AuthNavigator />}
+      {!isAuthenticated ? (
+        <AuthNavigator />
+      ) : needsDeviceConfirm ? (
+        <DeviceConfirmScreen />
+      ) : (
+        <Shell />
+      )}
     </SafeAreaProvider>
   );
 };

@@ -11,12 +11,14 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAuthStore } from '@stores/authStore';
 import * as api from '@services/api';
-import { colors } from '@/theme';
+import { colors, DEVICE_TRUST_ENABLED } from '@/theme';
+import DevicesModal from '../components/DevicesModal';
 
 export default function SettingsScreen() {
   const username = useAuthStore((state) => state.username);
   const inkey = useAuthStore((state) => state.inkey);
   const logout = useAuthStore((state) => state.logout);
+  const [devicesOpen, setDevicesOpen] = useState(false);
 
   const [prefs, setPrefs] = useState<api.UserPrefs | null>(null);
   const [dustDraft, setDustDraft] = useState('');
@@ -137,6 +139,18 @@ export default function SettingsScreen() {
           </View>
         </View>
 
+        {DEVICE_TRUST_ENABLED ? (
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>Security</Text>
+            <TouchableOpacity
+              style={styles.item}
+              onPress={() => setDevicesOpen(true)}>
+              <Text style={styles.itemLabel}>Trusted devices</Text>
+              <Text style={styles.itemValue}>Manage ›</Text>
+            </TouchableOpacity>
+          </View>
+        ) : null}
+
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>About</Text>
           <View style={styles.item}>
@@ -149,6 +163,13 @@ export default function SettingsScreen() {
           <Text style={styles.logoutText}>Log Out</Text>
         </TouchableOpacity>
       </ScrollView>
+
+      {DEVICE_TRUST_ENABLED ? (
+        <DevicesModal
+          visible={devicesOpen}
+          onClose={() => setDevicesOpen(false)}
+        />
+      ) : null}
     </SafeAreaView>
   );
 }
