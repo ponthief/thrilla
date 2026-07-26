@@ -104,9 +104,17 @@ export default function CoinsScreen({ visible, onClose }: Props) {
         .reduce((s, u) => s + u.amount, 0),
     [utxos],
   );
+  // All unspent suspected-dust coins — this drives the "dust" stat, so it agrees
+  // with the per-coin dust badge (which shows on any suspected-dust coin). A
+  // frozen dust coin is still dust, so it stays counted.
   const dustCoins = useMemo(
-    () => utxos.filter((u) => u.utxo_state === 'unspent' && !u.frozen && isDust(u)),
+    () => utxos.filter((u) => u.utxo_state === 'unspent' && isDust(u)),
     [utxos, isDust],
+  );
+  // The subset that can still be frozen — what "Freeze all dust" acts on.
+  const freezableDust = useMemo(
+    () => dustCoins.filter((u) => !u.frozen),
+    [dustCoins],
   );
 
   // Coins shown for the selected state filter, unfrozen first then by amount.
@@ -139,10 +147,10 @@ export default function CoinsScreen({ visible, onClose }: Props) {
   );
 
   const freezeAllDust = useCallback(async () => {
-    if (!inkey || !dustCoins.length) return;
+    if (!inkey || !freezableDust.length) return;
     setBulkBusy(true);
     try {
-      for (const u of dustCoins) {
+      for (const u of freezableDust) {
         await api.setUtxoFrozen(inkey, u.txid, u.vout, true);
       }
       await load();
@@ -151,7 +159,7 @@ export default function CoinsScreen({ visible, onClose }: Props) {
     } finally {
       setBulkBusy(false);
     }
-  }, [inkey, dustCoins, load]);
+  }, [inkey, freezableDust, load]);
 
   const saveLabel = useCallback(
     async (u: api.Utxo) => {
@@ -237,7 +245,7 @@ export default function CoinsScreen({ visible, onClose }: Props) {
             </View>
           </View>
 
-          {dustCoins.length > 0 ? (
+          {freezableDust.length > 0 ? (
             <TouchableOpacity
               style={[styles.dustBtn, bulkBusy && styles.disabled]}
               onPress={freezeAllDust}
@@ -246,8 +254,8 @@ export default function CoinsScreen({ visible, onClose }: Props) {
                 <ActivityIndicator color={colors.onPrimary} />
               ) : (
                 <Text style={styles.dustBtnText}>
-                  Freeze {dustCoins.length} suspected-dust coin
-                  {dustCoins.length === 1 ? '' : 's'}
+                  Freeze {freezableDust.length} suspected-dust coin
+                  {freezableDust.length === 1 ? '' : 's'}
                 </Text>
               )}
             </TouchableOpacity>

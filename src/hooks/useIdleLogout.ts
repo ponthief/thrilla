@@ -3,10 +3,9 @@ import { AppState } from 'react-native';
 import { useAuthStore } from '@stores/authStore';
 import { msSinceActivity, resetActivity } from '@services/sessionActivity';
 
-// Idle session timeout, mirroring the web app (stores/auth.js). Sessions expire
-// after this long without genuine user interaction, forcing re-authentication.
-// Web uses 30 minutes; keep the two in sync when changing.
-export const IDLE_TIMEOUT_MS = 30 * 60 * 1000; // 30 minutes
+// Idle session timeout: sessions expire after this long without genuine user
+// interaction, forcing re-authentication.
+export const IDLE_TIMEOUT_MS = 10 * 60 * 1000; // 10 minutes
 
 // Enforce the idle timeout while authenticated: refreshes the timer on entry,
 // checks every 30s, and re-checks immediately whenever the app returns to the
