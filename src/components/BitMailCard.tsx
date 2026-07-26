@@ -9,6 +9,7 @@ import {
 } from 'react-native';
 import Clipboard from '@react-native-clipboard/clipboard';
 import { useAuthStore } from '@stores/authStore';
+import { useBitmailAlert } from '@stores/bitmailAlert';
 import * as api from '@services/api';
 import { colors } from '@/theme';
 
@@ -26,6 +27,7 @@ interface Props {
  */
 export default function BitMailCard({ wallet }: Props) {
   const inkey = useAuthStore((s) => s.inkey);
+  const tamper = useBitmailAlert((s) => s.tamper);
 
   const [loading, setLoading] = useState(true);
   const [domain, setDomain] = useState('');
@@ -110,9 +112,21 @@ export default function BitMailCard({ wallet }: Props) {
   // Feature unavailable on this server — render nothing.
   if (!loading && !domain) return null;
 
+  const tampered = !!tamper && tamper.bitmail === (wallet.hr_address || current);
+
   return (
     <View style={styles.card}>
       <Text style={styles.title}>BitMail (BIP-353)</Text>
+
+      {tampered ? (
+        <View style={styles.tamper}>
+          <Text style={styles.tamperTitle}>⚠ Tampering detected</Text>
+          <Text style={styles.tamperBody}>
+            This BitMail resolves to {tamper!.resolved.slice(0, 14)}… instead of
+            your wallet address. Don't rely on it — your admin has been alerted.
+          </Text>
+        </View>
+      ) : null}
 
       {loading ? (
         <ActivityIndicator style={styles.spinner} color={PRIMARY} />
@@ -246,4 +260,15 @@ const styles = StyleSheet.create({
   badgeText: { color: PRIMARY, fontSize: 12, fontWeight: '700' },
   cancel: { color: '#c0392b', fontSize: 14, fontWeight: '600' },
   error: { color: '#c0392b', fontSize: 13, marginTop: 12 },
+  tamper: {
+    backgroundColor: '#fdecea',
+    borderColor: '#c0392b',
+    borderWidth: 1,
+    borderRadius: 8,
+    padding: 12,
+    marginTop: 12,
+  },
+  tamperTitle: { fontSize: 14, fontWeight: '700', color: '#c0392b' },
+  tamperBody: { fontSize: 12, color: '#7d2820', marginTop: 4, lineHeight: 17 },
 });
+

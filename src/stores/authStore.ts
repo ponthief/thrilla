@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import * as api from '@services/api';
 import { resetCatchUp } from '../hooks/useCatchUpScan';
+import { useBitmailAlert } from './bitmailAlert';
 
 interface AuthState {
   token: string | null;
@@ -66,6 +67,7 @@ export const useAuthStore = create<AuthState>((set) => ({
   logout: () => {
     // New session should re-evaluate catch-up scanning for every wallet.
     resetCatchUp();
+    useBitmailAlert.getState().clear();
     set({
       token: null,
       inkey: null,

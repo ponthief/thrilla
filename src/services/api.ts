@@ -153,6 +153,24 @@ export interface Bip353Request {
   reject_reason?: string | null;
 }
 
+// Resolve a BitMail (BIP-353) address over DNS to its silent-payment address.
+// Returns the backend's raw result; use spFromResolve() to extract the sp1… .
+export async function resolveBip353(
+  inkey: string,
+  address: string,
+): Promise<{ result?: string; [k: string]: unknown }> {
+  return req(
+    `${SILNT}/api/v1/bip353/resolve?address=${encodeURIComponent(address)}`,
+    { headers: apiKey(inkey) },
+  );
+}
+
+// Extract the sp1…/tsp1… address from a resolve result (e.g. "bitcoin:?sp=sp1…").
+export function spFromResolve(res: { result?: string } | null): string {
+  const raw = (res?.result || '').replace('bitcoin:?sp=', '').replace('sp=', '');
+  return raw.trim();
+}
+
 // The configured BitMail domain (empty string = feature unavailable). Uses inkey.
 export async function getBitmailDomain(inkey: string): Promise<{ domain: string }> {
   return req(`${SILNT}/api/v1/bitmail/domain`, { headers: apiKey(inkey) });
