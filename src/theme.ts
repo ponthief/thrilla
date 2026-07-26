@@ -1,3 +1,7 @@
+// Feature flags. Lightning is disabled on every network the app ships (signet
+// and mainnet): no LN wallet, no bolt11 receive. Flip to re-enable everywhere.
+export const LIGHTNING_ENABLED = false;
+
 // Brand palette, mirroring the web app's CSS custom properties (src/style.css).
 // Keeping these in one place means every screen shares the same orange the web
 // wallet uses, instead of the placeholder blue the migration scaffolding had.

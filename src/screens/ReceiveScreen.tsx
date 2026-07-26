@@ -18,7 +18,7 @@ import { useAuthStore } from '@stores/authStore';
 import * as api from '@services/api';
 import QRCode from '../components/QRCode';
 import BitMailCard from '../components/BitMailCard';
-import { colors } from '@/theme';
+import { colors, LIGHTNING_ENABLED } from '@/theme';
 
 const PRIMARY = colors.primary;
 const GREEN = colors.green;
@@ -40,7 +40,9 @@ function groupThousands(n: number): string {
 }
 
 export default function ReceiveScreen() {
-  const [mode, setMode] = useState<Mode>('lightning');
+  const [mode, setMode] = useState<Mode>(
+    LIGHTNING_ENABLED ? 'lightning' : 'onchain',
+  );
 
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
@@ -49,24 +51,30 @@ export default function ReceiveScreen() {
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
         <View style={styles.header}>
           <Text style={styles.headerTitle}>Receive</Text>
-          <View style={styles.segment}>
-            <SegmentButton
-              label="Lightning"
-              active={mode === 'lightning'}
-              onPress={() => setMode('lightning')}
-            />
-            <SegmentButton
-              label="On-chain"
-              active={mode === 'onchain'}
-              onPress={() => setMode('onchain')}
-            />
-          </View>
+          {LIGHTNING_ENABLED ? (
+            <View style={styles.segment}>
+              <SegmentButton
+                label="Lightning"
+                active={mode === 'lightning'}
+                onPress={() => setMode('lightning')}
+              />
+              <SegmentButton
+                label="On-chain"
+                active={mode === 'onchain'}
+                onPress={() => setMode('onchain')}
+              />
+            </View>
+          ) : null}
         </View>
         <ScrollView
           style={styles.flex}
           contentContainerStyle={styles.content}
           keyboardShouldPersistTaps="handled">
-          {mode === 'lightning' ? <LightningReceive /> : <OnchainReceive />}
+          {LIGHTNING_ENABLED && mode === 'lightning' ? (
+            <LightningReceive />
+          ) : (
+            <OnchainReceive />
+          )}
         </ScrollView>
       </KeyboardAvoidingView>
     </SafeAreaView>

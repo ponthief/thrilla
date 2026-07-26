@@ -176,6 +176,18 @@ export async function getBitmailDomain(inkey: string): Promise<{ domain: string 
   return req(`${SILNT}/api/v1/bitmail/domain`, { headers: apiKey(inkey) });
 }
 
+// Live availability check for a BitMail username (before submitting a request).
+// reason: 'invalid' | 'reserved' | 'taken' | null.
+export async function checkBip353Available(
+  inkey: string,
+  username: string,
+): Promise<{ available: boolean; reason: string | null }> {
+  return req(
+    `${SILNT}/api/v1/bip353/available?username=${encodeURIComponent(username)}`,
+    { headers: apiKey(inkey) },
+  );
+}
+
 // Submit a username request for a wallet (address_id null = the base SP address).
 export async function createBip353Request(
   inkey: string,
