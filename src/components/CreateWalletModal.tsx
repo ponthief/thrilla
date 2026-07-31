@@ -11,10 +11,14 @@ import {
 } from 'react-native';
 import Clipboard from '@react-native-clipboard/clipboard';
 import Config from 'react-native-config';
-import CryptoJS from 'crypto-js';
 import { useAuthStore } from '@stores/authStore';
 import * as api from '@services/api';
 import { storeWalletKeys } from '@services/secureKeys';
+import {
+  deriveSilentPayment,
+  generateMnemonic,
+  isValidMnemonic,
+} from '@services/spKeys';
 import { resetCatchUp } from '../hooks/useCatchUpScan';
 import SeedInput from './SeedInput';
 import { colors } from '@/theme';
@@ -30,16 +34,10 @@ interface Props {
 type Step = 'form' | 'reveal';
 type Mode = 'generate' | 'import';
 
-// The backend decrypts the imported seed with String(last_height) as the AES
-// key (lnbits AESCipher == CryptoJS OpenSSL "Salted__" format), so we encrypt
-// exactly the way the web app does before sending it.
-function encryptMnemonicForImport(mnemonic: string, lastHeight: number): string {
-  return CryptoJS.AES.encrypt(mnemonic, String(lastHeight)).toString();
-}
-
 export default function CreateWalletModal({ visible, onClose, onCreated }: Props) {
   const inkey = useAuthStore((s) => s.inkey);
-  const network = (Config.NETWORK_LOCK || 'mainnet').toUpperCase();
+  const netLock = Config.NETWORK_LOCK || 'mainnet';
+  const network = netLock.toUpperCase();
 
   const [step, setStep] = useState<Step>('form');
   const [mode, setMode] = useState<Mode>('generate');
@@ -81,18 +79,18 @@ export default function CreateWalletModal({ visible, onClose, onCreated }: Props
       return;
     }
 
-    const data: {
-      title: string;
-      passphrase?: string;
-      mnemonic?: string;
-      last_height?: number;
-    } = { title: title.trim() };
-    if (passphrase) data.passphrase = passphrase;
-
+    // Establish the seed for this wallet: freshly generated, or the user's import.
+    let seedPhrase: string;
+    let lastHeight: number | undefined;
     if (mode === 'import') {
       const words = mnemonicInput.trim().toLowerCase().split(/\s+/).filter(Boolean);
       if (words.length !== 12) {
         setError('Recovery phrase must be exactly 12 words.');
+        return;
+      }
+      seedPhrase = words.join(' ');
+      if (!isValidMnemonic(seedPhrase)) {
+        setError('Invalid recovery phrase — the checksum (last word) is incorrect.');
         return;
       }
       const height = Number(birthHeight);
@@ -100,24 +98,41 @@ export default function CreateWalletModal({ visible, onClose, onCreated }: Props
         setError('Enter the wallet birth height (block number) to import.');
         return;
       }
-      data.last_height = Math.floor(height);
-      data.mnemonic = encryptMnemonicForImport(words.join(' '), Math.floor(height));
+      lastHeight = Math.floor(height);
+    } else {
+      seedPhrase = generateMnemonic();
     }
+
+    // Derive keys ON THIS DEVICE. The mnemonic and private keys never leave the
+    // phone — the server only ever receives the public sp_address.
+    let keys;
+    try {
+      keys = deriveSilentPayment(seedPhrase, passphrase, netLock);
+    } catch {
+      setError('Could not derive wallet keys on this device.');
+      return;
+    }
+
+    const data: {
+      title: string;
+      sp_address: string;
+      last_height?: number;
+    } = { title: title.trim(), sp_address: keys.spAddress };
+    if (lastHeight !== undefined) data.last_height = lastHeight;
 
     setCreating(true);
     try {
       const res = await api.createSilntWallet(inkey, data);
-      // Persist the SP keys in the platform keystore so this device can scan
-      // (and later spend). Recoverable from the mnemonic if this fails.
-      if (res.wallet_id && res.scan_secret && res.spend_key) {
-        await storeWalletKeys(res.wallet_id, res.scan_secret, res.spend_key);
-      }
+      // Persist the locally-derived SP keys in the platform keystore so this
+      // device can scan (and later spend). These come from local derivation, not
+      // the response — the server never had them.
+      await storeWalletKeys(res.wallet_id, keys.scanSecret, keys.spendKey);
       // A reimport reuses the same seed-derived id — let it be re-evaluated for
       // catch-up scanning instead of being treated as already-checked.
       resetCatchUp(res.wallet_id);
-      if (res.mnemonic && res.generated) {
+      if (mode === 'generate') {
         // Fresh seed — show it once so the user can back it up.
-        setMnemonic(res.mnemonic);
+        setMnemonic(seedPhrase);
         setStep('reveal');
       } else {
         // Import: the user already has their phrase — just finish.
@@ -137,6 +152,7 @@ export default function CreateWalletModal({ visible, onClose, onCreated }: Props
     mnemonicInput,
     birthHeight,
     inkey,
+    netLock,
     onCreated,
     onClose,
     reset,

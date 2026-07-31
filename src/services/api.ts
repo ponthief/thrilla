@@ -818,6 +818,9 @@ export async function createSilntWallet(
     passphrase?: string;
     last_height?: number;
     mnemonic?: string;
+    // Client-derived SP address: when set, the seed/keys were derived on-device
+    // and the server never sees the mnemonic (see services/spKeys).
+    sp_address?: string;
   },
 ): Promise<CreatedWallet> {
   return req(`${SILNT}/api/v1/wallet`, {
