@@ -9,10 +9,9 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
-import CryptoJS from 'crypto-js';
-import { useAuthStore } from '@stores/authStore';
 import * as api from '@services/api';
 import { storeWalletKeys } from '@services/secureKeys';
+import { deriveSilentPayment, isValidMnemonic } from '@services/spKeys';
 import { resetCatchUp } from '../hooks/useCatchUpScan';
 import SeedInput from './SeedInput';
 import { colors } from '@/theme';
@@ -32,19 +31,14 @@ export default function RecoverKeysModal({
   onClose,
   onRecovered,
 }: Props) {
-  const inkey = useAuthStore((s) => s.inkey);
-
   const [mnemonic, setMnemonic] = useState('');
   const [passphrase, setPassphrase] = useState('');
-  const [height, setHeight] = useState('');
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Prefill the birth height from the wallet when the sheet opens.
   useEffect(() => {
     if (visible) {
-      setHeight(wallet?.last_height ? String(wallet.last_height) : '');
       setMnemonic('');
       setPassphrase('');
       setShowAdvanced(false);
@@ -54,42 +48,40 @@ export default function RecoverKeysModal({
 
   const onSubmit = useCallback(async () => {
     setError(null);
-    if (!wallet || !inkey) return;
+    if (!wallet) return;
     const words = mnemonic.trim().toLowerCase().split(/\s+/).filter(Boolean);
     if (words.length !== 12) {
       setError('Recovery phrase must be exactly 12 words.');
       return;
     }
-    const h = Number(height);
-    if (!height || !Number.isFinite(h) || h < 0) {
-      setError('Enter the wallet birth height (block number).');
+    const phrase = words.join(' ');
+    if (!isValidMnemonic(phrase)) {
+      setError('Invalid recovery phrase — the checksum (last word) is incorrect.');
       return;
     }
     setBusy(true);
     try {
-      // Same AES(mnemonic, String(last_height)) envelope as import.
-      const enc = CryptoJS.AES.encrypt(words.join(' '), String(Math.floor(h))).toString();
-      const res = await api.recoverWalletKeys(
-        inkey,
-        wallet.id,
-        enc,
-        Math.floor(h),
-        passphrase || null,
-      );
-      if (!res?.scan_secret || !res?.spend_key) {
-        throw new Error('Could not derive keys from that phrase.');
+      // Derive entirely on-device, then confirm it reproduces THIS wallet's
+      // address before trusting it — a wrong phrase or passphrase derives a
+      // different address. Nothing is sent to the server.
+      const keys = deriveSilentPayment(phrase, passphrase, wallet.network);
+      if (
+        keys.spAddress.toLowerCase() !== (wallet.sp_address || '').toLowerCase()
+      ) {
+        throw new Error(
+          "That phrase doesn't match this wallet's address. Check the words and passphrase.",
+        );
       }
-      await storeWalletKeys(wallet.id, res.scan_secret, res.spend_key);
+      await storeWalletKeys(wallet.id, keys.scanSecret, keys.spendKey);
       resetCatchUp(wallet.id);
       onRecovered();
       onClose();
     } catch (e: any) {
-      // The backend rejects a seed whose address doesn't match this wallet.
       setError(e?.message || 'Recovery failed. Check the phrase and try again.');
     } finally {
       setBusy(false);
     }
-  }, [wallet, inkey, mnemonic, height, passphrase, onRecovered, onClose]);
+  }, [wallet, mnemonic, passphrase, onRecovered, onClose]);
 
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
@@ -107,16 +99,6 @@ export default function RecoverKeysModal({
               value={mnemonic}
               onChangeText={setMnemonic}
               placeholder="word1 word2 word3 …"
-            />
-
-            <Text style={styles.label}>Born at height (block)</Text>
-            <TextInput
-              style={styles.input}
-              value={height}
-              onChangeText={(t) => setHeight(t.replace(/[^0-9]/g, ''))}
-              keyboardType="number-pad"
-              placeholder="e.g. 840000"
-              placeholderTextColor={colors.faint}
             />
 
             <TouchableOpacity
