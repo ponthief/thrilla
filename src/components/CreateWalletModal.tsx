@@ -100,7 +100,14 @@ export default function CreateWalletModal({ visible, onClose, onCreated }: Props
       }
       lastHeight = Math.floor(height);
     } else {
-      seedPhrase = generateMnemonic();
+      try {
+        seedPhrase = generateMnemonic();
+      } catch (e: any) {
+        // Secure-RNG guard tripped (e.g. remote JS debugging) — never fall back
+        // to a weak seed.
+        setError(e?.message || 'Could not generate a secure seed on this device.');
+        return;
+      }
     }
 
     // Derive keys ON THIS DEVICE. The mnemonic and private keys never leave the
