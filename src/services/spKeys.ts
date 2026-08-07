@@ -33,8 +33,32 @@ function toHex(u8: Uint8Array): string {
   return s;
 }
 
-// A fresh 12-word (128-bit) BIP-39 mnemonic from the platform CSPRNG.
+// `react-native-get-random-values` substitutes Math.random() for
+// crypto.getRandomValues in exactly one case: a __DEV__ build under remote JS
+// debugging (Chrome), where synchronous native calls aren't available and no
+// Expo secure module is present (see its isRemoteDebuggingInChrome). A wallet
+// seed must NEVER come from Math.random(), so detect that exact case and refuse.
+// Returns false on release builds, on-device dev, and in the browser — all of
+// which have a real CSPRNG — so it never false-positives.
+function secureRandomUnavailable(): boolean {
+  const g = globalThis as any;
+  if (g.expo?.modules?.ExpoCrypto?.getRandomValues) return false; // Expo secure path
+  if ('RN$Bridgeless' in g && g.RN$Bridgeless === true) return false; // new arch: no remote-debug fallback
+  const dev = typeof __DEV__ !== 'undefined' && (__DEV__ as unknown as boolean);
+  return dev && typeof g.nativeCallSyncHook === 'undefined';
+}
+
+// A fresh 12-word (128-bit) BIP-39 mnemonic from the platform CSPRNG
+// (@scure/bip39 → @noble randomBytes → crypto.getRandomValues → native
+// SecureRandom). Hard-fails rather than ever producing a Math.random() seed.
 export function generateMnemonic(): string {
+  if (secureRandomUnavailable()) {
+    throw new Error(
+      'Secure random number generator unavailable — refusing to generate a ' +
+        'wallet seed. (Remote JS debugging uses an insecure RNG; disable Chrome ' +
+        'debugging or run a real build.)',
+    );
+  }
   return scureGenerate(wordlist, 128);
 }
 
