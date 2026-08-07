@@ -10,7 +10,9 @@ import { scanWatchWallets } from '@/stores/scanwatch'
 import QrModal from '@/components/QrModal.vue'
 import EditWalletModal from '@/components/EditWalletModal.vue'
 import SeedInput from '@/components/SeedInput.vue'
-import CryptoJS from 'crypto-js'
+// Client-side Silent Payments derivation — the same module the mobile app uses,
+// verified byte-for-byte against the backend. Keeps the seed on this device.
+import { deriveSilentPayment, generateMnemonic, isValidMnemonic } from '@/services/spKeys'
 
 // Build-time flags injected from .env (e.g. .env.signet)
 const NETWORK_LOCK   = import.meta.env.VITE_NETWORK_LOCK   || null
@@ -220,50 +222,59 @@ async function createWallet() {
   }
   creating.value = true
   try {
-    const payload = {
-      title:   createForm.value.title.trim(),
-      network: createForm.value.network,
-    }
-    if (createForm.value.passphrase) payload.passphrase = createForm.value.passphrase
+    const network = createForm.value.network
+    const passphrase = createForm.value.passphrase || ''
 
+    // Establish the seed for this wallet: freshly generated, or the user's import.
+    let seedPhrase
     if (createForm.value.mode === 'import') {
-      const m = (createForm.value.mnemonic || '').trim()
+      const m = (createForm.value.mnemonic || '').trim().toLowerCase()
       if (!m) {
         createError.value = 'Mnemonic is required for import.'
         creating.value = false; return
       }
-      // Quick client-side word-count check (server does full checksum validation)
       if (m.split(/\s+/).length !== 12) {
         createError.value = 'Mnemonic must be exactly 12 words.'
         creating.value = false; return
       }
-      // Import path requires last_height (used as the AES key, matching the
-      // existing decrypt_mnemonic(mnemonic, str(last_height)) on the server)
-      if (createForm.value.last_height === '' || createForm.value.last_height === null) {
-        createError.value = 'For import, please enter the wallet birth height (Born at Height).'
+      if (!isValidMnemonic(m)) {
+        createError.value = 'Invalid recovery phrase — the checksum (last word) is incorrect.'
         creating.value = false; return
       }
-      const lastHeight = Number(createForm.value.last_height)
-      payload.last_height = lastHeight
-      payload.mnemonic = CryptoJS.AES.encrypt(m, String(lastHeight)).toString()
+      seedPhrase = m
     } else {
-      // Generate path: no mnemonic; last_height optional (server defaults to tip)
-      if (createForm.value.last_height !== '' && createForm.value.last_height !== null) {
-        payload.last_height = Number(createForm.value.last_height)
-      }
+      seedPhrase = generateMnemonic()
+    }
+
+    // Derive keys IN THE BROWSER. The mnemonic and private keys never leave this
+    // device — the server only ever receives the public sp_address.
+    let keys
+    try {
+      keys = deriveSilentPayment(seedPhrase, passphrase, network)
+    } catch (e) {
+      createError.value = 'Could not derive wallet keys in the browser.'
+      creating.value = false; return
+    }
+
+    const payload = { title: createForm.value.title.trim(), network, sp_address: keys.spAddress }
+    // Birth height: required-ish on import (to scan history), optional on generate
+    // (server defaults to the current tip).
+    if (createForm.value.last_height !== '' && createForm.value.last_height !== null) {
+      payload.last_height = Number(createForm.value.last_height)
     }
 
     const result = await api.createSilntWallet(auth.inkey, payload)
 
-    if (result && result.wallet_id && result.scan_secret && result.spend_key) {
-      await auth.storeWalletKeys(result.wallet_id, result.scan_secret, result.spend_key)
+    // Persist the locally-derived keys (NOT from the response — the server never
+    // had them).
+    if (result && result.wallet_id) {
+      await auth.storeWalletKeys(result.wallet_id, keys.scanSecret, keys.spendKey)
     }
 
-    // Only reveal the mnemonic + "save it" warning when we GENERATED a fresh
-    // seed. On import the user already has their mnemonic — showing it back and
-    // warning them to save it is redundant.
-    if (result && result.mnemonic && result.generated) {
-      newWalletReveal.value = result
+    // Only reveal the seed on a fresh generate so the user can back it up. On
+    // import they already have it. The mnemonic shown is the local one.
+    if (createForm.value.mode === 'generate' && result && result.wallet_id) {
+      newWalletReveal.value = { ...result, mnemonic: seedPhrase }
     }
     showCreate.value = false
     createForm.value = { mode: 'generate', title: '', mnemonic: '', passphrase: '', last_height: '', network: NETWORK_LOCK || 'mainnet' }
@@ -415,24 +426,21 @@ const walletsMissingKeys = computed(() =>
 )
 
 async function submitRecoverKeys() {
-  if (!recoverMnemonic.value.trim() || !recoverHeight.value) return
+  const phrase = (recoverMnemonic.value || '').trim().toLowerCase()
+  if (!phrase) return
   recoverLoading.value = true; recoverError.value = null
   try {
-    const encryptedMnemonic = CryptoJS.AES.encrypt(
-      recoverMnemonic.value.trim(),
-      String(recoverHeight.value)
-    ).toString()
-    const res = await api.recoverWalletKeys(
-      auth.inkey,
-      recoverTarget.value.id,
-      encryptedMnemonic,
-      Number(recoverHeight.value),
-      recoverPassphrase.value || null
-    )
-    if (res && res.scan_secret && res.spend_key) {
-      await auth.storeWalletKeys(recoverTarget.value.id, res.scan_secret, res.spend_key)
-      showRecover.value = false
+    if (phrase.split(/\s+/).length !== 12 || !isValidMnemonic(phrase)) {
+      throw new Error('Invalid recovery phrase — the checksum (last word) is incorrect.')
     }
+    // Derive entirely in the browser, then confirm it reproduces THIS wallet's
+    // address before trusting it. Nothing is sent to the server.
+    const keys = deriveSilentPayment(phrase, recoverPassphrase.value || '', recoverTarget.value.network)
+    if (keys.spAddress.toLowerCase() !== (recoverTarget.value.sp_address || '').toLowerCase()) {
+      throw new Error("That phrase doesn't match this wallet's address. Check the words and passphrase.")
+    }
+    await auth.storeWalletKeys(recoverTarget.value.id, keys.scanSecret, keys.spendKey)
+    showRecover.value = false
   } catch (e) { recoverError.value = e.message }
   finally { recoverLoading.value = false }
 }
@@ -948,12 +956,6 @@ watch(swapCompletedAt, () => {
           </div>
 
           <div class="field">
-            <label>Born at Height</label>
-            <input class="input" v-model.number="recoverHeight" type="number" :placeholder="heightHint" />
-            <span class="text-dim text-xs">Must match the block height when this wallet was originally created.</span>
-          </div>
-
-          <div class="field">
             <label>Passphrase (optional)</label>
             <input class="input" v-model="recoverPassphrase" type="password" placeholder="Leave empty if none" autocomplete="off" />
             <span class="text-dim text-xs">If this wallet was created with a BIP-39 passphrase, enter the exact same one.</span>
@@ -964,7 +966,7 @@ watch(swapCompletedAt, () => {
           <div class="flex gap-2 justify-between" style="margin-top:4px">
             <button class="btn btn-ghost" @click="showRecover = false">Cancel</button>
             <button class="btn btn-primary"
-              :disabled="recoverLoading || !recoverMnemonic.trim() || !recoverHeight"
+              :disabled="recoverLoading || !recoverMnemonic.trim()"
               @click="submitRecoverKeys">
               <span v-if="recoverLoading" class="spinner" style="border-top-color:#000"></span>
               {{ recoverLoading ? 'Recovering…' : '🔑 Recover Keys' }}
