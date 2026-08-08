@@ -200,6 +200,27 @@ export async function getScanProgress(inkey, walletId) {
   })
 }
 
+// ── Background scanning (opt-in "Remote Scanner") ────────────────────────────
+// Uploads ONLY the wallet's scan key so the server keeps it caught up while the
+// user is away. Detection only — the server can never spend.
+export async function getBackgroundScan(inkey, walletId) {
+  const res = await req(`${SILNT}/api/v1/wallet/${walletId}/background-scan`, {
+    headers: keyHeaders(inkey),
+  })
+  return !!(res && res.enabled)
+}
+export async function enableBackgroundScan(inkey, walletId, scanSecret) {
+  return req(`${SILNT}/api/v1/wallet/${walletId}/background-scan`, {
+    method: 'PUT', headers: keyHeaders(inkey),
+    body: JSON.stringify({ scan_secret: scanSecret }),
+  })
+}
+export async function disableBackgroundScan(inkey, walletId) {
+  return req(`${SILNT}/api/v1/wallet/${walletId}/background-scan`, {
+    method: 'DELETE', headers: keyHeaders(inkey),
+  })
+}
+
 // Chain tip is per-network; the backend now requires an explicit `network`
 // (no silent signet fallback), so scope by the build's NETWORK_LOCK like the
 // other per-network calls. An explicit arg still overrides.
