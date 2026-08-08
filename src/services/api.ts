@@ -707,6 +707,43 @@ export async function deleteContact(inkey: string, cid: string): Promise<unknown
   });
 }
 
+// ── Background scanning (opt-in "Remote Scanner") ────────────────────────────
+// Uploads ONLY the wallet's scan key so the server keeps it caught up while the
+// user is away. The server can then detect payments (see history) but can never
+// spend — the spend key never leaves the device.
+export async function getBackgroundScan(
+  inkey: string,
+  walletId: string,
+): Promise<boolean> {
+  const res = await req<{ enabled?: boolean }>(
+    `${SILNT}/api/v1/wallet/${walletId}/background-scan`,
+    { headers: apiKey(inkey) },
+  );
+  return !!res?.enabled;
+}
+
+export async function enableBackgroundScan(
+  inkey: string,
+  walletId: string,
+  scanSecret: string,
+): Promise<void> {
+  await req(`${SILNT}/api/v1/wallet/${walletId}/background-scan`, {
+    method: 'PUT',
+    headers: apiKey(inkey),
+    body: JSON.stringify({ scan_secret: scanSecret }),
+  });
+}
+
+export async function disableBackgroundScan(
+  inkey: string,
+  walletId: string,
+): Promise<void> {
+  await req(`${SILNT}/api/v1/wallet/${walletId}/background-scan`, {
+    method: 'DELETE',
+    headers: apiKey(inkey),
+  });
+}
+
 // ── Scanning (catch-up) ─────────────────────────────────────────────────────
 // Silent Payments funds are discovered by scanning blocks with the wallet's
 // scan/spend keys (never stored server-side — passed transiently per scan).

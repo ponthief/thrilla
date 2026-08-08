@@ -210,8 +210,46 @@ async function loadWallets() {
     wallets.value = data
     // catch-up scan check (auto if small gap, prompt if large) — non-blocking
     evaluateLoginScan(data).catch(() => {})
+    loadBgScan(data).catch(() => {})
   } catch (e) { error.value = e.message }
   finally { loading.value = false }
+}
+
+// ── Background scanning (opt-in server-side "Remote Scanner") ────────────────
+const bgScan = ref({})   // wallet_id -> bool
+const bgBusy = ref({})   // wallet_id -> bool
+
+async function loadBgScan(list) {
+  for (const w of list) {
+    try { bgScan.value[w.id] = await api.getBackgroundScan(auth.inkey, w.id) }
+    catch { /* leave unknown */ }
+  }
+}
+
+async function toggleBgScan(w) {
+  const enabling = !bgScan.value[w.id]
+  if (enabling && !confirm(
+    "Turn on background scanning?\n\nThis uploads this wallet's scan key to the " +
+    "server so it can find your incoming payments while you're away. The server " +
+    "will then be able to see your payment history — but it can never spend your " +
+    "funds (your spend key never leaves this device). You can turn it off anytime."
+  )) return
+  bgBusy.value = { ...bgBusy.value, [w.id]: true }
+  try {
+    if (enabling) {
+      const keys = await auth.getWalletKeys(w.id)
+      if (!keys || !keys.scanSecret) {
+        alert('Wallet keys not found on this device. Use "Recover Keys" first.')
+        return
+      }
+      await api.enableBackgroundScan(auth.inkey, w.id, keys.scanSecret)
+      bgScan.value = { ...bgScan.value, [w.id]: true }
+    } else {
+      await api.disableBackgroundScan(auth.inkey, w.id)
+      bgScan.value = { ...bgScan.value, [w.id]: false }
+    }
+  } catch (e) { alert(e.message || 'Could not update background scanning.') }
+  finally { bgBusy.value = { ...bgBusy.value, [w.id]: false } }
 }
 
 async function createWallet() {
@@ -704,6 +742,10 @@ watch(swapCompletedAt, () => {
             <button class="btn btn-primary btn-sm" @click="goSend(w)">↗ Send</button>
             <button class="btn btn-ghost btn-sm" @click="openEdit(w)">✎ Edit</button>
             <button v-if="!auth.hasWalletKeys(w.id)" class="btn btn-warn btn-sm" @click="openRecoverKeys(w)" title="Wallet keys not found locally — recover from mnemonic">🔑 Recover Keys</button>
+            <button v-if="auth.hasWalletKeys(w.id)" class="btn btn-ghost btn-sm" :disabled="bgBusy[w.id]" @click="toggleBgScan(w)"
+              :title="bgScan[w.id] ? 'Server keeps this wallet synced while you\'re away (knows the scan key). Click to turn off.' : 'Let the server keep this wallet synced in the background (uploads scan key — detection only).'">
+              {{ bgBusy[w.id] ? '…' : (bgScan[w.id] ? '🔄 Background: On' : '🔄 Background: Off') }}
+            </button>
             <button class="btn btn-ghost btn-sm" :disabled="refreshing || loading" @click="refreshWallets" title="Refresh balances and scan status">{{ refreshing ? '…' : '↻ Refresh' }}</button>
             <button class="btn btn-danger btn-sm" @click="askDeleteWallet(w)">✕ Delete</button>
           </div>
