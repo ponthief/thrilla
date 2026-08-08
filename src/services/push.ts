@@ -9,8 +9,24 @@
 // (no android/app/google-services.json) — push simply stays off.
 import messaging from '@react-native-firebase/messaging';
 import * as api from './api';
+import { usePushBanner } from '@stores/pushBanner';
 
 let unsubscribeRefresh: (() => void) | null = null;
+let unsubscribeMessage: (() => void) | null = null;
+
+// Show a foreground FCM message as an in-app banner. Android does NOT display
+// notification-type messages while the app is in the foreground, so without this
+// a payment that lands with the app open would be silent.
+function handleForegroundMessage(msg: any): void {
+  try {
+    const n = msg?.notification;
+    const title = n?.title || 'Payment received';
+    const body = n?.body || msg?.data?.body || 'You have a new payment.';
+    usePushBanner.getState().show({ title, body });
+  } catch {
+    /* never let a malformed message break the handler */
+  }
+}
 
 // Ask for notification permission (Android 13+ prompts), get the FCM token, and
 // register it with the backend. Also keeps the backend in sync if the token
@@ -34,6 +50,12 @@ export async function registerForPush(inkey: string): Promise<void> {
         /* transient — will re-register next launch */
       }
     });
+
+    // Foreground messages: display them ourselves (Android won't).
+    if (unsubscribeMessage) unsubscribeMessage();
+    unsubscribeMessage = messaging().onMessage(async (msg) => {
+      handleForegroundMessage(msg);
+    });
   } catch {
     // Firebase not configured or native module unavailable — leave push off.
   }
@@ -45,6 +67,10 @@ export async function unregisterForPush(inkey: string): Promise<void> {
     if (unsubscribeRefresh) {
       unsubscribeRefresh();
       unsubscribeRefresh = null;
+    }
+    if (unsubscribeMessage) {
+      unsubscribeMessage();
+      unsubscribeMessage = null;
     }
     const token = await messaging().getToken();
     if (token) await api.unregisterPushToken(inkey, token);

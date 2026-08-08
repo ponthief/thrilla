@@ -26,6 +26,7 @@ import { useAppLockStore } from '@stores/appLockStore';
 import { useIdleLogout } from './hooks/useIdleLogout';
 import { touchActivity } from '@services/sessionActivity';
 import { registerForPush, unregisterForPush } from '@services/push';
+import PushBanner from './components/PushBanner';
 import { colors, DEVICE_TRUST_ENABLED } from '@/theme';
 
 // Scan lives inside Receive now (Address / Scan toggle), so it's no longer a tab.
@@ -178,6 +179,9 @@ const App = () => {
         ) : (
           <Shell />
         )}
+        {/* Foreground push messages overlay everything except the lock screen
+            (no point surfacing wallet activity while locked). */}
+        {isAuthenticated && !showLock ? <PushBanner /> : null}
       </View>
     </SafeAreaProvider>
   );

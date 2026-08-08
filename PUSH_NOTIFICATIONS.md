@@ -51,4 +51,7 @@ tells you exactly what's wrong if nothing arrives:
   UTXOs for a wallet, the server pushes to that user's registered devices.
 - Notification-type messages are displayed by Android automatically when the app
   is backgrounded/closed. Invalid tokens are pruned automatically.
+- When the app is in the **foreground**, Android suppresses the system banner, so
+  the app displays its own in-app banner instead (`src/components/PushBanner.tsx`,
+  fed by the `messaging().onMessage` handler in `src/services/push.ts`).
 - On logout the device unregisters its token.
