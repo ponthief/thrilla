@@ -114,9 +114,11 @@ export default function SettingsScreen() {
     try {
       const r = await api.sendTestPush(inkey);
       if (!r.push_enabled) {
+        // The server returns the specific reason (env unset vs. file missing vs.
+        // google-auth not installed) — surface it verbatim.
         setPushMsg(
-          "Server has no FCM credentials configured (SILNT_FCM_CREDENTIALS). " +
-            "Push can't be sent until that's set on the backend.",
+          r.errors?.[0] ||
+            "Server can't send push (no FCM credentials). Check the backend.",
         );
       } else if (r.tokens === 0) {
         setPushMsg(
