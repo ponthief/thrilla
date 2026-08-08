@@ -761,6 +761,24 @@ export async function unregisterPushToken(inkey: string, token: string): Promise
   });
 }
 
+export interface FcmTestReport {
+  push_enabled: boolean;
+  tokens: number;
+  sent: number;
+  pruned: number;
+  errors: string[];
+}
+
+// Fire a diagnostic push to this user's registered devices and return the
+// server's report — used by the "Send test notification" button in Settings to
+// verify the FCM pipeline end-to-end without waiting for a real payment.
+export async function sendTestPush(inkey: string): Promise<FcmTestReport> {
+  return req<FcmTestReport>(`${SILNT}/api/v1/fcm/test`, {
+    method: 'POST',
+    headers: apiKey(inkey),
+  });
+}
+
 // ── Scanning (catch-up) ─────────────────────────────────────────────────────
 // Silent Payments funds are discovered by scanning blocks with the wallet's
 // scan/spend keys (never stored server-side — passed transiently per scan).
