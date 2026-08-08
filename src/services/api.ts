@@ -744,6 +744,23 @@ export async function disableBackgroundScan(
   });
 }
 
+// ── Push (FCM) device token registration ─────────────────────────────────────
+export async function registerPushToken(inkey: string, token: string): Promise<void> {
+  await req(`${SILNT}/api/v1/fcm/token`, {
+    method: 'POST',
+    headers: apiKey(inkey),
+    body: JSON.stringify({ token }),
+  });
+}
+
+export async function unregisterPushToken(inkey: string, token: string): Promise<void> {
+  await req(`${SILNT}/api/v1/fcm/token`, {
+    method: 'DELETE',
+    headers: apiKey(inkey),
+    body: JSON.stringify({ token }),
+  });
+}
+
 // ── Scanning (catch-up) ─────────────────────────────────────────────────────
 // Silent Payments funds are discovered by scanning blocks with the wallet's
 // scan/spend keys (never stored server-side — passed transiently per scan).
