@@ -28,6 +28,23 @@ token with the backend after login (`src/services/push.ts`).
 3. Restart LNbits. If the var is unset/missing, the backend simply doesn't send
    (no error).
 
+## Verifying it works
+
+Once both sides are configured, sign in and open **Settings → Scanning → Send
+test notification**. This sends a diagnostic push to your registered devices and
+tells you exactly what's wrong if nothing arrives:
+
+- *"Server has no FCM credentials"* → `SILNT_FCM_CREDENTIALS` isn't set (or the
+  file is missing) on the backend.
+- *"This device is not registered for push"* → the build has no
+  `google-services.json`, or you didn't grant notification permission. Rebuild
+  with the file present, allow notifications, then sign out and back in.
+- *"Sent to N devices"* → the pipeline works. A real payment notification only
+  fires from the **server background sweep** (every 30 min) when it discovers new
+  UTXOs while the app is closed — so to test that path, send a payment and do
+  **not** open the app, or the foreground catch-up scan will find it first and
+  the sweep will have nothing new to announce.
+
 ## How it works
 - On login the device registers its FCM token: `POST /api/v1/fcm/token`.
 - When a background scan (opt-in "Background scanning" in Settings) finds new
