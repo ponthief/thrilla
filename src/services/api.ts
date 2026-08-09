@@ -153,6 +153,18 @@ export async function getLnbitsWallets(token: string): Promise<LnbitsWallet[]> {
   return req('/api/v1/wallets', { headers: bearer(token) });
 }
 
+export interface LnbitsAccount {
+  id: string;
+  username?: string | null;
+  email?: string | null;
+}
+
+// The logged-in account (username + the email it was registered with). LNbits
+// GET /api/v1/auth. Display-only — the app never sends the email anywhere.
+export async function getAccount(token: string): Promise<LnbitsAccount> {
+  return req('/api/v1/auth', { headers: bearer(token) });
+}
+
 // ── Device trust (email 2FA) ────────────────────────────────────────────────
 // Enrollment mirrors the web app: on an unrecognised device the user requests a
 // 6-digit code by email, enters it, and the server returns the device_id we
