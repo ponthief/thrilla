@@ -274,7 +274,7 @@ export default function CreateWalletModal({ visible, onClose, onCreated }: Props
                     style={styles.input}
                     value={passphrase}
                     onChangeText={setPassphrase}
-                    placeholder="Min 12 chars, letters & numbers"
+                    placeholder="12+ chars — letters, numbers & symbols"
                     placeholderTextColor={colors.faint}
                     autoCapitalize="none"
                     autoCorrect={false}
@@ -284,6 +284,8 @@ export default function CreateWalletModal({ visible, onClose, onCreated }: Props
                     An extra secret mixed into your seed — needed every time you
                     restore this wallet, and it CANNOT be recovered if forgotten.
                     You'll back it up on the next screen with your recovery phrase.
+                    Use standard keyboard characters (letters, numbers, and
+                    symbols like ! ? # $); avoid accented or non-English letters.
                   </Text>
                 </>
               ) : (
