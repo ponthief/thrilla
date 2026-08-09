@@ -55,3 +55,18 @@ tells you exactly what's wrong if nothing arrives:
   the app displays its own in-app banner instead (`src/components/PushBanner.tsx`,
   fed by the `messaging().onMessage` handler in `src/services/push.ts`).
 - On logout the device unregisters its token.
+
+## Privacy
+
+FCM "notification" messages pass their title/body/data through Google in
+plaintext (that's how Android shows them while the app is closed). To avoid
+leaking financial metadata, the payment push is deliberately **generic** —
+"You've received a new payment" — with **no amount, wallet name, or count**.
+Google therefore only learns that *a* payment arrived at a given time on the
+device, not how much.
+
+The **amount** is shown only inside the app: the in-app banner is composed
+locally from the wallet's own scan data and never traverses FCM. Note the
+server itself already sees your amounts (background scanning uses your scan
+key by design); the generic push is specifically about keeping that data off
+Google's servers.
