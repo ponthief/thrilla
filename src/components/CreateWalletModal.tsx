@@ -124,8 +124,13 @@ export default function CreateWalletModal({ visible, onClose, onCreated }: Props
     let keys;
     try {
       keys = deriveSilentPayment(seedPhrase, passphrase, netLock);
-    } catch {
-      setError('Could not derive wallet keys on this device.');
+    } catch (e: any) {
+      // Surface the underlying reason (e.g. a normalization error) instead of a
+      // generic message, so a real derivation failure is diagnosable.
+      setError(
+        'Could not derive wallet keys on this device' +
+          (e?.message ? `: ${e.message}` : '.'),
+      );
       return;
     }
 
