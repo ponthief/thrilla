@@ -33,7 +33,6 @@ export default function RecoverKeysModal({
 }: Props) {
   const [mnemonic, setMnemonic] = useState('');
   const [passphrase, setPassphrase] = useState('');
-  const [showAdvanced, setShowAdvanced] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -41,7 +40,6 @@ export default function RecoverKeysModal({
     if (visible) {
       setMnemonic('');
       setPassphrase('');
-      setShowAdvanced(false);
       setError(null);
     }
   }, [visible, wallet]);
@@ -101,24 +99,21 @@ export default function RecoverKeysModal({
               placeholder="word1 word2 word3 …"
             />
 
-            <TouchableOpacity
-              style={styles.advancedToggle}
-              onPress={() => setShowAdvanced((v) => !v)}>
-              <Text style={styles.advancedText}>
-                {showAdvanced ? '▾' : '▸'} Advanced (passphrase)
-              </Text>
-            </TouchableOpacity>
-            {showAdvanced ? (
-              <TextInput
-                style={styles.input}
-                value={passphrase}
-                onChangeText={setPassphrase}
-                placeholder="BIP-39 passphrase (if you set one)"
-                placeholderTextColor={colors.faint}
-                autoCapitalize="none"
-                secureTextEntry
-              />
-            ) : null}
+            <Text style={styles.label}>Passphrase</Text>
+            <TextInput
+              style={styles.input}
+              value={passphrase}
+              onChangeText={setPassphrase}
+              placeholder="Leave blank if none"
+              placeholderTextColor={colors.faint}
+              autoCapitalize="none"
+              autoCorrect={false}
+              secureTextEntry
+            />
+            <Text style={styles.hint}>
+              If this wallet was created with a BIP-39 passphrase, enter the exact
+              same one. Leave blank otherwise.
+            </Text>
 
             {error ? <Text style={styles.error}>{error}</Text> : null}
 
@@ -173,8 +168,7 @@ const styles = StyleSheet.create({
     backgroundColor: colors.surfaceAlt,
   },
   mnemonic: { minHeight: 76, textAlignVertical: 'top' },
-  advancedToggle: { marginTop: 16 },
-  advancedText: { color: PRIMARY, fontSize: 13, fontWeight: '600' },
+  hint: { fontSize: 12, color: colors.faint, marginTop: 6, lineHeight: 17 },
   error: { color: colors.danger, fontSize: 13, marginTop: 14 },
   primaryBtn: {
     backgroundColor: PRIMARY,
