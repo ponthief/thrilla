@@ -8,6 +8,7 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
+import Clipboard from '@react-native-clipboard/clipboard';
 import { BIP39_WORDS } from '@/data/bip39-english';
 import { colors } from '@/theme';
 
@@ -57,9 +58,24 @@ export default function SeedInput({ value, onChangeText, placeholder }: Props) {
     onChangeText(base + w + ' ');
   };
 
+  // Explicit paste: long-press-to-paste is unreliable while the field is masked
+  // (transparent text + hidden caret), so give a button. Collapses any newlines/
+  // extra spaces from the pasted phrase into single spaces.
+  const onPaste = async () => {
+    try {
+      const txt = await Clipboard.getString();
+      if (txt) onChangeText(txt.replace(/\s+/g, ' ').trim());
+    } catch {
+      /* clipboard unavailable — ignore */
+    }
+  };
+
   return (
     <View>
       <View style={styles.toolbar}>
+        <TouchableOpacity onPress={onPaste} hitSlop={8}>
+          <Text style={styles.toggle}>📋 Paste</Text>
+        </TouchableOpacity>
         <TouchableOpacity onPress={() => setRevealed((v) => !v)} hitSlop={8}>
           <Text style={styles.toggle}>{revealed ? '🙈 Hide' : '👁 Show'}</Text>
         </TouchableOpacity>
@@ -111,7 +127,11 @@ export default function SeedInput({ value, onChangeText, placeholder }: Props) {
 }
 
 const styles = StyleSheet.create({
-  toolbar: { flexDirection: 'row', justifyContent: 'flex-end', marginBottom: 6 },
+  toolbar: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: 6,
+  },
   toggle: { color: colors.primary, fontSize: 13, fontWeight: '600' },
   input: {
     borderWidth: 1,

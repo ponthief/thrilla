@@ -24,7 +24,7 @@ const PIN_SERVICE = 'com.thrilla.pin';
 // keystore, and a 6-digit PIN is only ~20 bits regardless — iterations add
 // little. We also use the ASYNC pbkdf2 so it yields to the event loop and never
 // freezes the screen.
-const PBKDF2_ITERS = 12000;
+const PBKDF2_ITERS = 2000;
 // Records written before the iteration count was stored used this value. When a
 // record has no `iters`, verify with this so an existing PIN keeps working.
 const LEGACY_PBKDF2_ITERS = 120000;
