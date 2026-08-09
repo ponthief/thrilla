@@ -80,6 +80,19 @@ export function validateNewWalletPassphrase(passphrase: string): string | null {
   if (pp.length < PASSPHRASE_MIN_LENGTH) {
     return `Passphrase must be at least ${PASSPHRASE_MIN_LENGTH} characters.`;
   }
+  // Restrict to printable ASCII (space through ~). Non-ASCII characters
+  // (accented letters, emoji, non-Latin scripts) require Unicode NFKD
+  // normalization, which is NOT consistent across the mobile JS engine
+  // (Hermes), the browser, and other BIP-39 tools — the same passphrase could
+  // derive a different, unrecoverable wallet elsewhere (and Hermes throws on it
+  // outright). ASCII is normalization-invariant, so it stays portable. Symbols
+  // like ! ? # $ % are fine and encouraged.
+  if (!/^[ -~]+$/.test(pp)) {
+    return (
+      'Passphrase can only use standard keyboard characters — letters, numbers, ' +
+      'and symbols like ! ? # $ %. Remove any accented or non-English characters.'
+    );
+  }
   if (!/[a-zA-Z]/.test(pp) || !/[0-9]/.test(pp)) {
     return 'Passphrase must include both letters and numbers.';
   }

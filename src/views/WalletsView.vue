@@ -823,13 +823,14 @@ watch(swapCompletedAt, () => {
                 class="input"
                 v-model="createForm.passphrase"
                 type="password"
-                :placeholder="createForm.mode === 'generate' ? 'Min 12 chars, letters & numbers' : 'Leave empty if none'"
+                :placeholder="createForm.mode === 'generate' ? '12+ chars — letters, numbers & symbols' : 'Leave empty if none'"
                 autocomplete="off"
               />
               <span class="text-dim text-xs" v-if="createForm.mode === 'generate'">
                 BIP-39 passphrase (the “25th word”), mixed into your seed. It's required every time you restore this wallet and
                 <strong>cannot be recovered if forgotten — a lost passphrase means lost funds.</strong>
                 You'll back it up with your recovery phrase on the next screen.
+                Use standard keyboard characters (letters, numbers, and symbols like ! ? # $); avoid accented or non-English letters.
               </span>
               <span class="text-dim text-xs" v-else>
                 If this wallet was created with a BIP-39 passphrase, enter the exact same one. Leave empty otherwise.
