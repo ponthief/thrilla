@@ -618,8 +618,15 @@ function logout() {
           <span class="unit-sep">/</span>
           <span :class="{ on: units.unit === 'usd' }">USD</span>
         </button>
-        <div v-if="auth.username" class="nav-user" title="Signed in as">
-          <span class="nav-user-icon">●</span> {{ auth.username }}
+        <div
+          v-if="auth.username"
+          class="nav-user"
+          :title="'Signed in as ' + auth.username + (auth.email ? ' · ' + auth.email : '')">
+          <span class="nav-user-icon">●</span>
+          <span class="nav-user-lines">
+            <span class="nav-user-name">{{ auth.username }}</span>
+            <span v-if="auth.email" class="nav-user-email">{{ auth.email }}</span>
+          </span>
         </div>
         <button class="nav-logout" @click="logout"><span>⏻</span> Logout</button>
       </nav>
@@ -637,7 +644,10 @@ function logout() {
             <span class="mobile-logo-text">Thrilla</span>
           </div>
           <div class="mobile-header-actions">
-            <span v-if="auth.username" class="mobile-user" title="Signed in as">
+            <span
+              v-if="auth.username"
+              class="mobile-user"
+              :title="'Signed in as ' + auth.username + (auth.email ? ' · ' + auth.email : '')">
               <span class="mobile-user-icon">●</span> <span class="mobile-user-name">{{ auth.username }}</span>
             </span>
             <button v-if="!IS_ADMIN_BUILD" class="unit-toggle-mobile" @click="units.toggleUnit()" :title="units.haveRate ? 'Switch sats / USD' : 'USD rate unavailable'">
@@ -703,6 +713,8 @@ function logout() {
 .unit-toggle .unit-sep { color: var(--text-dim); }
 .nav-user { display:flex; align-items:center; gap:7px; font-size:12px; color:var(--text-dim); font-family:var(--font-mono); padding:8px 12px; }
   .nav-user-icon { color:#22c55e; font-size:9px; }
+  .nav-user-lines { display:flex; flex-direction:column; line-height:1.25; min-width:0; }
+  .nav-user-email { font-size:10px; opacity:.7; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:200px; }
   .mobile-user { display:inline-flex; align-items:center; gap:5px; font-size:12px; color:var(--text-dim); font-family:var(--font-mono); min-width:0; flex-shrink:1; overflow:hidden; }
   .mobile-user-name { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:84px; }
   .mobile-user-icon { color:#22c55e; font-size:8px; flex-shrink:0; }

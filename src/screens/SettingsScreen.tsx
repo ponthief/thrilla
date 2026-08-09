@@ -21,6 +21,7 @@ import DevicesModal from '../components/DevicesModal';
 
 export default function SettingsScreen() {
   const username = useAuthStore((state) => state.username);
+  const email = useAuthStore((state) => state.email);
   const inkey = useAuthStore((state) => state.inkey);
   const logout = useAuthStore((state) => state.logout);
   const [devicesOpen, setDevicesOpen] = useState(false);
@@ -194,6 +195,10 @@ export default function SettingsScreen() {
           <View style={styles.item}>
             <Text style={styles.itemLabel}>Username</Text>
             <Text style={styles.itemValue}>{username || '—'}</Text>
+          </View>
+          <View style={styles.item}>
+            <Text style={styles.itemLabel}>Email</Text>
+            <Text style={styles.itemValue} numberOfLines={1}>{email || '—'}</Text>
           </View>
         </View>
 

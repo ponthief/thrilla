@@ -32,7 +32,8 @@ interface Props {
   onCreated: () => void;
 }
 
-type Step = 'form' | 'reveal';
+type Step = 'form' | 'reveal' | 'verify';
+type VerifyPrompt = { index: number; answer: string };
 type Mode = 'generate' | 'import';
 
 export default function CreateWalletModal({ visible, onClose, onCreated }: Props) {
@@ -54,6 +55,11 @@ export default function CreateWalletModal({ visible, onClose, onCreated }: Props
   const [acknowledged, setAcknowledged] = useState(false);
   const [copied, setCopied] = useState(false);
 
+  // Seed-backup verification (mirrors the web): after showing the seed, quiz the
+  // user on a few random word positions before finishing. Entirely on-device.
+  const [verifyPrompts, setVerifyPrompts] = useState<VerifyPrompt[]>([]);
+  const [verifyError, setVerifyError] = useState<string | null>(null);
+
   const reset = useCallback(() => {
     setStep('form');
     setMode('generate');
@@ -67,6 +73,8 @@ export default function CreateWalletModal({ visible, onClose, onCreated }: Props
     setMnemonic('');
     setAcknowledged(false);
     setCopied(false);
+    setVerifyPrompts([]);
+    setVerifyError(null);
   }, []);
 
   const onCreate = useCallback(async () => {
@@ -124,8 +132,13 @@ export default function CreateWalletModal({ visible, onClose, onCreated }: Props
     let keys;
     try {
       keys = deriveSilentPayment(seedPhrase, passphrase, netLock);
-    } catch {
-      setError('Could not derive wallet keys on this device.');
+    } catch (e: any) {
+      // Surface the underlying reason (e.g. a normalization error) instead of a
+      // generic message, so a real derivation failure is diagnosable.
+      setError(
+        'Could not derive wallet keys on this device' +
+          (e?.message ? `: ${e.message}` : '.'),
+      );
       return;
     }
 
@@ -180,6 +193,45 @@ export default function CreateWalletModal({ visible, onClose, onCreated }: Props
     onClose();
   }, [onCreated, reset, onClose]);
 
+  const startVerify = useCallback(() => {
+    const words = mnemonic ? mnemonic.trim().split(/\s+/) : [];
+    if (words.length < 3) {
+      // Nothing sensible to quiz — just finish.
+      finishReveal();
+      return;
+    }
+    // Pick 3 distinct random positions (like the web). Math.random is fine here —
+    // this only chooses which words to quiz, it's not security-sensitive.
+    const picks = new Set<number>();
+    while (picks.size < 3) picks.add(Math.floor(Math.random() * words.length));
+    setVerifyPrompts(
+      [...picks].sort((a, b) => a - b).map((i) => ({ index: i + 1, answer: '' })),
+    );
+    setVerifyError(null);
+    setStep('verify');
+  }, [mnemonic, finishReveal]);
+
+  const setPromptAnswer = useCallback((index: number, answer: string) => {
+    setVerifyPrompts((prev) =>
+      prev.map((p) => (p.index === index ? { ...p, answer } : p)),
+    );
+    setVerifyError(null);
+  }, []);
+
+  const checkVerify = useCallback(() => {
+    const words = mnemonic ? mnemonic.trim().split(/\s+/) : [];
+    const ok = verifyPrompts.every(
+      (p) =>
+        (p.answer || '').trim().toLowerCase() ===
+        (words[p.index - 1] || '').toLowerCase(),
+    );
+    if (!ok) {
+      setVerifyError("That doesn't match. Check your written copy and try again.");
+      return;
+    }
+    finishReveal();
+  }, [mnemonic, verifyPrompts, finishReveal]);
+
   const copyMnemonic = useCallback(() => {
     Clipboard.setString(mnemonic);
     setCopied(true);
@@ -193,7 +245,7 @@ export default function CreateWalletModal({ visible, onClose, onCreated }: Props
       visible={visible}
       transparent
       animationType="slide"
-      onRequestClose={step === 'reveal' ? undefined : onClose}>
+      onRequestClose={step === 'form' ? onClose : undefined}>
       <View style={styles.backdrop}>
         <View style={styles.sheet}>
           {step === 'form' ? (
@@ -274,7 +326,7 @@ export default function CreateWalletModal({ visible, onClose, onCreated }: Props
                     style={styles.input}
                     value={passphrase}
                     onChangeText={setPassphrase}
-                    placeholder="Min 12 chars, letters & numbers"
+                    placeholder="12+ chars — letters, numbers & symbols"
                     placeholderTextColor={colors.faint}
                     autoCapitalize="none"
                     autoCorrect={false}
@@ -284,6 +336,8 @@ export default function CreateWalletModal({ visible, onClose, onCreated }: Props
                     An extra secret mixed into your seed — needed every time you
                     restore this wallet, and it CANNOT be recovered if forgotten.
                     You'll back it up on the next screen with your recovery phrase.
+                    Use standard keyboard characters (letters, numbers, and
+                    symbols like ! ? # $); avoid accented or non-English letters.
                   </Text>
                 </>
               ) : (
@@ -335,7 +389,7 @@ export default function CreateWalletModal({ visible, onClose, onCreated }: Props
                 <Text style={styles.linkBtnText}>Cancel</Text>
               </TouchableOpacity>
             </ScrollView>
-          ) : (
+          ) : step === 'reveal' ? (
             <ScrollView keyboardShouldPersistTaps="handled">
               <Text style={styles.heading}>Save your recovery phrase</Text>
               <Text style={styles.warn}>
@@ -385,9 +439,48 @@ export default function CreateWalletModal({ visible, onClose, onCreated }: Props
 
               <TouchableOpacity
                 style={[styles.primaryBtn, !acknowledged && styles.btnDisabled]}
-                onPress={finishReveal}
+                onPress={startVerify}
                 disabled={!acknowledged}>
-                <Text style={styles.primaryBtnText}>Done</Text>
+                <Text style={styles.primaryBtnText}>Continue</Text>
+              </TouchableOpacity>
+            </ScrollView>
+          ) : (
+            <ScrollView keyboardShouldPersistTaps="handled">
+              <Text style={styles.heading}>Verify your backup</Text>
+              <Text style={styles.hint}>
+                Enter the following words from the recovery phrase you just saved,
+                to confirm you wrote it down correctly.
+              </Text>
+
+              {verifyPrompts.map((p) => (
+                <View key={p.index}>
+                  <Text style={styles.label}>Word #{p.index}</Text>
+                  <TextInput
+                    style={styles.input}
+                    value={p.answer}
+                    onChangeText={(t) => setPromptAnswer(p.index, t)}
+                    placeholder={`Word ${p.index}`}
+                    placeholderTextColor={colors.faint}
+                    autoCapitalize="none"
+                    autoCorrect={false}
+                  />
+                </View>
+              ))}
+
+              {verifyError ? (
+                <Text style={styles.error}>{verifyError}</Text>
+              ) : null}
+
+              <TouchableOpacity style={styles.primaryBtn} onPress={checkVerify}>
+                <Text style={styles.primaryBtnText}>Confirm</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.linkBtn}
+                onPress={() => {
+                  setVerifyError(null);
+                  setStep('reveal');
+                }}>
+                <Text style={styles.linkBtnText}>Back to phrase</Text>
               </TouchableOpacity>
             </ScrollView>
           )}
