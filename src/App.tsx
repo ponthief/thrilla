@@ -117,16 +117,24 @@ const App = () => {
   // Register this device for push while signed in; unregister on sign-out (using
   // the last-known key, since inkey is cleared by logout). No-op when Firebase
   // isn't configured.
+  //
+  // Wait until the device is TRUSTED before registering: /fcm/token is gated by
+  // require_trusted_device, so registering during the pending-confirmation step
+  // just 403s (noise) — and because deviceStatus isn't in the deps, the token
+  // would otherwise never register once the device is confirmed. Gating on it
+  // (and depending on it) both silences the 403 and registers right after the
+  // 6-digit confirmation succeeds.
+  const deviceReady = !DEVICE_TRUST_ENABLED || deviceStatus === 'trusted';
   const lastInkey = useRef<string | null>(null);
   useEffect(() => {
-    if (isAuthenticated && inkey) {
+    if (isAuthenticated && inkey && deviceReady) {
       lastInkey.current = inkey;
       registerForPush(inkey);
     } else if (!isAuthenticated && lastInkey.current) {
       unregisterForPush(lastInkey.current);
       lastInkey.current = null;
     }
-  }, [isAuthenticated, inkey]);
+  }, [isAuthenticated, inkey, deviceReady]);
 
   const lockEnabled = useAppLockStore((s) => s.enabled);
   const locked = useAppLockStore((s) => s.locked);
