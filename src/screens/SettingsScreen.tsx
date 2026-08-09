@@ -363,10 +363,11 @@ export default function SettingsScreen() {
                   />
                 </View>
                 <Text style={styles.help}>
-                  A second PIN that, entered at the lock screen, silently wipes
-                  this device's wallet keys — the app looks normal, but funds
-                  can't be spent here. Your funds stay safe on-chain and recover
-                  from your seed. Use it if you're ever forced to unlock.
+                  A second PIN that, entered at the lock screen, wipes this
+                  device's wallet keys, turns off server-side scanning, and signs
+                  you out. Funds can't be spent from here; they stay safe on-chain
+                  and recover from your seed. Use it if you're ever forced to
+                  unlock.
                 </Text>
               </>
             ) : null}

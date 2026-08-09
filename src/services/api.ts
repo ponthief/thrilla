@@ -757,6 +757,15 @@ export async function disableBackgroundScan(
   });
 }
 
+// Revoke server-side background scanning for ALL of the user's wallets (used by
+// the duress action so the uploaded scan key is removed from the server too).
+export async function disableAllBackgroundScans(inkey: string): Promise<void> {
+  await req(`${SILNT}/api/v1/background-scan/all`, {
+    method: 'DELETE',
+    headers: apiKey(inkey),
+  });
+}
+
 // ── Push (FCM) device token registration ─────────────────────────────────────
 export async function registerPushToken(inkey: string, token: string): Promise<void> {
   await req(`${SILNT}/api/v1/fcm/token`, {
