@@ -15,9 +15,11 @@ import { useAuthStore } from '@stores/authStore';
 import { useAppLockStore } from '@stores/appLockStore';
 import * as api from '@services/api';
 import * as appLock from '@services/appLock';
+import * as appPin from '@services/appPin';
 import { getWalletKeys } from '@services/secureKeys';
 import { colors, DEVICE_TRUST_ENABLED } from '@/theme';
 import DevicesModal from '../components/DevicesModal';
+import PinSetupModal from '../components/PinSetupModal';
 
 export default function SettingsScreen() {
   const username = useAuthStore((state) => state.username);
@@ -27,11 +29,61 @@ export default function SettingsScreen() {
   const [devicesOpen, setDevicesOpen] = useState(false);
 
   // App lock (biometric / device PIN).
-  const lockEnabled = useAppLockStore((s) => s.enabled);
-  const setLockEnabled = useAppLockStore((s) => s.setEnabled);
+  const lockEnabled = useAppLockStore((s) => s.bioEnabled);
+  const setLockEnabled = useAppLockStore((s) => s.setBioEnabled);
   const [biometry, setBiometry] = useState<string | null>(null);
   const [lockBusy, setLockBusy] = useState(false);
   const [lockMsg, setLockMsg] = useState<string | null>(null);
+
+  // In-app PIN + duress PIN.
+  const pinSet = useAppLockStore((s) => s.pinSet);
+  const setPinSet = useAppLockStore((s) => s.setPinSet);
+  const [hasDuress, setHasDuress] = useState(false);
+  const [pinModal, setPinModal] = useState<null | 'normal' | 'duress'>(null);
+
+  useEffect(() => {
+    appPin.hasDuressPin().then(setHasDuress);
+  }, [pinSet]);
+
+  const onTogglePin = useCallback(
+    (v: boolean) => {
+      if (v) {
+        setPinModal('normal');
+        return;
+      }
+      Alert.alert(
+        'Turn off App PIN?',
+        'This removes your PIN and any duress PIN, and returns to biometric unlock.',
+        [
+          { text: 'Cancel', style: 'cancel' },
+          {
+            text: 'Turn off',
+            style: 'destructive',
+            onPress: async () => {
+              await appPin.clearPins();
+              setPinSet(false);
+              setHasDuress(false);
+            },
+          },
+        ],
+      );
+    },
+    [setPinSet],
+  );
+
+  const onPinDone = useCallback(() => {
+    setPinModal(null);
+    appPin.hasPin().then(setPinSet);
+    appPin.hasDuressPin().then(setHasDuress);
+  }, [setPinSet]);
+
+  const onToggleDuress = useCallback((v: boolean) => {
+    if (v) {
+      setPinModal('duress');
+      return;
+    }
+    appPin.setDuressPin(null).then(() => setHasDuress(false));
+  }, []);
 
   // Background scanning (opt-in server-side "Remote Scanner").
   const [bgWalletId, setBgWalletId] = useState<string | null>(null);
@@ -275,6 +327,49 @@ export default function SettingsScreen() {
             </View>
             <Text style={styles.help}>{lockSubtitle}</Text>
             {lockMsg ? <Text style={styles.dustError}>{lockMsg}</Text> : null}
+
+            <View style={styles.divider} />
+
+            <View style={styles.switchRow}>
+              <Text style={styles.itemLabel}>App PIN</Text>
+              <Switch
+                value={pinSet}
+                onValueChange={onTogglePin}
+                trackColor={{ true: colors.primary }}
+              />
+            </View>
+            <Text style={styles.help}>
+              Unlock with a 6-digit PIN. When on, it replaces biometrics as the
+              unlock method and enables a duress PIN.
+            </Text>
+            {pinSet ? (
+              <TouchableOpacity
+                style={[styles.switchRow, { marginTop: 12 }]}
+                onPress={() => setPinModal('normal')}
+                accessibilityRole="button">
+                <Text style={styles.itemLabel}>Change PIN</Text>
+                <Text style={styles.itemValue}>Change ›</Text>
+              </TouchableOpacity>
+            ) : null}
+
+            {pinSet ? (
+              <>
+                <View style={[styles.switchRow, { marginTop: 14 }]}>
+                  <Text style={styles.itemLabel}>Duress PIN</Text>
+                  <Switch
+                    value={hasDuress}
+                    onValueChange={onToggleDuress}
+                    trackColor={{ true: colors.primary }}
+                  />
+                </View>
+                <Text style={styles.help}>
+                  A second PIN that, entered at the lock screen, silently wipes
+                  this device's wallet keys — the app looks normal, but funds
+                  can't be spent here. Your funds stay safe on-chain and recover
+                  from your seed. Use it if you're ever forced to unlock.
+                </Text>
+              </>
+            ) : null}
           </View>
 
           {DEVICE_TRUST_ENABLED ? (
@@ -331,6 +426,13 @@ export default function SettingsScreen() {
           onClose={() => setDevicesOpen(false)}
         />
       ) : null}
+
+      <PinSetupModal
+        visible={pinModal !== null}
+        mode={pinModal === 'duress' ? 'duress' : 'normal'}
+        onClose={() => setPinModal(null)}
+        onDone={onPinDone}
+      />
     </SafeAreaView>
   );
 }
@@ -378,6 +480,11 @@ const styles = StyleSheet.create({
     marginLeft: 8,
   },
   help: { fontSize: 12, color: colors.faint, marginTop: 4, lineHeight: 17 },
+  divider: {
+    height: StyleSheet.hairlineWidth,
+    backgroundColor: colors.border,
+    marginVertical: 16,
+  },
   effective: { fontSize: 12, color: colors.muted, marginTop: 10, fontWeight: '600' },
   dustError: { fontSize: 13, color: colors.danger, marginTop: 10 },
   dustSaved: { fontSize: 13, color: colors.green, marginTop: 10, fontWeight: '600' },
