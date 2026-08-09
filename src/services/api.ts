@@ -56,6 +56,7 @@ export interface ScanProgress {
   current: number;
   total: number;
   found: number;
+  amount?: number; // sats received (sum of newly-found UTXOs) this scan
 }
 
 // BlindBit /info — we only need the chain height.
