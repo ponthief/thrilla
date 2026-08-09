@@ -56,6 +56,7 @@ export interface ScanProgress {
   current: number;
   total: number;
   found: number;
+  amount?: number; // sats received (sum of newly-found UTXOs) this scan
 }
 
 // BlindBit /info — we only need the chain height.
@@ -675,8 +676,14 @@ export interface SpContact {
   value: string;
 }
 
-export async function listContacts(inkey: string): Promise<SpContact[]> {
-  const res = await req<any>(`${SILNT}/api/v1/contacts`, { headers: apiKey(inkey) });
+// The address book is per-network; the backend requires an explicit `network`,
+// so scope by the build's NETWORK_LOCK (same as wallets/chain tip/config).
+export async function listContacts(
+  inkey: string,
+  network: string | undefined = Config.NETWORK_LOCK || undefined,
+): Promise<SpContact[]> {
+  const qs = network ? `?network=${encodeURIComponent(network)}` : '';
+  const res = await req<any>(`${SILNT}/api/v1/contacts${qs}`, { headers: apiKey(inkey) });
   return res?.contacts ?? [];
 }
 
@@ -684,8 +691,10 @@ export async function createContact(
   inkey: string,
   label: string,
   value: string,
+  network: string | undefined = Config.NETWORK_LOCK || undefined,
 ): Promise<SpContact> {
-  return req(`${SILNT}/api/v1/contacts`, {
+  const qs = network ? `?network=${encodeURIComponent(network)}` : '';
+  return req(`${SILNT}/api/v1/contacts${qs}`, {
     method: 'POST',
     headers: apiKey(inkey),
     body: JSON.stringify({ label, value }),
@@ -696,6 +705,60 @@ export async function deleteContact(inkey: string, cid: string): Promise<unknown
   return req(`${SILNT}/api/v1/contacts/${encodeURIComponent(cid)}`, {
     method: 'DELETE',
     headers: apiKey(inkey),
+  });
+}
+
+// ── Background scanning (opt-in "Remote Scanner") ────────────────────────────
+// Uploads ONLY the wallet's scan key so the server keeps it caught up while the
+// user is away. The server can then detect payments (see history) but can never
+// spend — the spend key never leaves the device.
+export async function getBackgroundScan(
+  inkey: string,
+  walletId: string,
+): Promise<boolean> {
+  const res = await req<{ enabled?: boolean }>(
+    `${SILNT}/api/v1/wallet/${walletId}/background-scan`,
+    { headers: apiKey(inkey) },
+  );
+  return !!res?.enabled;
+}
+
+export async function enableBackgroundScan(
+  inkey: string,
+  walletId: string,
+  scanSecret: string,
+): Promise<void> {
+  await req(`${SILNT}/api/v1/wallet/${walletId}/background-scan`, {
+    method: 'PUT',
+    headers: apiKey(inkey),
+    body: JSON.stringify({ scan_secret: scanSecret }),
+  });
+}
+
+export async function disableBackgroundScan(
+  inkey: string,
+  walletId: string,
+): Promise<void> {
+  await req(`${SILNT}/api/v1/wallet/${walletId}/background-scan`, {
+    method: 'DELETE',
+    headers: apiKey(inkey),
+  });
+}
+
+// ── Push (FCM) device token registration ─────────────────────────────────────
+export async function registerPushToken(inkey: string, token: string): Promise<void> {
+  await req(`${SILNT}/api/v1/fcm/token`, {
+    method: 'POST',
+    headers: apiKey(inkey),
+    body: JSON.stringify({ token }),
+  });
+}
+
+export async function unregisterPushToken(inkey: string, token: string): Promise<void> {
+  await req(`${SILNT}/api/v1/fcm/token`, {
+    method: 'DELETE',
+    headers: apiKey(inkey),
+    body: JSON.stringify({ token }),
   });
 }
 
@@ -810,6 +873,9 @@ export async function createSilntWallet(
     passphrase?: string;
     last_height?: number;
     mnemonic?: string;
+    // Client-derived SP address: when set, the seed/keys were derived on-device
+    // and the server never sees the mnemonic (see services/spKeys).
+    sp_address?: string;
   },
 ): Promise<CreatedWallet> {
   return req(`${SILNT}/api/v1/wallet`, {

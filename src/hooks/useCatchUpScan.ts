@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import * as api from '@services/api';
 import { getWalletKeys } from '@services/secureKeys';
 import { markScanStarted } from '@services/scanCooldown';
+import { usePushBanner } from '@stores/pushBanner';
 
 // Wallets already evaluated this app session, so returning to the Wallet tab
 // doesn't re-trigger a scan/prompt. Cleared on create/import (id may be reused)
@@ -56,6 +57,24 @@ export function useCatchUpScan(
           if (!p.active) {
             stopPoll();
             setStatus('done');
+            // A foreground scan finds payments silently (the server-side push
+            // only fires when the app is closed). Surface new coins in-app so a
+            // payment that lands while you're using the app is still noticed.
+            // `found` counts only newly-inserted UTXOs, so this won't fire on
+            // rescans of already-known blocks.
+            const found = Number(p.found || 0);
+            if (found > 0) {
+              const sats = Number(p.amount || 0);
+              usePushBanner.getState().show({
+                title: 'Payment received',
+                body:
+                  sats > 0
+                    ? `Received ${sats.toLocaleString()} sats.`
+                    : found === 1
+                      ? '1 new coin received.'
+                      : `${found} new coins received.`,
+              });
+            }
             onCompleteRef.current?.();
           }
         } catch {

@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import {
   ActivityIndicator,
+  Alert,
   StyleSheet,
   Switch,
   Text,
@@ -14,6 +15,7 @@ import { useAuthStore } from '@stores/authStore';
 import { useAppLockStore } from '@stores/appLockStore';
 import * as api from '@services/api';
 import * as appLock from '@services/appLock';
+import { getWalletKeys } from '@services/secureKeys';
 import { colors, DEVICE_TRUST_ENABLED } from '@/theme';
 import DevicesModal from '../components/DevicesModal';
 
@@ -29,6 +31,75 @@ export default function SettingsScreen() {
   const [biometry, setBiometry] = useState<string | null>(null);
   const [lockBusy, setLockBusy] = useState(false);
   const [lockMsg, setLockMsg] = useState<string | null>(null);
+
+  // Background scanning (opt-in server-side "Remote Scanner").
+  const [bgWalletId, setBgWalletId] = useState<string | null>(null);
+  const [bgEnabled, setBgEnabled] = useState(false);
+  const [bgBusy, setBgBusy] = useState(false);
+  const [bgMsg, setBgMsg] = useState<string | null>(null);
+
+  useEffect(() => {
+    (async () => {
+      if (!inkey) return;
+      try {
+        const w = api.pickSilntWallet(await api.getSilntWallets(inkey));
+        if (!w) return;
+        setBgWalletId(w.id);
+        setBgEnabled(await api.getBackgroundScan(inkey, w.id));
+      } catch {
+        /* leave the toggle off/disabled if we can't load status */
+      }
+    })();
+  }, [inkey]);
+
+  const applyBackgroundScan = useCallback(
+    async (enable: boolean) => {
+      if (!inkey || !bgWalletId) return;
+      setBgBusy(true);
+      setBgMsg(null);
+      try {
+        if (enable) {
+          const keys = await getWalletKeys(bgWalletId);
+          if (!keys?.scanSecret) {
+            setBgMsg('Wallet keys are not on this device. Recover them first.');
+            return;
+          }
+          await api.enableBackgroundScan(inkey, bgWalletId, keys.scanSecret);
+          setBgEnabled(true);
+        } else {
+          await api.disableBackgroundScan(inkey, bgWalletId);
+          setBgEnabled(false);
+        }
+      } catch (e: any) {
+        setBgMsg(e?.message || 'Could not update background scanning.');
+      } finally {
+        setBgBusy(false);
+      }
+    },
+    [inkey, bgWalletId],
+  );
+
+  const onToggleBackgroundScan = useCallback(
+    (value: boolean) => {
+      if (!value) {
+        applyBackgroundScan(false);
+        return;
+      }
+      // Enabling uploads the scan key — get explicit, informed consent.
+      Alert.alert(
+        'Turn on background scanning?',
+        "This uploads this wallet's scan key to the server so it can find your " +
+          'incoming payments while the app is closed. The server will then be ' +
+          'able to see your payment history — but it can never spend your funds ' +
+          '(your spend key never leaves this device). You can turn it off anytime.',
+        [
+          { text: 'Cancel', style: 'cancel' },
+          { text: 'Turn on', onPress: () => applyBackgroundScan(true) },
+        ],
+      );
+    },
+    [applyBackgroundScan],
+  );
 
   useEffect(() => {
     appLock.biometryType().then(setBiometry);
@@ -209,6 +280,31 @@ export default function SettingsScreen() {
               <Text style={styles.itemValue}>Manage ›</Text>
             </TouchableOpacity>
           ) : null}
+        </View>
+
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>Scanning</Text>
+          <View style={styles.column}>
+            <View style={styles.switchRow}>
+              <Text style={styles.itemLabel}>Background scanning</Text>
+              {bgBusy ? (
+                <ActivityIndicator color={colors.primary} />
+              ) : (
+                <Switch
+                  value={bgEnabled}
+                  onValueChange={onToggleBackgroundScan}
+                  disabled={!bgWalletId}
+                  trackColor={{ true: colors.primary }}
+                />
+              )}
+            </View>
+            <Text style={styles.help}>
+              Keep this wallet caught up on the server while you're away, so you
+              don't face a long scan when you return. Uploads your scan key
+              (detection only — it can never spend your funds).
+            </Text>
+            {bgMsg ? <Text style={styles.dustError}>{bgMsg}</Text> : null}
+          </View>
         </View>
 
         <View style={styles.section}>
