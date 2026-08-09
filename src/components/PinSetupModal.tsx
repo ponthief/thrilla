@@ -1,5 +1,12 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { Modal, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import {
+  ActivityIndicator,
+  Modal,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
+} from 'react-native';
 import PinPad from './PinPad';
 import { setPin as savePin, setDuressPin } from '@services/appPin';
 import { colors } from '@/theme';
@@ -105,7 +112,14 @@ export default function PinSetupModal({ visible, mode, onClose, onDone }: Props)
             disabled={busy}
           />
 
-          {error ? <Text style={styles.error}>{error}</Text> : null}
+          {busy ? (
+            <View style={styles.checkingRow}>
+              <ActivityIndicator color={colors.primary} />
+              <Text style={styles.checking}>Saving…</Text>
+            </View>
+          ) : error ? (
+            <Text style={styles.error}>{error}</Text>
+          ) : null}
 
           <TouchableOpacity style={styles.cancel} onPress={onClose} disabled={busy}>
             <Text style={styles.cancelText}>Cancel</Text>
@@ -142,6 +156,13 @@ const styles = StyleSheet.create({
     paddingHorizontal: 8,
   },
   error: { color: colors.danger, fontSize: 13, marginTop: 16, textAlign: 'center' },
+  checkingRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 16,
+  },
+  checking: { color: colors.muted, fontSize: 13, marginLeft: 8 },
   cancel: { marginTop: 22, paddingVertical: 8 },
   cancelText: { color: colors.muted, fontSize: 14, fontWeight: '600' },
 });
