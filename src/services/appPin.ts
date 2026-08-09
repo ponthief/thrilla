@@ -25,6 +25,9 @@ const PIN_SERVICE = 'com.thrilla.pin';
 // little. We also use the ASYNC pbkdf2 so it yields to the event loop and never
 // freezes the screen.
 const PBKDF2_ITERS = 12000;
+// Records written before the iteration count was stored used this value. When a
+// record has no `iters`, verify with this so an existing PIN keeps working.
+const LEGACY_PBKDF2_ITERS = 120000;
 const SALT_BYTES = 16;
 
 export type PinKind = 'normal' | 'duress';
@@ -32,16 +35,23 @@ export type PinKind = 'normal' | 'duress';
 interface PinRecord {
   salt: string; // hex
   hash: string; // hex
+  iters?: number; // iterations this hash was computed with (absent = legacy)
 }
 interface PinStore {
   normal: PinRecord;
   duress?: PinRecord | null;
 }
 
+const recordIters = (r: PinRecord) => r.iters ?? LEGACY_PBKDF2_ITERS;
+
 // Async so it yields to the event loop (keeps the UI responsive on Hermes).
-async function hashPin(pin: string, saltHex: string): Promise<string> {
+async function hashPin(
+  pin: string,
+  saltHex: string,
+  iters: number,
+): Promise<string> {
   const dk = await pbkdf2Async(sha256, utf8ToBytes(pin), hexToBytes(saltHex), {
-    c: PBKDF2_ITERS,
+    c: iters,
     dkLen: 32,
   });
   return bytesToHex(dk);
@@ -49,7 +59,16 @@ async function hashPin(pin: string, saltHex: string): Promise<string> {
 
 async function makeRecord(pin: string): Promise<PinRecord> {
   const saltHex = bytesToHex(randomBytes(SALT_BYTES));
-  return { salt: saltHex, hash: await hashPin(pin, saltHex) };
+  return {
+    salt: saltHex,
+    hash: await hashPin(pin, saltHex, PBKDF2_ITERS),
+    iters: PBKDF2_ITERS,
+  };
+}
+
+// Verify `pin` against a stored record using the iterations it was made with.
+async function matches(pin: string, r: PinRecord): Promise<boolean> {
+  return (await hashPin(pin, r.salt, recordIters(r))) === r.hash;
 }
 
 async function read(): Promise<PinStore | null> {
@@ -97,7 +116,7 @@ export async function setPin(pin: string): Promise<boolean> {
 export async function setDuressPin(pin: string | null): Promise<boolean> {
   const s = await read();
   if (!s?.normal) return false;
-  if (pin && (await hashPin(pin, s.normal.salt)) === s.normal.hash) return false; // must differ
+  if (pin && (await matches(pin, s.normal))) return false; // must differ
   s.duress = pin ? await makeRecord(pin) : null;
   return write(s);
 }
@@ -113,13 +132,25 @@ export async function clearPins(): Promise<void> {
 
 // Which PIN was entered, or null if neither. Normal is checked first so the
 // common unlock only computes one hash; the two PINs are enforced distinct at
-// set time, so order doesn't affect correctness.
+// set time, so order doesn't affect correctness. Verifies each record with the
+// iteration count it was created with, so changing PBKDF2_ITERS never
+// invalidates an existing PIN.
 export async function verifyPin(pin: string): Promise<PinKind | null> {
   const s = await read();
   if (!s?.normal) return null;
-  if ((await hashPin(pin, s.normal.salt)) === s.normal.hash) return 'normal';
-  if (s.duress && (await hashPin(pin, s.duress.salt)) === s.duress.hash) {
-    return 'duress';
+  if (await matches(pin, s.normal)) {
+    // Transparently re-hash a legacy (slow) record to the current parameters on
+    // a successful unlock, so it's fast next time.
+    if (recordIters(s.normal) !== PBKDF2_ITERS) {
+      try {
+        s.normal = await makeRecord(pin);
+        await write(s);
+      } catch {
+        /* upgrade is best-effort */
+      }
+    }
+    return 'normal';
   }
+  if (s.duress && (await matches(pin, s.duress))) return 'duress';
   return null;
 }
