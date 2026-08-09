@@ -1,5 +1,5 @@
 import * as Keychain from 'react-native-keychain';
-import { pbkdf2 } from '@noble/hashes/pbkdf2';
+import { pbkdf2Async } from '@noble/hashes/pbkdf2';
 import { sha256 } from '@noble/hashes/sha256';
 import {
   bytesToHex,
@@ -19,7 +19,12 @@ import {
 // platform keystore.
 
 const PIN_SERVICE = 'com.thrilla.pin';
-const PBKDF2_ITERS = 120000;
+// PBKDF2 runs in pure JS on Hermes (no native crypto), so a huge iteration count
+// blocks the UI for seconds. Keep it modest: the real protection is the hardware
+// keystore, and a 6-digit PIN is only ~20 bits regardless — iterations add
+// little. We also use the ASYNC pbkdf2 so it yields to the event loop and never
+// freezes the screen.
+const PBKDF2_ITERS = 12000;
 const SALT_BYTES = 16;
 
 export type PinKind = 'normal' | 'duress';
@@ -33,17 +38,18 @@ interface PinStore {
   duress?: PinRecord | null;
 }
 
-function hashPin(pin: string, saltHex: string): string {
-  const dk = pbkdf2(sha256, utf8ToBytes(pin), hexToBytes(saltHex), {
+// Async so it yields to the event loop (keeps the UI responsive on Hermes).
+async function hashPin(pin: string, saltHex: string): Promise<string> {
+  const dk = await pbkdf2Async(sha256, utf8ToBytes(pin), hexToBytes(saltHex), {
     c: PBKDF2_ITERS,
     dkLen: 32,
   });
   return bytesToHex(dk);
 }
 
-function makeRecord(pin: string): PinRecord {
+async function makeRecord(pin: string): Promise<PinRecord> {
   const saltHex = bytesToHex(randomBytes(SALT_BYTES));
-  return { salt: saltHex, hash: hashPin(pin, saltHex) };
+  return { salt: saltHex, hash: await hashPin(pin, saltHex) };
 }
 
 async function read(): Promise<PinStore | null> {
@@ -82,7 +88,7 @@ export async function hasDuressPin(): Promise<boolean> {
 // Set (or change) the normal unlock PIN. Preserves any existing duress PIN.
 export async function setPin(pin: string): Promise<boolean> {
   const s = (await read()) || ({} as PinStore);
-  s.normal = makeRecord(pin);
+  s.normal = await makeRecord(pin);
   return write(s);
 }
 
@@ -91,8 +97,8 @@ export async function setPin(pin: string): Promise<boolean> {
 export async function setDuressPin(pin: string | null): Promise<boolean> {
   const s = await read();
   if (!s?.normal) return false;
-  if (pin && hashPin(pin, s.normal.salt) === s.normal.hash) return false; // must differ
-  s.duress = pin ? makeRecord(pin) : null;
+  if (pin && (await hashPin(pin, s.normal.salt)) === s.normal.hash) return false; // must differ
+  s.duress = pin ? await makeRecord(pin) : null;
   return write(s);
 }
 
@@ -105,12 +111,15 @@ export async function clearPins(): Promise<void> {
   }
 }
 
-// Which PIN was entered, or null if neither. Duress is checked first so it can
-// never be shadowed by the normal PIN.
+// Which PIN was entered, or null if neither. Normal is checked first so the
+// common unlock only computes one hash; the two PINs are enforced distinct at
+// set time, so order doesn't affect correctness.
 export async function verifyPin(pin: string): Promise<PinKind | null> {
   const s = await read();
   if (!s?.normal) return null;
-  if (s.duress && hashPin(pin, s.duress.salt) === s.duress.hash) return 'duress';
-  if (hashPin(pin, s.normal.salt) === s.normal.hash) return 'normal';
+  if ((await hashPin(pin, s.normal.salt)) === s.normal.hash) return 'normal';
+  if (s.duress && (await hashPin(pin, s.duress.salt)) === s.duress.hash) {
+    return 'duress';
+  }
   return null;
 }

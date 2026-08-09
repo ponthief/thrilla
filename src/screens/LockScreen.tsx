@@ -118,7 +118,12 @@ export default function LockScreen() {
             disabled={busy}
           />
 
-          {pinError ? (
+          {busy ? (
+            <View style={styles.checkingRow}>
+              <ActivityIndicator color={colors.primary} />
+              <Text style={styles.checking}>Checking…</Text>
+            </View>
+          ) : pinError ? (
             <Text style={styles.error}>Incorrect PIN. Try again.</Text>
           ) : null}
 
@@ -199,6 +204,8 @@ const styles = StyleSheet.create({
     marginTop: 16,
     paddingHorizontal: 8,
   },
+  checkingRow: { flexDirection: 'row', alignItems: 'center', marginTop: 16 },
+  checking: { color: colors.muted, fontSize: 13, marginLeft: 8 },
   logout: { marginTop: 28 },
   logoutText: { color: colors.muted, fontSize: 14, fontWeight: '600' },
 });
