@@ -20,6 +20,9 @@ buildscript {
         classpath("com.android.tools.build:gradle")
         classpath("com.facebook.react:react-native-gradle-plugin")
         classpath("org.jetbrains.kotlin:kotlin-gradle-plugin")
+        // Firebase Cloud Messaging (push notifications). Requires
+        // android/app/google-services.json (from your Firebase project).
+        classpath("com.google.gms:google-services:4.4.2")
     }
 }
 

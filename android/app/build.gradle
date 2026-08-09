@@ -163,3 +163,10 @@ dependencies {
 }
 
 apply from: file("../../node_modules/@react-native-community/cli-platform-android/native_modules.gradle"); applyNativeModulesAppBuildGradle(project)
+
+// Firebase Cloud Messaging (push). Apply the google-services plugin ONLY when
+// the config file is present, so builds still work before Firebase is set up.
+// Add android/app/google-services.json from your Firebase project to enable push.
+if (file("google-services.json").exists()) {
+    apply plugin: "com.google.gms.google-services"
+}

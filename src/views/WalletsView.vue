@@ -10,7 +10,9 @@ import { scanWatchWallets } from '@/stores/scanwatch'
 import QrModal from '@/components/QrModal.vue'
 import EditWalletModal from '@/components/EditWalletModal.vue'
 import SeedInput from '@/components/SeedInput.vue'
-import CryptoJS from 'crypto-js'
+// Client-side Silent Payments derivation — the same module the mobile app uses,
+// verified byte-for-byte against the backend. Keeps the seed on this device.
+import { deriveSilentPayment, generateMnemonic, isValidMnemonic, validateNewWalletPassphrase } from '@/services/spKeys'
 
 // Build-time flags injected from .env (e.g. .env.signet)
 const NETWORK_LOCK   = import.meta.env.VITE_NETWORK_LOCK   || null
@@ -208,8 +210,46 @@ async function loadWallets() {
     wallets.value = data
     // catch-up scan check (auto if small gap, prompt if large) — non-blocking
     evaluateLoginScan(data).catch(() => {})
+    loadBgScan(data).catch(() => {})
   } catch (e) { error.value = e.message }
   finally { loading.value = false }
+}
+
+// ── Background scanning (opt-in server-side "Remote Scanner") ────────────────
+const bgScan = ref({})   // wallet_id -> bool
+const bgBusy = ref({})   // wallet_id -> bool
+
+async function loadBgScan(list) {
+  for (const w of list) {
+    try { bgScan.value[w.id] = await api.getBackgroundScan(auth.inkey, w.id) }
+    catch { /* leave unknown */ }
+  }
+}
+
+async function toggleBgScan(w) {
+  const enabling = !bgScan.value[w.id]
+  if (enabling && !confirm(
+    "Turn on background scanning?\n\nThis uploads this wallet's scan key to the " +
+    "server so it can find your incoming payments while you're away. The server " +
+    "will then be able to see your payment history — but it can never spend your " +
+    "funds (your spend key never leaves this device). You can turn it off anytime."
+  )) return
+  bgBusy.value = { ...bgBusy.value, [w.id]: true }
+  try {
+    if (enabling) {
+      const keys = await auth.getWalletKeys(w.id)
+      if (!keys || !keys.scanSecret) {
+        alert('Wallet keys not found on this device. Use "Recover Keys" first.')
+        return
+      }
+      await api.enableBackgroundScan(auth.inkey, w.id, keys.scanSecret)
+      bgScan.value = { ...bgScan.value, [w.id]: true }
+    } else {
+      await api.disableBackgroundScan(auth.inkey, w.id)
+      bgScan.value = { ...bgScan.value, [w.id]: false }
+    }
+  } catch (e) { alert(e.message || 'Could not update background scanning.') }
+  finally { bgBusy.value = { ...bgBusy.value, [w.id]: false } }
 }
 
 async function createWallet() {
@@ -220,50 +260,67 @@ async function createWallet() {
   }
   creating.value = true
   try {
-    const payload = {
-      title:   createForm.value.title.trim(),
-      network: createForm.value.network,
-    }
-    if (createForm.value.passphrase) payload.passphrase = createForm.value.passphrase
+    const network = createForm.value.network
+    const passphrase = createForm.value.passphrase || ''
 
+    // Establish the seed for this wallet: freshly generated, or the user's import.
+    let seedPhrase
     if (createForm.value.mode === 'import') {
-      const m = (createForm.value.mnemonic || '').trim()
+      const m = (createForm.value.mnemonic || '').trim().toLowerCase()
       if (!m) {
         createError.value = 'Mnemonic is required for import.'
         creating.value = false; return
       }
-      // Quick client-side word-count check (server does full checksum validation)
       if (m.split(/\s+/).length !== 12) {
         createError.value = 'Mnemonic must be exactly 12 words.'
         creating.value = false; return
       }
-      // Import path requires last_height (used as the AES key, matching the
-      // existing decrypt_mnemonic(mnemonic, str(last_height)) on the server)
-      if (createForm.value.last_height === '' || createForm.value.last_height === null) {
-        createError.value = 'For import, please enter the wallet birth height (Born at Height).'
+      if (!isValidMnemonic(m)) {
+        createError.value = 'Invalid recovery phrase — the checksum (last word) is incorrect.'
         creating.value = false; return
       }
-      const lastHeight = Number(createForm.value.last_height)
-      payload.last_height = lastHeight
-      payload.mnemonic = CryptoJS.AES.encrypt(m, String(lastHeight)).toString()
+      seedPhrase = m
     } else {
-      // Generate path: no mnemonic; last_height optional (server defaults to tip)
-      if (createForm.value.last_height !== '' && createForm.value.last_height !== null) {
-        payload.last_height = Number(createForm.value.last_height)
+      // New wallets require a passphrase (mixed into the seed, unrecoverable if
+      // forgotten). Import stays exempt so passphrase-less wallets can be
+      // restored.
+      const ppErr = validateNewWalletPassphrase(passphrase)
+      if (ppErr) {
+        createError.value = ppErr
+        creating.value = false; return
       }
+      seedPhrase = generateMnemonic()
+    }
+
+    // Derive keys IN THE BROWSER. The mnemonic and private keys never leave this
+    // device — the server only ever receives the public sp_address.
+    let keys
+    try {
+      keys = deriveSilentPayment(seedPhrase, passphrase, network)
+    } catch (e) {
+      createError.value = 'Could not derive wallet keys in the browser.'
+      creating.value = false; return
+    }
+
+    const payload = { title: createForm.value.title.trim(), network, sp_address: keys.spAddress }
+    // Birth height: required-ish on import (to scan history), optional on generate
+    // (server defaults to the current tip).
+    if (createForm.value.last_height !== '' && createForm.value.last_height !== null) {
+      payload.last_height = Number(createForm.value.last_height)
     }
 
     const result = await api.createSilntWallet(auth.inkey, payload)
 
-    if (result && result.wallet_id && result.scan_secret && result.spend_key) {
-      await auth.storeWalletKeys(result.wallet_id, result.scan_secret, result.spend_key)
+    // Persist the locally-derived keys (NOT from the response — the server never
+    // had them).
+    if (result && result.wallet_id) {
+      await auth.storeWalletKeys(result.wallet_id, keys.scanSecret, keys.spendKey)
     }
 
-    // Only reveal the mnemonic + "save it" warning when we GENERATED a fresh
-    // seed. On import the user already has their mnemonic — showing it back and
-    // warning them to save it is redundant.
-    if (result && result.mnemonic && result.generated) {
-      newWalletReveal.value = result
+    // Only reveal the seed on a fresh generate so the user can back it up. On
+    // import they already have it. The mnemonic shown is the local one.
+    if (createForm.value.mode === 'generate' && result && result.wallet_id) {
+      newWalletReveal.value = { ...result, mnemonic: seedPhrase, passphrase }
     }
     showCreate.value = false
     createForm.value = { mode: 'generate', title: '', mnemonic: '', passphrase: '', last_height: '', network: NETWORK_LOCK || 'mainnet' }
@@ -415,24 +472,21 @@ const walletsMissingKeys = computed(() =>
 )
 
 async function submitRecoverKeys() {
-  if (!recoverMnemonic.value.trim() || !recoverHeight.value) return
+  const phrase = (recoverMnemonic.value || '').trim().toLowerCase()
+  if (!phrase) return
   recoverLoading.value = true; recoverError.value = null
   try {
-    const encryptedMnemonic = CryptoJS.AES.encrypt(
-      recoverMnemonic.value.trim(),
-      String(recoverHeight.value)
-    ).toString()
-    const res = await api.recoverWalletKeys(
-      auth.inkey,
-      recoverTarget.value.id,
-      encryptedMnemonic,
-      Number(recoverHeight.value),
-      recoverPassphrase.value || null
-    )
-    if (res && res.scan_secret && res.spend_key) {
-      await auth.storeWalletKeys(recoverTarget.value.id, res.scan_secret, res.spend_key)
-      showRecover.value = false
+    if (phrase.split(/\s+/).length !== 12 || !isValidMnemonic(phrase)) {
+      throw new Error('Invalid recovery phrase — the checksum (last word) is incorrect.')
     }
+    // Derive entirely in the browser, then confirm it reproduces THIS wallet's
+    // address before trusting it. Nothing is sent to the server.
+    const keys = deriveSilentPayment(phrase, recoverPassphrase.value || '', recoverTarget.value.network)
+    if (keys.spAddress.toLowerCase() !== (recoverTarget.value.sp_address || '').toLowerCase()) {
+      throw new Error("That phrase doesn't match this wallet's address. Check the words and passphrase.")
+    }
+    await auth.storeWalletKeys(recoverTarget.value.id, keys.scanSecret, keys.spendKey)
+    showRecover.value = false
   } catch (e) { recoverError.value = e.message }
   finally { recoverLoading.value = false }
 }
@@ -696,6 +750,10 @@ watch(swapCompletedAt, () => {
             <button class="btn btn-primary btn-sm" @click="goSend(w)">↗ Send</button>
             <button class="btn btn-ghost btn-sm" @click="openEdit(w)">✎ Edit</button>
             <button v-if="!auth.hasWalletKeys(w.id)" class="btn btn-warn btn-sm" @click="openRecoverKeys(w)" title="Wallet keys not found locally — recover from mnemonic">🔑 Recover Keys</button>
+            <button v-if="auth.hasWalletKeys(w.id)" class="btn btn-ghost btn-sm" :disabled="bgBusy[w.id]" @click="toggleBgScan(w)"
+              :title="bgScan[w.id] ? 'Server keeps this wallet synced while you\'re away (knows the scan key). Click to turn off.' : 'Let the server keep this wallet synced in the background (uploads scan key — detection only).'">
+              {{ bgBusy[w.id] ? '…' : (bgScan[w.id] ? '🔄 Background: On' : '🔄 Background: Off') }}
+            </button>
             <button class="btn btn-ghost btn-sm" :disabled="refreshing || loading" @click="refreshWallets" title="Refresh balances and scan status">{{ refreshing ? '…' : '↻ Refresh' }}</button>
             <button class="btn btn-danger btn-sm" @click="askDeleteWallet(w)">✕ Delete</button>
           </div>
@@ -758,13 +816,23 @@ watch(swapCompletedAt, () => {
               <span class="text-dim text-xs">Type your 12-word recovery phrase, separated by spaces.</span>
             </div>
 
-            <!-- Passphrase — both modes (optional) -->
+            <!-- Passphrase — required to generate, optional to import/recover -->
             <div class="field">
-              <label>Passphrase (optional)</label>
-              <input class="input" v-model="createForm.passphrase" type="password" placeholder="Leave empty if none" autocomplete="off" />
-              <span class="text-dim text-xs">
-                BIP-39 passphrase, also called the 25th word. Different passphrases produce different wallets from the same seed.
-                <strong v-if="createForm.mode === 'generate'">Important: a forgotten passphrase cannot be recovered.</strong>
+              <label>{{ createForm.mode === 'generate' ? 'Passphrase (required)' : 'Passphrase (optional)' }}</label>
+              <input
+                class="input"
+                v-model="createForm.passphrase"
+                type="password"
+                :placeholder="createForm.mode === 'generate' ? 'Min 12 chars, letters & numbers' : 'Leave empty if none'"
+                autocomplete="off"
+              />
+              <span class="text-dim text-xs" v-if="createForm.mode === 'generate'">
+                BIP-39 passphrase (the “25th word”), mixed into your seed. It's required every time you restore this wallet and
+                <strong>cannot be recovered if forgotten — a lost passphrase means lost funds.</strong>
+                You'll back it up with your recovery phrase on the next screen.
+              </span>
+              <span class="text-dim text-xs" v-else>
+                If this wallet was created with a BIP-39 passphrase, enter the exact same one. Leave empty otherwise.
               </span>
             </div>
 
@@ -948,12 +1016,6 @@ watch(swapCompletedAt, () => {
           </div>
 
           <div class="field">
-            <label>Born at Height</label>
-            <input class="input" v-model.number="recoverHeight" type="number" :placeholder="heightHint" />
-            <span class="text-dim text-xs">Must match the block height when this wallet was originally created.</span>
-          </div>
-
-          <div class="field">
             <label>Passphrase (optional)</label>
             <input class="input" v-model="recoverPassphrase" type="password" placeholder="Leave empty if none" autocomplete="off" />
             <span class="text-dim text-xs">If this wallet was created with a BIP-39 passphrase, enter the exact same one.</span>
@@ -964,7 +1026,7 @@ watch(swapCompletedAt, () => {
           <div class="flex gap-2 justify-between" style="margin-top:4px">
             <button class="btn btn-ghost" @click="showRecover = false">Cancel</button>
             <button class="btn btn-primary"
-              :disabled="recoverLoading || !recoverMnemonic.trim() || !recoverHeight"
+              :disabled="recoverLoading || !recoverMnemonic.trim()"
               @click="submitRecoverKeys">
               <span v-if="recoverLoading" class="spinner" style="border-top-color:#000"></span>
               {{ recoverLoading ? 'Recovering…' : '🔑 Recover Keys' }}
@@ -996,9 +1058,10 @@ watch(swapCompletedAt, () => {
         <!-- Step 1: show the seed -->
         <div class="card-body" v-if="!verifying">
           <div class="alert" style="background:rgba(249,115,22,.08);border:1px solid rgba(249,115,22,.4);padding:10px;border-radius:4px;margin-bottom:14px">
-            <strong>⚠ Save your seed phrase now.</strong>
+            <strong>⚠ Save your seed phrase and passphrase now.</strong>
             <div class="text-sm" style="margin-top:4px">
-              This is the ONLY time it will be shown. Without it, you cannot recover the wallet if you lose access to this device.
+              This is the ONLY time they're shown. You need BOTH the 12-word phrase and the passphrase to recover this wallet —
+              a lost passphrase means lost funds, and neither can be recovered.
             </div>
           </div>
 
@@ -1018,7 +1081,10 @@ watch(swapCompletedAt, () => {
           <div v-if="newWalletReveal.passphrase" class="field">
             <label>Passphrase</label>
             <input class="input mono" readonly :value="newWalletReveal.passphrase" />
-            <span class="text-dim text-xs">Required alongside the mnemonic to access this wallet.</span>
+            <div style="margin-top:6px">
+              <button class="btn btn-ghost btn-sm" @click="copyText(newWalletReveal.passphrase)">⎘ Copy passphrase</button>
+            </div>
+            <span class="text-dim text-xs">Required alongside the mnemonic to access this wallet — store it as carefully as your seed phrase.</span>
           </div>
 
           <div class="field">

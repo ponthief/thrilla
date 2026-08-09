@@ -11,10 +11,15 @@ import {
 } from 'react-native';
 import Clipboard from '@react-native-clipboard/clipboard';
 import Config from 'react-native-config';
-import CryptoJS from 'crypto-js';
 import { useAuthStore } from '@stores/authStore';
 import * as api from '@services/api';
 import { storeWalletKeys } from '@services/secureKeys';
+import {
+  deriveSilentPayment,
+  generateMnemonic,
+  isValidMnemonic,
+  validateNewWalletPassphrase,
+} from '@services/spKeys';
 import { resetCatchUp } from '../hooks/useCatchUpScan';
 import SeedInput from './SeedInput';
 import { colors } from '@/theme';
@@ -30,16 +35,10 @@ interface Props {
 type Step = 'form' | 'reveal';
 type Mode = 'generate' | 'import';
 
-// The backend decrypts the imported seed with String(last_height) as the AES
-// key (lnbits AESCipher == CryptoJS OpenSSL "Salted__" format), so we encrypt
-// exactly the way the web app does before sending it.
-function encryptMnemonicForImport(mnemonic: string, lastHeight: number): string {
-  return CryptoJS.AES.encrypt(mnemonic, String(lastHeight)).toString();
-}
-
 export default function CreateWalletModal({ visible, onClose, onCreated }: Props) {
   const inkey = useAuthStore((s) => s.inkey);
-  const network = (Config.NETWORK_LOCK || 'mainnet').toUpperCase();
+  const netLock = Config.NETWORK_LOCK || 'mainnet';
+  const network = netLock.toUpperCase();
 
   const [step, setStep] = useState<Step>('form');
   const [mode, setMode] = useState<Mode>('generate');
@@ -81,18 +80,18 @@ export default function CreateWalletModal({ visible, onClose, onCreated }: Props
       return;
     }
 
-    const data: {
-      title: string;
-      passphrase?: string;
-      mnemonic?: string;
-      last_height?: number;
-    } = { title: title.trim() };
-    if (passphrase) data.passphrase = passphrase;
-
+    // Establish the seed for this wallet: freshly generated, or the user's import.
+    let seedPhrase: string;
+    let lastHeight: number | undefined;
     if (mode === 'import') {
       const words = mnemonicInput.trim().toLowerCase().split(/\s+/).filter(Boolean);
       if (words.length !== 12) {
         setError('Recovery phrase must be exactly 12 words.');
+        return;
+      }
+      seedPhrase = words.join(' ');
+      if (!isValidMnemonic(seedPhrase)) {
+        setError('Invalid recovery phrase — the checksum (last word) is incorrect.');
         return;
       }
       const height = Number(birthHeight);
@@ -100,24 +99,56 @@ export default function CreateWalletModal({ visible, onClose, onCreated }: Props
         setError('Enter the wallet birth height (block number) to import.');
         return;
       }
-      data.last_height = Math.floor(height);
-      data.mnemonic = encryptMnemonicForImport(words.join(' '), Math.floor(height));
+      lastHeight = Math.floor(height);
+    } else {
+      // New wallets require a passphrase (mixed into the seed, unrecoverable if
+      // forgotten). Import stays exempt so passphrase-less wallets can be
+      // restored.
+      const ppErr = validateNewWalletPassphrase(passphrase);
+      if (ppErr) {
+        setError(ppErr);
+        return;
+      }
+      try {
+        seedPhrase = generateMnemonic();
+      } catch (e: any) {
+        // Secure-RNG guard tripped (e.g. remote JS debugging) — never fall back
+        // to a weak seed.
+        setError(e?.message || 'Could not generate a secure seed on this device.');
+        return;
+      }
     }
+
+    // Derive keys ON THIS DEVICE. The mnemonic and private keys never leave the
+    // phone — the server only ever receives the public sp_address.
+    let keys;
+    try {
+      keys = deriveSilentPayment(seedPhrase, passphrase, netLock);
+    } catch {
+      setError('Could not derive wallet keys on this device.');
+      return;
+    }
+
+    const data: {
+      title: string;
+      sp_address: string;
+      last_height?: number;
+    } = { title: title.trim(), sp_address: keys.spAddress };
+    if (lastHeight !== undefined) data.last_height = lastHeight;
 
     setCreating(true);
     try {
       const res = await api.createSilntWallet(inkey, data);
-      // Persist the SP keys in the platform keystore so this device can scan
-      // (and later spend). Recoverable from the mnemonic if this fails.
-      if (res.wallet_id && res.scan_secret && res.spend_key) {
-        await storeWalletKeys(res.wallet_id, res.scan_secret, res.spend_key);
-      }
+      // Persist the locally-derived SP keys in the platform keystore so this
+      // device can scan (and later spend). These come from local derivation, not
+      // the response — the server never had them.
+      await storeWalletKeys(res.wallet_id, keys.scanSecret, keys.spendKey);
       // A reimport reuses the same seed-derived id — let it be re-evaluated for
       // catch-up scanning instead of being treated as already-checked.
       resetCatchUp(res.wallet_id);
-      if (res.mnemonic && res.generated) {
+      if (mode === 'generate') {
         // Fresh seed — show it once so the user can back it up.
-        setMnemonic(res.mnemonic);
+        setMnemonic(seedPhrase);
         setStep('reveal');
       } else {
         // Import: the user already has their phrase — just finish.
@@ -137,6 +168,7 @@ export default function CreateWalletModal({ visible, onClose, onCreated }: Props
     mnemonicInput,
     birthHeight,
     inkey,
+    netLock,
     onCreated,
     onClose,
     reset,
@@ -235,31 +267,55 @@ export default function CreateWalletModal({ visible, onClose, onCreated }: Props
                 </>
               ) : null}
 
-              <TouchableOpacity
-                onPress={() => setShowAdvanced((v) => !v)}
-                style={styles.advancedToggle}>
-                <Text style={styles.advancedText}>
-                  {showAdvanced ? '▾' : '▸'} Advanced (optional passphrase)
-                </Text>
-              </TouchableOpacity>
-              {showAdvanced ? (
+              {mode === 'generate' ? (
                 <>
-                  <Text style={styles.label}>BIP-39 passphrase</Text>
+                  <Text style={styles.label}>BIP-39 passphrase (required)</Text>
                   <TextInput
                     style={styles.input}
                     value={passphrase}
                     onChangeText={setPassphrase}
-                    placeholder="Leave blank for none"
+                    placeholder="Min 12 chars, letters & numbers"
                     placeholderTextColor={colors.faint}
                     autoCapitalize="none"
+                    autoCorrect={false}
                     secureTextEntry
                   />
                   <Text style={styles.hint}>
-                    An extra word mixed into your seed. If you set one, you must
-                    remember it — it cannot be recovered.
+                    An extra secret mixed into your seed — needed every time you
+                    restore this wallet, and it CANNOT be recovered if forgotten.
+                    You'll back it up on the next screen with your recovery phrase.
                   </Text>
                 </>
-              ) : null}
+              ) : (
+                <>
+                  <TouchableOpacity
+                    onPress={() => setShowAdvanced((v) => !v)}
+                    style={styles.advancedToggle}>
+                    <Text style={styles.advancedText}>
+                      {showAdvanced ? '▾' : '▸'} Advanced (optional passphrase)
+                    </Text>
+                  </TouchableOpacity>
+                  {showAdvanced ? (
+                    <>
+                      <Text style={styles.label}>BIP-39 passphrase</Text>
+                      <TextInput
+                        style={styles.input}
+                        value={passphrase}
+                        onChangeText={setPassphrase}
+                        placeholder="Leave blank for none"
+                        placeholderTextColor={colors.faint}
+                        autoCapitalize="none"
+                        autoCorrect={false}
+                        secureTextEntry
+                      />
+                      <Text style={styles.hint}>
+                        If this wallet was created with a passphrase, enter the
+                        exact same one.
+                      </Text>
+                    </>
+                  ) : null}
+                </>
+              )}
 
               {error ? <Text style={styles.error}>{error}</Text> : null}
 
@@ -283,8 +339,9 @@ export default function CreateWalletModal({ visible, onClose, onCreated }: Props
             <ScrollView keyboardShouldPersistTaps="handled">
               <Text style={styles.heading}>Save your recovery phrase</Text>
               <Text style={styles.warn}>
-                Write these 12 words down in order and keep them safe. This is
-                the ONLY way to recover your wallet. It will not be shown again.
+                Write these 12 words down in order — AND your passphrase below.
+                You need BOTH to recover this wallet, and neither can be shown
+                again. A lost passphrase means lost funds.
               </Text>
 
               <View style={styles.wordGrid}>
@@ -302,6 +359,19 @@ export default function CreateWalletModal({ visible, onClose, onCreated }: Props
                 </Text>
               </TouchableOpacity>
 
+              {passphrase ? (
+                <View style={styles.passphraseReveal}>
+                  <Text style={styles.label}>Passphrase</Text>
+                  <Text style={styles.passphraseValue} selectable>
+                    {passphrase}
+                  </Text>
+                  <Text style={styles.hint}>
+                    Required together with the 12 words. Store it as carefully as
+                    your recovery phrase — it cannot be recovered.
+                  </Text>
+                </View>
+              ) : null}
+
               <TouchableOpacity
                 style={styles.checkRow}
                 onPress={() => setAcknowledged((v) => !v)}>
@@ -309,7 +379,7 @@ export default function CreateWalletModal({ visible, onClose, onCreated }: Props
                   {acknowledged ? <Text style={styles.checkMark}>✓</Text> : null}
                 </View>
                 <Text style={styles.checkLabel}>
-                  I have written down my recovery phrase.
+                  I have saved my recovery phrase and passphrase.
                 </Text>
               </TouchableOpacity>
 
@@ -439,6 +509,21 @@ const styles = StyleSheet.create({
     marginTop: 6,
   },
   copyBtnText: { color: PRIMARY, fontSize: 14, fontWeight: '600' },
+  passphraseReveal: {
+    marginTop: 16,
+    padding: 12,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.bg,
+  },
+  passphraseValue: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: colors.text,
+    fontFamily: 'monospace',
+    marginTop: 2,
+  },
   checkRow: { flexDirection: 'row', alignItems: 'center', marginTop: 20 },
   checkbox: {
     width: 22,

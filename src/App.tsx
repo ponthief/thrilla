@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   SafeAreaProvider,
   useSafeAreaInsets,
@@ -25,6 +25,8 @@ import { useAuthStore } from '@stores/authStore';
 import { useAppLockStore } from '@stores/appLockStore';
 import { useIdleLogout } from './hooks/useIdleLogout';
 import { touchActivity } from '@services/sessionActivity';
+import { registerForPush, unregisterForPush } from '@services/push';
+import PushBanner from './components/PushBanner';
 import { colors, DEVICE_TRUST_ENABLED } from '@/theme';
 
 // Scan lives inside Receive now (Address / Scan toggle), so it's no longer a tab.
@@ -110,6 +112,21 @@ function AuthNavigator() {
 const App = () => {
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
   const deviceStatus = useAuthStore((s) => s.deviceStatus);
+  const inkey = useAuthStore((s) => s.inkey);
+
+  // Register this device for push while signed in; unregister on sign-out (using
+  // the last-known key, since inkey is cleared by logout). No-op when Firebase
+  // isn't configured.
+  const lastInkey = useRef<string | null>(null);
+  useEffect(() => {
+    if (isAuthenticated && inkey) {
+      lastInkey.current = inkey;
+      registerForPush(inkey);
+    } else if (!isAuthenticated && lastInkey.current) {
+      unregisterForPush(lastInkey.current);
+      lastInkey.current = null;
+    }
+  }, [isAuthenticated, inkey]);
 
   const lockEnabled = useAppLockStore((s) => s.enabled);
   const locked = useAppLockStore((s) => s.locked);
@@ -162,6 +179,9 @@ const App = () => {
         ) : (
           <Shell />
         )}
+        {/* Foreground push messages overlay everything except the lock screen
+            (no point surfacing wallet activity while locked). */}
+        {isAuthenticated && !showLock ? <PushBanner /> : null}
       </View>
     </SafeAreaProvider>
   );
