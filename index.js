@@ -2,6 +2,12 @@
 // mnemonic import/recover) has a secure RNG. crypto-js resolves its RNG at module
 // load, so this has to run before any module that imports crypto-js.
 import 'react-native-get-random-values';
+// @noble/hashes (used by @scure/bip39's pbkdf2) converts the mnemonic/passphrase
+// to bytes with `new TextEncoder().encode(...)`, and Hermes has no global
+// TextEncoder/TextDecoder. This installs spec-compliant ones. Must run before any
+// key derivation. (UTF-8 encoding is deterministic, so this matches the browser
+// and backend byte-for-byte.)
+import 'text-encoding-polyfill';
 // @scure/bip39 derives the BIP-39 seed via ('mnemonic'+passphrase).normalize('NFKD').
 // Hermes' String.prototype.normalize is unreliable — it throws on many inputs —
 // which surfaced as "Could not derive wallet keys" once wallets require a
