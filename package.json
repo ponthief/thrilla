@@ -29,6 +29,7 @@
     "@capacitor-mlkit/barcode-scanning": "^6.0.0",
     "@capacitor/core": "^6.2.0",
     "@noble/curves": "^1.9.7",
+    "@noble/hashes": "^1.8.0",
     "@react-native-firebase/app": "^20.5.0",
     "@react-native-firebase/messaging": "^20.5.0",
     "@react-native-clipboard/clipboard": "^1.14.1",
