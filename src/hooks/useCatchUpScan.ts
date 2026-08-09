@@ -64,12 +64,15 @@ export function useCatchUpScan(
             // rescans of already-known blocks.
             const found = Number(p.found || 0);
             if (found > 0) {
+              const sats = Number(p.amount || 0);
               usePushBanner.getState().show({
                 title: 'Payment received',
                 body:
-                  found === 1
-                    ? '1 new coin added to your wallet.'
-                    : `${found} new coins added to your wallet.`,
+                  sats > 0
+                    ? `Received ${sats.toLocaleString()} sats.`
+                    : found === 1
+                      ? '1 new coin received.'
+                      : `${found} new coins received.`,
               });
             }
             onCompleteRef.current?.();
