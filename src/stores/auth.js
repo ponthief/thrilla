@@ -1,7 +1,7 @@
 import { defineStore } from 'pinia'
 import CryptoJS from 'crypto-js'   // legacy decryption during migration only
 import { ref, computed } from 'vue'
-import { login as apiLogin, getLnbitsWallets } from '@/api'
+import { login as apiLogin, getLnbitsWallets, getAccount } from '@/api'
 import {
   vaultStore, vaultGet, vaultDelete,
   refreshVaultIndex as vaultRefreshIndex,
@@ -20,6 +20,7 @@ export const useAuthStore = defineStore('auth', () => {
   const inkey    = ref(sessionStorage.getItem('thrilla_inkey') || null)
   const walletId = ref(sessionStorage.getItem('thrilla_wallet_id') || null)
   const username = ref(sessionStorage.getItem('thrilla_username') || null)
+  const email    = ref(sessionStorage.getItem('thrilla_email') || null)
   const error    = ref(null)
   const loading  = ref(false)
   const lastFailureKind = ref(null)   // 'auth' | 'network' | null
@@ -58,6 +59,7 @@ export const useAuthStore = defineStore('auth', () => {
     sessionStorage.setItem('thrilla_inkey',     inkey.value    || '')
     sessionStorage.setItem('thrilla_wallet_id', walletId.value || '')
     sessionStorage.setItem('thrilla_username',  username.value || '')
+    sessionStorage.setItem('thrilla_email',     email.value    || '')
     touchActivity()
   }
 
@@ -87,6 +89,14 @@ export const useAuthStore = defineStore('auth', () => {
       adminkey.value = w.adminkey
       inkey.value    = w.inkey
       walletId.value = w.id
+
+      // The email the account was registered with — display-only. Best-effort:
+      // a failure here must never block login.
+      try {
+        const acct = await getAccount(token.value)
+        email.value = acct?.email || null
+      } catch (_) { email.value = null }
+
       persist()
       await _migrateAndIndex()    // migrate any legacy CryptoJS entries → vault, build index
       return true
@@ -116,9 +126,10 @@ export const useAuthStore = defineStore('auth', () => {
     //     and gets overwritten when they store their own keys
     // To explicitly forget keys on this device, use the "Forget Keys" button
     // in the wallet settings.
-    token.value = adminkey.value = inkey.value = walletId.value = username.value = null
+    token.value = adminkey.value = inkey.value = walletId.value = username.value = email.value = null
     sessionStorage.removeItem('thrilla_token')
     sessionStorage.removeItem('thrilla_username')
+    sessionStorage.removeItem('thrilla_email')
     sessionStorage.removeItem('thrilla_adminkey')
     sessionStorage.removeItem('thrilla_inkey')
     sessionStorage.removeItem('thrilla_wallet_id')
@@ -317,7 +328,7 @@ export const useAuthStore = defineStore('auth', () => {
   // clearAllWalletKeys removed — it wiped every wallet's keys across all users on
   // a shared browser. Callers now use removeWalletKeys(walletId) scoped to a user.
 
-  return { token, adminkey, inkey, walletId, username, error, loading, lastFailureKind, isLoggedIn, hasCredentials, login, logout,
+  return { token, adminkey, inkey, walletId, username, email, error, loading, lastFailureKind, isLoggedIn, hasCredentials, login, logout,
            touchActivity, isSessionExpired, logoutIfExpired, IDLE_TIMEOUT_MS,
            storeWalletKeys, getWalletKeys, removeWalletKeys,
            hasWalletKeys, refreshKeyIndex }

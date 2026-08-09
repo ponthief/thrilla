@@ -18,6 +18,7 @@ interface AuthState {
   walletId: string | null;
   walletName: string | null;
   username: string | null;
+  email: string | null;
   isAuthenticated: boolean;
   deviceStatus: DeviceStatus;
   loading: boolean;
@@ -34,6 +35,7 @@ export const useAuthStore = create<AuthState>((set) => ({
   walletId: null,
   walletName: null,
   username: null,
+  email: null,
   isAuthenticated: false,
   deviceStatus: 'trusted',
   loading: false,
@@ -53,6 +55,16 @@ export const useAuthStore = create<AuthState>((set) => ({
       }
       // Use the first wallet's keys (wallet switching can come later).
       const w = wallets[0];
+
+      // The email the account was registered with — display-only. Best-effort:
+      // a failure here must never block login.
+      let email: string | null = null;
+      try {
+        const acct = await api.getAccount(token);
+        email = acct?.email ?? null;
+      } catch {
+        /* leave email null; Settings shows a dash */
+      }
 
       // Device-trust check. Login itself uses core LNbits auth (not gated), so
       // an untrusted device gets this far; we then decide whether to show the
@@ -77,6 +89,7 @@ export const useAuthStore = create<AuthState>((set) => ({
         walletId: w.id,
         walletName: w.name,
         username,
+        email,
         isAuthenticated: true,
         deviceStatus,
         loading: false,
@@ -115,6 +128,7 @@ export const useAuthStore = create<AuthState>((set) => ({
       walletId: null,
       walletName: null,
       username: null,
+      email: null,
       isAuthenticated: false,
       deviceStatus: 'trusted',
       error: reason || null,

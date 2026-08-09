@@ -81,6 +81,12 @@ export async function getLnbitsWallets(token) {
   return req('/api/v1/wallets', { headers: bearerHeaders(token) })
 }
 
+// The logged-in account (username + registered email). LNbits GET /api/v1/auth.
+// Display-only — the app never sends the email anywhere.
+export async function getAccount(token) {
+  return req('/api/v1/auth', { headers: bearerHeaders(token) })
+}
+
 // ── Lightning (LNbits native wallet) send/receive ─────────────────────────────
 // The LNbits wallet auto-created with the account holds the LN balance. These
 // wrap the standard LNbits payments API. inkey can create invoices + read;
