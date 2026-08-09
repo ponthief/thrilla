@@ -38,11 +38,6 @@ export default function SettingsScreen() {
   const [bgBusy, setBgBusy] = useState(false);
   const [bgMsg, setBgMsg] = useState<string | null>(null);
 
-  // Push-notification self-test.
-  const [pushBusy, setPushBusy] = useState(false);
-  const [pushMsg, setPushMsg] = useState<string | null>(null);
-  const [pushOk, setPushOk] = useState(false);
-
   useEffect(() => {
     (async () => {
       if (!inkey) return;
@@ -105,44 +100,6 @@ export default function SettingsScreen() {
     },
     [applyBackgroundScan],
   );
-
-  const onTestPush = useCallback(async () => {
-    if (!inkey) return;
-    setPushBusy(true);
-    setPushMsg(null);
-    setPushOk(false);
-    try {
-      const r = await api.sendTestPush(inkey);
-      if (!r.push_enabled) {
-        // The server returns the specific reason (env unset vs. file missing vs.
-        // google-auth not installed) — surface it verbatim.
-        setPushMsg(
-          r.errors?.[0] ||
-            "Server can't send push (no FCM credentials). Check the backend.",
-        );
-      } else if (r.tokens === 0) {
-        setPushMsg(
-          'This device is not registered for push. Make sure the build has ' +
-            'google-services.json and that you granted notification permission, ' +
-            'then sign out and back in.',
-        );
-      } else if (r.sent > 0) {
-        setPushOk(true);
-        setPushMsg(
-          `Sent to ${r.sent} device${r.sent === 1 ? '' : 's'}. If it doesn't ` +
-            'appear, check the OS notification settings for the app.',
-        );
-      } else {
-        setPushMsg(
-          r.errors?.[0] || 'FCM accepted no devices. See server logs for detail.',
-        );
-      }
-    } catch (e: any) {
-      setPushMsg(e?.message || 'Could not send test notification.');
-    } finally {
-      setPushBusy(false);
-    }
-  }, [inkey]);
 
   useEffect(() => {
     appLock.biometryType().then(setBiometry);
@@ -347,29 +304,6 @@ export default function SettingsScreen() {
               (detection only — it can never spend your funds).
             </Text>
             {bgMsg ? <Text style={styles.dustError}>{bgMsg}</Text> : null}
-
-            <View style={styles.divider} />
-
-            <TouchableOpacity
-              style={styles.switchRow}
-              onPress={onTestPush}
-              disabled={pushBusy}
-              accessibilityRole="button">
-              <Text style={styles.itemLabel}>Send test notification</Text>
-              {pushBusy ? (
-                <ActivityIndicator color={colors.primary} />
-              ) : (
-                <Text style={styles.itemValue}>Send ›</Text>
-              )}
-            </TouchableOpacity>
-            <Text style={styles.help}>
-              Checks that push notifications are set up end-to-end (server
-              credentials + this device registered), without waiting for a real
-              payment.
-            </Text>
-            {pushMsg ? (
-              <Text style={pushOk ? styles.help : styles.dustError}>{pushMsg}</Text>
-            ) : null}
           </View>
         </View>
 
@@ -439,11 +373,6 @@ const styles = StyleSheet.create({
     marginLeft: 8,
   },
   help: { fontSize: 12, color: colors.faint, marginTop: 4, lineHeight: 17 },
-  divider: {
-    height: StyleSheet.hairlineWidth,
-    backgroundColor: colors.border,
-    marginVertical: 14,
-  },
   effective: { fontSize: 12, color: colors.muted, marginTop: 10, fontWeight: '600' },
   dustError: { fontSize: 13, color: colors.danger, marginTop: 10 },
   dustSaved: { fontSize: 13, color: colors.green, marginTop: 10, fontWeight: '600' },
