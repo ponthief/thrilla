@@ -18,6 +18,7 @@ import {
   deriveSilentPayment,
   generateMnemonic,
   isValidMnemonic,
+  validateNewWalletPassphrase,
 } from '@services/spKeys';
 import { resetCatchUp } from '../hooks/useCatchUpScan';
 import SeedInput from './SeedInput';
@@ -100,6 +101,14 @@ export default function CreateWalletModal({ visible, onClose, onCreated }: Props
       }
       lastHeight = Math.floor(height);
     } else {
+      // New wallets require a passphrase (mixed into the seed, unrecoverable if
+      // forgotten). Import stays exempt so passphrase-less wallets can be
+      // restored.
+      const ppErr = validateNewWalletPassphrase(passphrase);
+      if (ppErr) {
+        setError(ppErr);
+        return;
+      }
       try {
         seedPhrase = generateMnemonic();
       } catch (e: any) {
@@ -258,31 +267,55 @@ export default function CreateWalletModal({ visible, onClose, onCreated }: Props
                 </>
               ) : null}
 
-              <TouchableOpacity
-                onPress={() => setShowAdvanced((v) => !v)}
-                style={styles.advancedToggle}>
-                <Text style={styles.advancedText}>
-                  {showAdvanced ? '▾' : '▸'} Advanced (optional passphrase)
-                </Text>
-              </TouchableOpacity>
-              {showAdvanced ? (
+              {mode === 'generate' ? (
                 <>
-                  <Text style={styles.label}>BIP-39 passphrase</Text>
+                  <Text style={styles.label}>BIP-39 passphrase (required)</Text>
                   <TextInput
                     style={styles.input}
                     value={passphrase}
                     onChangeText={setPassphrase}
-                    placeholder="Leave blank for none"
+                    placeholder="Min 12 chars, letters & numbers"
                     placeholderTextColor={colors.faint}
                     autoCapitalize="none"
+                    autoCorrect={false}
                     secureTextEntry
                   />
                   <Text style={styles.hint}>
-                    An extra word mixed into your seed. If you set one, you must
-                    remember it — it cannot be recovered.
+                    An extra secret mixed into your seed — needed every time you
+                    restore this wallet, and it CANNOT be recovered if forgotten.
+                    You'll back it up on the next screen with your recovery phrase.
                   </Text>
                 </>
-              ) : null}
+              ) : (
+                <>
+                  <TouchableOpacity
+                    onPress={() => setShowAdvanced((v) => !v)}
+                    style={styles.advancedToggle}>
+                    <Text style={styles.advancedText}>
+                      {showAdvanced ? '▾' : '▸'} Advanced (optional passphrase)
+                    </Text>
+                  </TouchableOpacity>
+                  {showAdvanced ? (
+                    <>
+                      <Text style={styles.label}>BIP-39 passphrase</Text>
+                      <TextInput
+                        style={styles.input}
+                        value={passphrase}
+                        onChangeText={setPassphrase}
+                        placeholder="Leave blank for none"
+                        placeholderTextColor={colors.faint}
+                        autoCapitalize="none"
+                        autoCorrect={false}
+                        secureTextEntry
+                      />
+                      <Text style={styles.hint}>
+                        If this wallet was created with a passphrase, enter the
+                        exact same one.
+                      </Text>
+                    </>
+                  ) : null}
+                </>
+              )}
 
               {error ? <Text style={styles.error}>{error}</Text> : null}
 
@@ -306,8 +339,9 @@ export default function CreateWalletModal({ visible, onClose, onCreated }: Props
             <ScrollView keyboardShouldPersistTaps="handled">
               <Text style={styles.heading}>Save your recovery phrase</Text>
               <Text style={styles.warn}>
-                Write these 12 words down in order and keep them safe. This is
-                the ONLY way to recover your wallet. It will not be shown again.
+                Write these 12 words down in order — AND your passphrase below.
+                You need BOTH to recover this wallet, and neither can be shown
+                again. A lost passphrase means lost funds.
               </Text>
 
               <View style={styles.wordGrid}>
@@ -325,6 +359,19 @@ export default function CreateWalletModal({ visible, onClose, onCreated }: Props
                 </Text>
               </TouchableOpacity>
 
+              {passphrase ? (
+                <View style={styles.passphraseReveal}>
+                  <Text style={styles.label}>Passphrase</Text>
+                  <Text style={styles.passphraseValue} selectable>
+                    {passphrase}
+                  </Text>
+                  <Text style={styles.hint}>
+                    Required together with the 12 words. Store it as carefully as
+                    your recovery phrase — it cannot be recovered.
+                  </Text>
+                </View>
+              ) : null}
+
               <TouchableOpacity
                 style={styles.checkRow}
                 onPress={() => setAcknowledged((v) => !v)}>
@@ -332,7 +379,7 @@ export default function CreateWalletModal({ visible, onClose, onCreated }: Props
                   {acknowledged ? <Text style={styles.checkMark}>✓</Text> : null}
                 </View>
                 <Text style={styles.checkLabel}>
-                  I have written down my recovery phrase.
+                  I have saved my recovery phrase and passphrase.
                 </Text>
               </TouchableOpacity>
 
@@ -462,6 +509,21 @@ const styles = StyleSheet.create({
     marginTop: 6,
   },
   copyBtnText: { color: PRIMARY, fontSize: 14, fontWeight: '600' },
+  passphraseReveal: {
+    marginTop: 16,
+    padding: 12,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.bg,
+  },
+  passphraseValue: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: colors.text,
+    fontFamily: 'monospace',
+    marginTop: 2,
+  },
   checkRow: { flexDirection: 'row', alignItems: 'center', marginTop: 20 },
   checkbox: {
     width: 22,

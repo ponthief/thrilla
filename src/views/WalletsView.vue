@@ -12,7 +12,7 @@ import EditWalletModal from '@/components/EditWalletModal.vue'
 import SeedInput from '@/components/SeedInput.vue'
 // Client-side Silent Payments derivation — the same module the mobile app uses,
 // verified byte-for-byte against the backend. Keeps the seed on this device.
-import { deriveSilentPayment, generateMnemonic, isValidMnemonic } from '@/services/spKeys'
+import { deriveSilentPayment, generateMnemonic, isValidMnemonic, validateNewWalletPassphrase } from '@/services/spKeys'
 
 // Build-time flags injected from .env (e.g. .env.signet)
 const NETWORK_LOCK   = import.meta.env.VITE_NETWORK_LOCK   || null
@@ -281,6 +281,14 @@ async function createWallet() {
       }
       seedPhrase = m
     } else {
+      // New wallets require a passphrase (mixed into the seed, unrecoverable if
+      // forgotten). Import stays exempt so passphrase-less wallets can be
+      // restored.
+      const ppErr = validateNewWalletPassphrase(passphrase)
+      if (ppErr) {
+        createError.value = ppErr
+        creating.value = false; return
+      }
       seedPhrase = generateMnemonic()
     }
 
@@ -312,7 +320,7 @@ async function createWallet() {
     // Only reveal the seed on a fresh generate so the user can back it up. On
     // import they already have it. The mnemonic shown is the local one.
     if (createForm.value.mode === 'generate' && result && result.wallet_id) {
-      newWalletReveal.value = { ...result, mnemonic: seedPhrase }
+      newWalletReveal.value = { ...result, mnemonic: seedPhrase, passphrase }
     }
     showCreate.value = false
     createForm.value = { mode: 'generate', title: '', mnemonic: '', passphrase: '', last_height: '', network: NETWORK_LOCK || 'mainnet' }
@@ -808,13 +816,23 @@ watch(swapCompletedAt, () => {
               <span class="text-dim text-xs">Type your 12-word recovery phrase, separated by spaces.</span>
             </div>
 
-            <!-- Passphrase — both modes (optional) -->
+            <!-- Passphrase — required to generate, optional to import/recover -->
             <div class="field">
-              <label>Passphrase (optional)</label>
-              <input class="input" v-model="createForm.passphrase" type="password" placeholder="Leave empty if none" autocomplete="off" />
-              <span class="text-dim text-xs">
-                BIP-39 passphrase, also called the 25th word. Different passphrases produce different wallets from the same seed.
-                <strong v-if="createForm.mode === 'generate'">Important: a forgotten passphrase cannot be recovered.</strong>
+              <label>{{ createForm.mode === 'generate' ? 'Passphrase (required)' : 'Passphrase (optional)' }}</label>
+              <input
+                class="input"
+                v-model="createForm.passphrase"
+                type="password"
+                :placeholder="createForm.mode === 'generate' ? 'Min 12 chars, letters & numbers' : 'Leave empty if none'"
+                autocomplete="off"
+              />
+              <span class="text-dim text-xs" v-if="createForm.mode === 'generate'">
+                BIP-39 passphrase (the “25th word”), mixed into your seed. It's required every time you restore this wallet and
+                <strong>cannot be recovered if forgotten — a lost passphrase means lost funds.</strong>
+                You'll back it up with your recovery phrase on the next screen.
+              </span>
+              <span class="text-dim text-xs" v-else>
+                If this wallet was created with a BIP-39 passphrase, enter the exact same one. Leave empty otherwise.
               </span>
             </div>
 
@@ -1040,9 +1058,10 @@ watch(swapCompletedAt, () => {
         <!-- Step 1: show the seed -->
         <div class="card-body" v-if="!verifying">
           <div class="alert" style="background:rgba(249,115,22,.08);border:1px solid rgba(249,115,22,.4);padding:10px;border-radius:4px;margin-bottom:14px">
-            <strong>⚠ Save your seed phrase now.</strong>
+            <strong>⚠ Save your seed phrase and passphrase now.</strong>
             <div class="text-sm" style="margin-top:4px">
-              This is the ONLY time it will be shown. Without it, you cannot recover the wallet if you lose access to this device.
+              This is the ONLY time they're shown. You need BOTH the 12-word phrase and the passphrase to recover this wallet —
+              a lost passphrase means lost funds, and neither can be recovered.
             </div>
           </div>
 
@@ -1062,7 +1081,10 @@ watch(swapCompletedAt, () => {
           <div v-if="newWalletReveal.passphrase" class="field">
             <label>Passphrase</label>
             <input class="input mono" readonly :value="newWalletReveal.passphrase" />
-            <span class="text-dim text-xs">Required alongside the mnemonic to access this wallet.</span>
+            <div style="margin-top:6px">
+              <button class="btn btn-ghost btn-sm" @click="copyText(newWalletReveal.passphrase)">⎘ Copy passphrase</button>
+            </div>
+            <span class="text-dim text-xs">Required alongside the mnemonic to access this wallet — store it as carefully as your seed phrase.</span>
           </div>
 
           <div class="field">

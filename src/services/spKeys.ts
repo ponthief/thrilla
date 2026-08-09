@@ -67,6 +67,25 @@ export function isValidMnemonic(m: string): boolean {
   return validateMnemonic(m.trim().toLowerCase(), wordlist);
 }
 
+// BIP-39 passphrase policy for NEW wallets. The passphrase is mandatory when
+// *generating* a wallet: it's mixed into the seed and — unlike the mnemonic —
+// cannot be recovered if forgotten. Import/recovery deliberately does NOT
+// enforce this, so wallets created without a passphrase (legacy or external)
+// can still be restored. The passphrase is used verbatim in derivation, so
+// validate the raw string (no trimming — every character is significant).
+export const PASSPHRASE_MIN_LENGTH = 12;
+
+export function validateNewWalletPassphrase(passphrase: string): string | null {
+  const pp = passphrase ?? '';
+  if (pp.length < PASSPHRASE_MIN_LENGTH) {
+    return `Passphrase must be at least ${PASSPHRASE_MIN_LENGTH} characters.`;
+  }
+  if (!/[a-zA-Z]/.test(pp) || !/[0-9]/.test(pp)) {
+    return 'Passphrase must include both letters and numbers.';
+  }
+  return null;
+}
+
 // Derive the Silent Payments address + scan/spend private keys from a mnemonic.
 // `network` picks the BIP-352 coin type + address HRP (mainnet → 0/'sp',
 // otherwise → 1/'tsp'), matching the backend exactly.
