@@ -11,6 +11,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAppLockStore } from '@stores/appLockStore';
 import { useAuthStore } from '@stores/authStore';
 import * as appLock from '@services/appLock';
+import * as api from '@services/api';
 import { verifyPin } from '@services/appPin';
 import { wipeAllWalletKeys } from '@services/secureKeys';
 import { resetCatchUp } from '../hooks/useCatchUpScan';
@@ -30,6 +31,7 @@ export default function LockScreen() {
   const setUnlocking = useAppLockStore((s) => s.setUnlocking);
   const pinSet = useAppLockStore((s) => s.pinSet);
   const logout = useAuthStore((s) => s.logout);
+  const inkey = useAuthStore((s) => s.inkey);
   const [failed, setFailed] = useState(false);
 
   // ── Biometric mode ──
@@ -60,9 +62,14 @@ export default function LockScreen() {
       setBusy(true);
       const kind = await verifyPin(entered);
       if (kind === 'duress') {
-        // Silent: erase local keys, then unlock exactly like a normal PIN so an
-        // observer sees no difference. Funds stay safe on-chain (recover from
-        // seed); this device just can't view/scan/spend until keys are restored.
+        // Silent duress response. Order matters and it must stay fast (no UI
+        // hang), so it looks like a normal unlock:
+        //  1. fire-and-forget server revocation of background scanning (needs the
+        //     session key, which logout clears) — removes the uploaded scan key,
+        //  2. wipe this device's wallet keys (local, guaranteed),
+        //  3. log out to a neutral login screen (also unregisters push).
+        // Funds stay safe on-chain and recover from the seed.
+        if (inkey) api.disableAllBackgroundScans(inkey).catch(() => {});
         try {
           await wipeAllWalletKeys();
         } catch {
@@ -70,7 +77,7 @@ export default function LockScreen() {
         }
         resetCatchUp();
         setPin('');
-        unlock();
+        logout();
         return;
       }
       if (kind === 'normal') {
@@ -82,7 +89,7 @@ export default function LockScreen() {
       setPinError(true);
       setBusy(false);
     },
-    [unlock],
+    [unlock, logout, inkey],
   );
 
   useEffect(() => {
