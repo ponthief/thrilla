@@ -290,6 +290,11 @@ async function createWallet() {
         createError.value = `Birth height must be at least ${minScanHeight.value} — the indexer has no data before that block.`
         creating.value = false; return
       }
+      // A future birth (above the chain tip) is invalid — nothing to scan there.
+      if (tipHeight.value && bh > tipHeight.value) {
+        createError.value = `Birth height can't be above the current chain tip (${tipHeight.value}).`
+        creating.value = false; return
+      }
       seedPhrase = m
     } else {
       // New wallets require a passphrase (mixed into the seed, unrecoverable if
@@ -859,11 +864,13 @@ watch(swapCompletedAt, () => {
                   v-model="createForm.last_height"
                   type="number"
                   :min="minScanHeight || undefined"
+                  :max="tipHeight || undefined"
                   :placeholder="`e.g. ${heightHint}`"
                 />
                 <span class="text-dim text-xs">
                   The block height around when this wallet was first used (lower = scans more history).
-                  <template v-if="minScanHeight">Must be at least {{ minScanHeight }} — the indexer has no data before that block.</template>
+                  <template v-if="minScanHeight && tipHeight">Must be between {{ minScanHeight }} and the current tip ({{ tipHeight }}).</template>
+                  <template v-else-if="minScanHeight">Must be at least {{ minScanHeight }} — the indexer has no data before that block.</template>
                 </span>
               </div>
               <div class="field">

@@ -48,16 +48,23 @@ export default function CreateWalletModal({ visible, onClose, onCreated }: Props
   const [mnemonicInput, setMnemonicInput] = useState('');
   const [birthHeight, setBirthHeight] = useState('');
   const [minScanHeight, setMinScanHeight] = useState(0);
+  const [tip, setTip] = useState(0);
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Indexer start block — imports can't be born below it (no tweak data before).
+  // Valid birth-height range for an import: [indexer start block, chain tip].
+  // Below the start there's no tweak data to scan; above the tip is a
+  // future/invalid block.
   useEffect(() => {
     if (!inkey) return;
     api
       .getAppConfig(inkey)
       .then((c) => setMinScanHeight(Number(c?.min_scan_height) || 0))
+      .catch(() => {});
+    api
+      .getChainTip(inkey)
+      .then((t) => setTip(Number(t?.height) || 0))
       .catch(() => {});
   }, [inkey]);
 
@@ -122,6 +129,14 @@ export default function CreateWalletModal({ visible, onClose, onCreated }: Props
       if (minScanHeight && height < minScanHeight) {
         setError(
           `Birth height must be at least ${minScanHeight} — the indexer has no data before that block.`,
+        );
+        return;
+      }
+      // A birth height in the future (above the chain tip) is invalid — nothing
+      // to scan there.
+      if (tip && height > tip) {
+        setError(
+          `Birth height can't be above the current chain tip (${tip}).`,
         );
         return;
       }
@@ -199,6 +214,7 @@ export default function CreateWalletModal({ visible, onClose, onCreated }: Props
     mnemonicInput,
     birthHeight,
     minScanHeight,
+    tip,
     inkey,
     netLock,
     onCreated,
@@ -334,9 +350,11 @@ export default function CreateWalletModal({ visible, onClose, onCreated }: Props
                   <Text style={styles.hint}>
                     The block height the wallet was created at. Scanning starts
                     here, so an accurate value avoids missing funds.
-                    {minScanHeight
-                      ? ` Must be at least ${minScanHeight} — the indexer has no data before that block.`
-                      : ''}
+                    {minScanHeight && tip
+                      ? ` Must be between ${minScanHeight} and the current tip (${tip}).`
+                      : minScanHeight
+                        ? ` Must be at least ${minScanHeight} — the indexer has no data before that block.`
+                        : ''}
                   </Text>
                 </>
               ) : null}
