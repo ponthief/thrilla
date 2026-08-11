@@ -382,25 +382,6 @@ export default function ScanPanel() {
           </View>
         ) : (
           <View style={styles.card}>
-            <View style={styles.rangeRow}>
-              <View style={styles.rangeField}>
-                <Text style={styles.label}>From height</Text>
-                <View style={styles.readonly}>
-                  <Text style={styles.readonlyText}>
-                    {fromHeight ? groupThousands(Number(fromHeight)) : '—'}
-                  </Text>
-                </View>
-              </View>
-              <View style={styles.rangeField}>
-                <Text style={styles.label}>To height</Text>
-                <View style={styles.readonly}>
-                  <Text style={styles.readonlyText}>
-                    {toHeight ? groupThousands(Number(toHeight)) : '—'}
-                  </Text>
-                </View>
-              </View>
-            </View>
-
             {scanning ? (
               <>
                 <View style={styles.progressTrack}>
@@ -423,21 +404,33 @@ export default function ScanPanel() {
                 </TouchableOpacity>
               </>
             ) : (
-              <TouchableOpacity
-                style={[
-                  styles.primaryBtn,
-                  (upToDate || cooldown > 0) && styles.btnDisabled,
-                ]}
-                onPress={onStart}
-                disabled={upToDate || cooldown > 0}>
-                <Text style={styles.primaryBtnText}>
-                  {cooldown > 0
-                    ? `Scan again in ${cooldown}s`
-                    : upToDate
-                    ? 'Up to date'
-                    : 'Start scan'}
-                </Text>
-              </TouchableOpacity>
+              <>
+                {!upToDate && behind && fromHeight && toHeight ? (
+                  <Text style={styles.rangeCaption}>
+                    Blocks {groupThousands(Number(fromHeight))} –{' '}
+                    {groupThousands(Number(toHeight))}
+                  </Text>
+                ) : null}
+                <TouchableOpacity
+                  style={[
+                    styles.primaryBtn,
+                    (upToDate || cooldown > 0) && styles.btnDisabled,
+                  ]}
+                  onPress={onStart}
+                  disabled={upToDate || cooldown > 0}>
+                  <Text style={styles.primaryBtnText}>
+                    {cooldown > 0
+                      ? `Scan again in ${cooldown}s`
+                      : upToDate
+                      ? 'Up to date'
+                      : behind
+                      ? `Scan ${groupThousands(behind)} block${
+                          behind === 1 ? '' : 's'
+                        }`
+                      : 'Start scan'}
+                  </Text>
+                </TouchableOpacity>
+              </>
             )}
 
             {error ? <Text style={styles.error}>{error}</Text> : null}
@@ -527,18 +520,12 @@ const styles = StyleSheet.create({
   ok: { color: colors.green },
   warnText: { color: PRIMARY },
 
-  rangeRow: { flexDirection: 'row', gap: 12 },
-  rangeField: { flex: 1 },
-  label: { fontSize: 13, fontWeight: '600', color: colors.label, marginBottom: 6 },
-  readonly: {
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: 8,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    backgroundColor: colors.surfaceAlt,
+  rangeCaption: {
+    fontSize: 13,
+    color: colors.muted,
+    textAlign: 'center',
+    marginBottom: 4,
   },
-  readonlyText: { fontSize: 16, color: colors.text, fontWeight: '600' },
 
   progressTrack: {
     height: 8,
