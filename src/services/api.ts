@@ -908,3 +908,17 @@ export async function createSilntWallet(
     }),
   });
 }
+
+// Permanently delete a wallet on the server: its record, coins/UTXOs, labeled
+// addresses, and any BitMail (BIP-353) DNS records are all removed server-side.
+// Requires a trusted device (invoice key + device cookie). Local keys must be
+// removed separately via removeWalletKeys — this only touches the server.
+export async function deleteSilntWallet(
+  inkey: string,
+  walletId: string,
+): Promise<void> {
+  await req(`${SILNT}/api/v1/wallet/${encodeURIComponent(walletId)}`, {
+    method: 'DELETE',
+    headers: apiKey(inkey),
+  });
+}
