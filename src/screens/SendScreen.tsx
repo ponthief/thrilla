@@ -256,7 +256,7 @@ export default function SendScreen() {
     [tiers],
   );
 
-  const onBuild = useCallback(async () => {
+  const doBuild = useCallback(async () => {
     Keyboard.dismiss();
     setError(null);
     if (!wallet || !adminkey || !inkey) return;
@@ -316,21 +316,24 @@ export default function SendScreen() {
     }
   }, [built, wallet, adminkey, selectedUtxos, recipient, amountSats]);
 
-  // Confirm & Send: require re-authentication (PIN/biometric) first when an app
-  // lock is enabled — otherwise send straight away.
-  const onConfirmSend = useCallback(() => {
+  // Review: require re-authentication (PIN/biometric) first when an app lock is
+  // enabled. Building the transaction exposes the spend key (sent to the server
+  // to sign), so gate here rather than at the final broadcast. With no lock,
+  // proceed straight to the review step.
+  const onReview = useCallback(() => {
     if (busy) return;
     if (lockEnabled) {
+      Keyboard.dismiss();
       setAuthOpen(true);
       return;
     }
-    doBroadcast();
-  }, [busy, lockEnabled, doBroadcast]);
+    doBuild();
+  }, [busy, lockEnabled, doBuild]);
 
   const onAuthenticated = useCallback(() => {
     setAuthOpen(false);
-    doBroadcast();
-  }, [doBroadcast]);
+    doBuild();
+  }, [doBuild]);
 
   const reset = useCallback(() => {
     setStep('form');
@@ -427,7 +430,7 @@ export default function SendScreen() {
 
           <TouchableOpacity
             style={[styles.primaryBtn, busy && styles.btnDisabled]}
-            onPress={onConfirmSend}
+            onPress={doBroadcast}
             disabled={busy}>
             {busy ? (
               <ActivityIndicator color={colors.onPrimary} />
@@ -445,14 +448,6 @@ export default function SendScreen() {
             <Text style={styles.linkBtnText}>Back</Text>
           </TouchableOpacity>
         </ScrollView>
-
-        <ConfirmLockModal
-          visible={authOpen}
-          onAuthenticated={onAuthenticated}
-          onCancel={() => setAuthOpen(false)}
-          title="Confirm to send"
-          subtitle={`Authenticate to send ${groupThousands(amountSats)} sats.`}
-        />
       </SafeAreaView>
     );
   }
@@ -672,7 +667,7 @@ export default function SendScreen() {
 
           <TouchableOpacity
             style={[styles.primaryBtn, (!canBuild || busy) && styles.btnDisabled]}
-            onPress={onBuild}
+            onPress={onReview}
             disabled={!canBuild || busy}>
             {busy ? (
               <ActivityIndicator color={colors.onPrimary} />
@@ -682,6 +677,14 @@ export default function SendScreen() {
           </TouchableOpacity>
         </ScrollView>
       </KeyboardAvoidingView>
+
+      <ConfirmLockModal
+        visible={authOpen}
+        onAuthenticated={onAuthenticated}
+        onCancel={() => setAuthOpen(false)}
+        title="Confirm it’s you"
+        subtitle={`Authenticate to review this ${groupThousands(amountSats)} sats transaction.`}
+      />
 
       <QRScanner
         visible={scanning}
