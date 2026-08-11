@@ -11,10 +11,8 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAppLockStore } from '@stores/appLockStore';
 import { useAuthStore } from '@stores/authStore';
 import * as appLock from '@services/appLock';
-import * as api from '@services/api';
 import { verifyPin } from '@services/appPin';
-import { wipeAllWalletKeys } from '@services/secureKeys';
-import { resetCatchUp } from '../hooks/useCatchUpScan';
+import { runDuress } from '@services/duress';
 import PinPad from '../components/PinPad';
 import { colors } from '@/theme';
 
@@ -62,22 +60,10 @@ export default function LockScreen() {
       setBusy(true);
       const kind = await verifyPin(entered);
       if (kind === 'duress') {
-        // Silent duress response. Order matters and it must stay fast (no UI
-        // hang), so it looks like a normal unlock:
-        //  1. fire-and-forget server revocation of background scanning (needs the
-        //     session key, which logout clears) — removes the uploaded scan key,
-        //  2. wipe this device's wallet keys (local, guaranteed),
-        //  3. log out to a neutral login screen (also unregisters push).
-        // Funds stay safe on-chain and recover from the seed.
-        if (inkey) api.disableAllBackgroundScans(inkey).catch(() => {});
-        try {
-          await wipeAllWalletKeys();
-        } catch {
-          /* best-effort */
-        }
-        resetCatchUp();
+        // Silent duress response — looks like a normal unlock but wipes the
+        // device and drops the session (see runDuress).
         setPin('');
-        logout();
+        await runDuress(inkey, logout);
         return;
       }
       if (kind === 'normal') {

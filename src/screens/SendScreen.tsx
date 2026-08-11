@@ -14,11 +14,13 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Clipboard from '@react-native-clipboard/clipboard';
 import { useAuthStore } from '@stores/authStore';
+import { useAppLockStore } from '@stores/appLockStore';
 import * as api from '@services/api';
 import { getWalletKeys } from '@services/secureKeys';
 import { colors } from '@/theme';
 import QRScanner from '../components/QRScanner';
 import ContactsModal from '../components/ContactsModal';
+import ConfirmLockModal from '../components/ConfirmLockModal';
 
 type RecipientKind = 'sp' | 'onchain' | 'bitmail' | '';
 
@@ -81,6 +83,9 @@ function estimateFee(numInputs: number, feeRate: number): number {
 export default function SendScreen() {
   const inkey = useAuthStore((s) => s.inkey);
   const adminkey = useAuthStore((s) => s.adminkey);
+  // When an app lock (PIN or biometric) is on, re-authenticate before sending.
+  const lockEnabled = useAppLockStore((s) => s.enabled);
+  const [authOpen, setAuthOpen] = useState(false);
 
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -290,7 +295,7 @@ export default function SendScreen() {
     }
   }, [wallet, adminkey, inkey, recipient, amountSats, feeRate, selectedUtxos]);
 
-  const onBroadcast = useCallback(async () => {
+  const doBroadcast = useCallback(async () => {
     if (!built || !wallet || !adminkey) return;
     setError(null);
     setBusy(true);
@@ -310,6 +315,22 @@ export default function SendScreen() {
       setBusy(false);
     }
   }, [built, wallet, adminkey, selectedUtxos, recipient, amountSats]);
+
+  // Confirm & Send: require re-authentication (PIN/biometric) first when an app
+  // lock is enabled — otherwise send straight away.
+  const onConfirmSend = useCallback(() => {
+    if (busy) return;
+    if (lockEnabled) {
+      setAuthOpen(true);
+      return;
+    }
+    doBroadcast();
+  }, [busy, lockEnabled, doBroadcast]);
+
+  const onAuthenticated = useCallback(() => {
+    setAuthOpen(false);
+    doBroadcast();
+  }, [doBroadcast]);
 
   const reset = useCallback(() => {
     setStep('form');
@@ -406,7 +427,7 @@ export default function SendScreen() {
 
           <TouchableOpacity
             style={[styles.primaryBtn, busy && styles.btnDisabled]}
-            onPress={onBroadcast}
+            onPress={onConfirmSend}
             disabled={busy}>
             {busy ? (
               <ActivityIndicator color={colors.onPrimary} />
@@ -424,6 +445,14 @@ export default function SendScreen() {
             <Text style={styles.linkBtnText}>Back</Text>
           </TouchableOpacity>
         </ScrollView>
+
+        <ConfirmLockModal
+          visible={authOpen}
+          onAuthenticated={onAuthenticated}
+          onCancel={() => setAuthOpen(false)}
+          title="Confirm to send"
+          subtitle={`Authenticate to send ${groupThousands(amountSats)} sats.`}
+        />
       </SafeAreaView>
     );
   }
