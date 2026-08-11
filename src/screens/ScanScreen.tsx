@@ -78,6 +78,10 @@ export default function ScanPanel() {
   const [cooldown, setCooldownSec] = useState(0);
 
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  // Holds the latest `poll` so `load` can attach to a running scan without a
+  // circular useCallback dependency (poll depends on load, load must not depend
+  // on poll). Assigned right after poll is defined below.
+  const pollFn = useRef<(walletId: string) => void>(() => {});
   const stopPoll = useCallback(() => {
     if (pollRef.current) {
       clearInterval(pollRef.current);
@@ -119,8 +123,26 @@ export default function ScanPanel() {
         cfgRes.status === 'fulfilled' ? Number(cfgRes.value?.min_scan_height) || 0 : 0;
       setMinHeight(minH);
 
-      // Prefill the range only when not mid-scan.
-      if (!scanning && newTip) {
+      // Attach to an already-running scan (the login catch-up, or one started
+      // elsewhere) so its progress shows here immediately. Without this the
+      // panel would render an enabled "Start scan" button over a scan that's
+      // already in flight, and tapping it just fires a duplicate the server
+      // rejects — which is what made progress appear only after a tab switch.
+      let active = false;
+      try {
+        const p = await api.getScanProgress(inkey, w.id);
+        if (p?.active) {
+          active = true;
+          setProgress(p);
+          setScanning(true);
+          pollFn.current(w.id);
+        }
+      } catch {
+        /* treat as no active scan */
+      }
+
+      // Prefill the range only when idle (not mid-scan and none just detected).
+      if (!scanning && !active && newTip) {
         setFromHeight(String(resumeFrom(w, newTip, minH)));
         setToHeight(String(newTip));
       }
@@ -193,6 +215,9 @@ export default function ScanPanel() {
     },
     [inkey, stopPoll, load],
   );
+  // Keep the ref pointing at the current poll so load() can attach to a
+  // running scan (see the active-scan check above).
+  pollFn.current = poll;
 
   const onStart = useCallback(async () => {
     setError(null);
