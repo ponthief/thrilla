@@ -16,7 +16,8 @@ import { useAppLockStore } from '@stores/appLockStore';
 import * as api from '@services/api';
 import * as appLock from '@services/appLock';
 import * as appPin from '@services/appPin';
-import { getWalletKeys } from '@services/secureKeys';
+import { getWalletKeys, hasWalletKeys, removeWalletKeys } from '@services/secureKeys';
+import { resetCatchUp } from '../hooks/useCatchUpScan';
 import { colors, DEVICE_TRUST_ENABLED } from '@/theme';
 import DevicesModal from '../components/DevicesModal';
 import PinSetupModal from '../components/PinSetupModal';
@@ -85,11 +86,16 @@ export default function SettingsScreen() {
     appPin.setDuressPin(null).then(() => setHasDuress(false));
   }, []);
 
-  // Background scanning (opt-in server-side "Remote Scanner").
-  const [bgWalletId, setBgWalletId] = useState<string | null>(null);
+  // Current wallet (for background scanning + removal).
+  const [wallet, setWallet] = useState<api.SilntWallet | null>(null);
+  const bgWalletId = wallet?.id ?? null;
   const [bgEnabled, setBgEnabled] = useState(false);
   const [bgBusy, setBgBusy] = useState(false);
   const [bgMsg, setBgMsg] = useState<string | null>(null);
+
+  // Remove wallet.
+  const [removing, setRemoving] = useState(false);
+  const [removeMsg, setRemoveMsg] = useState<string | null>(null);
 
   useEffect(() => {
     (async () => {
@@ -97,13 +103,66 @@ export default function SettingsScreen() {
       try {
         const w = api.pickSilntWallet(await api.getSilntWallets(inkey));
         if (!w) return;
-        setBgWalletId(w.id);
+        setWallet(w);
         setBgEnabled(await api.getBackgroundScan(inkey, w.id));
       } catch {
         /* leave the toggle off/disabled if we can't load status */
       }
     })();
   }, [inkey]);
+
+  const doRemoveWallet = useCallback(async () => {
+    if (!inkey || !wallet) return;
+    setRemoving(true);
+    setRemoveMsg(null);
+    try {
+      // Best-effort: pull this wallet's scan key off the server first so nothing
+      // lingers there if the delete itself is retried. Deleting the wallet
+      // removes its record, coins, labeled addresses, and BitMail DNS too.
+      try {
+        await api.disableBackgroundScan(inkey, wallet.id);
+      } catch {
+        /* not enabled / already gone — ignore */
+      }
+      await api.deleteSilntWallet(inkey, wallet.id);
+      // Wipe the local keys and forget the catch-up evaluation for this id.
+      await removeWalletKeys(wallet.id);
+      resetCatchUp(wallet.id);
+      setWallet(null);
+      setBgEnabled(false);
+      setRemoveMsg('Wallet removed. Create or import one on the Wallet tab.');
+    } catch (e: any) {
+      setRemoveMsg(e?.message || 'Could not remove the wallet. Please try again.');
+    } finally {
+      setRemoving(false);
+    }
+  }, [inkey, wallet]);
+
+  const onRemoveWallet = useCallback(async () => {
+    if (!inkey || !wallet) return;
+    // Only allow removal from a device that holds the wallet's keys — proof the
+    // user can recover it from their seed afterwards (mirrors the web gate).
+    if (!(await hasWalletKeys(wallet.id))) {
+      Alert.alert(
+        'Keys not on this device',
+        "This wallet's keys aren't stored on this phone, so it can't be removed " +
+          'here. Recover the wallet from its recovery phrase first (Scan tab), ' +
+          'then remove it.',
+      );
+      return;
+    }
+    Alert.alert(
+      'Remove this wallet?',
+      `This permanently deletes "${wallet.title || 'this wallet'}" and all its ` +
+        'coins from the server, and erases its keys from this device. This ' +
+        "can't be undone — you can only restore it from your recovery phrase " +
+        '(and passphrase, if you set one).',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Remove wallet', style: 'destructive', onPress: doRemoveWallet },
+      ],
+    );
+  }, [inkey, wallet, doRemoveWallet]);
 
   const applyBackgroundScan = useCallback(
     async (enable: boolean) => {
@@ -409,6 +468,31 @@ export default function SettingsScreen() {
         </View>
 
         <View style={styles.section}>
+          <Text style={styles.sectionTitle}>Wallet</Text>
+          <View style={styles.column}>
+            <Text style={styles.help}>
+              Permanently delete this wallet and all its coins from the server and
+              erase its keys from this device. You can only restore it afterwards
+              from your recovery phrase (and passphrase, if set).
+            </Text>
+            <TouchableOpacity
+              style={[
+                styles.removeBtn,
+                (!wallet || removing) && styles.saveDisabled,
+              ]}
+              onPress={onRemoveWallet}
+              disabled={!wallet || removing}>
+              {removing ? (
+                <ActivityIndicator color={colors.danger} />
+              ) : (
+                <Text style={styles.removeText}>Remove wallet</Text>
+              )}
+            </TouchableOpacity>
+            {removeMsg ? <Text style={styles.help}>{removeMsg}</Text> : null}
+          </View>
+        </View>
+
+        <View style={styles.section}>
           <Text style={styles.sectionTitle}>About</Text>
           <View style={styles.item}>
             <Text style={styles.itemLabel}>Version</Text>
@@ -509,6 +593,15 @@ const styles = StyleSheet.create({
   },
   saveDisabled: { opacity: 0.5 },
   saveText: { color: colors.onPrimary, fontSize: 14, fontWeight: '600' },
+  removeBtn: {
+    borderWidth: 1,
+    borderColor: colors.danger,
+    borderRadius: 8,
+    paddingVertical: 12,
+    alignItems: 'center',
+    marginTop: 14,
+  },
+  removeText: { color: colors.danger, fontSize: 15, fontWeight: '600' },
   logout: {
     backgroundColor: colors.surface,
     borderWidth: StyleSheet.hairlineWidth,
