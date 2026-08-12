@@ -252,6 +252,34 @@ export default function SettingsScreen() {
   const [dustError, setDustError] = useState<string | null>(null);
   const [dustSaved, setDustSaved] = useState(false);
 
+  // Invite a friend by email.
+  const [inviteEmail, setInviteEmail] = useState('');
+  const [inviting, setInviting] = useState(false);
+  const [inviteMsg, setInviteMsg] = useState<string | null>(null);
+  const [inviteErr, setInviteErr] = useState<string | null>(null);
+
+  const onInvite = useCallback(async () => {
+    if (!inkey) return;
+    const email = inviteEmail.trim().toLowerCase();
+    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) {
+      setInviteErr('Enter a valid email address.');
+      setInviteMsg(null);
+      return;
+    }
+    setInviting(true);
+    setInviteErr(null);
+    setInviteMsg(null);
+    try {
+      const res = await api.sendInvite(inkey, email);
+      setInviteEmail('');
+      setInviteMsg(res?.message || `Invitation sent to ${email}.`);
+    } catch (e: any) {
+      setInviteErr(e?.message || 'Could not send the invitation.');
+    } finally {
+      setInviting(false);
+    }
+  }, [inkey, inviteEmail]);
+
   const loadPrefs = useCallback(async () => {
     if (!inkey) return;
     try {
@@ -464,6 +492,48 @@ export default function SettingsScreen() {
               (detection only — it can never spend your funds).
             </Text>
             {bgMsg ? <Text style={styles.dustError}>{bgMsg}</Text> : null}
+          </View>
+        </View>
+
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>Invite a friend</Text>
+          <View style={styles.column}>
+            <Text style={styles.help}>
+              Send someone an email invite to join Thrilla. We email them a
+              sign-up link — their address is used only for this invite, not
+              stored.
+            </Text>
+            <View style={styles.inputRow}>
+              <TextInput
+                style={styles.input}
+                value={inviteEmail}
+                onChangeText={(t) => {
+                  setInviteEmail(t);
+                  setInviteErr(null);
+                  setInviteMsg(null);
+                }}
+                placeholder="friend@email.com"
+                placeholderTextColor={colors.faint}
+                keyboardType="email-address"
+                autoCapitalize="none"
+                autoCorrect={false}
+              />
+              <TouchableOpacity
+                style={[
+                  styles.saveBtn,
+                  (inviting || !inviteEmail.trim()) && styles.saveDisabled,
+                ]}
+                onPress={onInvite}
+                disabled={inviting || !inviteEmail.trim()}>
+                {inviting ? (
+                  <ActivityIndicator color={colors.onPrimary} />
+                ) : (
+                  <Text style={styles.saveText}>Send</Text>
+                )}
+              </TouchableOpacity>
+            </View>
+            {inviteErr ? <Text style={styles.dustError}>{inviteErr}</Text> : null}
+            {inviteMsg ? <Text style={styles.dustSaved}>✓ {inviteMsg}</Text> : null}
           </View>
         </View>
 

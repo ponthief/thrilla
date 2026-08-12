@@ -358,6 +358,20 @@ export async function requestPasswordReset(email: string): Promise<unknown> {
   });
 }
 
+// Invite a friend to Thrilla by email. The server emails a fixed invite (naming
+// the inviter) with a sign-up link; the address is used only for that one
+// message. Requires a trusted device (invoice key). Rate-limited server-side.
+export async function sendInvite(
+  inkey: string,
+  email: string,
+): Promise<{ success?: boolean; message?: string }> {
+  return req(`${SILNT}/api/v1/invite`, {
+    method: 'POST',
+    headers: apiKey(inkey),
+    body: JSON.stringify({ email }),
+  });
+}
+
 // ── Lightning wallet ────────────────────────────────────────────────────────
 // Current LN balance (in millisatoshis) + wallet name. Uses inkey (read).
 export async function lnGetWallet(inkey: string): Promise<WalletInfo> {
