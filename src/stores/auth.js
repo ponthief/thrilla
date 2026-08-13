@@ -1,5 +1,4 @@
 import { defineStore } from 'pinia'
-import CryptoJS from 'crypto-js'   // legacy decryption during migration only
 import { ref, computed } from 'vue'
 import { login as apiLogin, getLnbitsWallets, getAccount } from '@/api'
 import {
@@ -98,7 +97,12 @@ export const useAuthStore = defineStore('auth', () => {
       } catch (_) { email.value = null }
 
       persist()
-      await _migrateAndIndex()    // migrate any legacy CryptoJS entries → vault, build index
+      // Build the key index (web vault). Native bridge builds its index lazily
+      // via refreshKeyIndex(walletIds) from the wallet list elsewhere.
+      if (typeof window.ThrillaBridge === 'undefined') {
+        _purgeLegacyKeyBlobs()   // drop any stale pre-vault CryptoJS key material
+        await refreshKeyIndex()
+      }
       return true
     } catch (e) {
       error.value = e.message
@@ -232,12 +236,9 @@ export const useAuthStore = defineStore('auth', () => {
         try { return JSON.parse(raw) } catch { return null }
       } catch { return null }
     }
-    // Primary: WebCrypto vault
-    const fromVault = await vaultGet(walletId, _keyMaterial())
-    if (fromVault) return fromVault
-    // Fallback: migrate a legacy CryptoJS entry if present, then return it
-    const migrated = await _migrateLegacyEntry(walletId)
-    return migrated
+    // WebCrypto vault is the only store — legacy CryptoJS/localStorage support
+    // was removed. A miss means the keys aren't on this device.
+    return await vaultGet(walletId, _keyMaterial())
   }
 
   async function removeWalletKeys(walletId) {
@@ -246,83 +247,24 @@ export const useAuthStore = defineStore('auth', () => {
       return
     }
     await vaultDelete(walletId)
-    // also clear any legacy CryptoJS entry
-    try { localStorage.removeItem(LS_PREFIX + walletId) } catch { /* ignore */ }
     markVault(walletId, false)
     _keyIndex.value = vaultIndexList()
   }
 
-  // ── Legacy (CryptoJS/localStorage) → vault migration ─────────────────────────
-  function _legacyDecKey() {
-    return CryptoJS.SHA256(_keyMaterial()).toString()
-  }
-  function _legacyDecrypt(encrypted) {
+  // Best-effort purge of pre-vault key material. The old scheme AES-encrypted
+  // keys into localStorage with CryptoJS; that path — and the crypto-js
+  // dependency — has been removed, so any such blobs are now undecryptable dead
+  // weight. Delete them so stale encrypted key material doesn't linger in the
+  // browser. A user who never migrated must re-import/recover from their seed.
+  function _purgeLegacyKeyBlobs() {
     try {
-      const bytes = CryptoJS.AES.decrypt(encrypted, _legacyDecKey())
-      const plain = bytes.toString(CryptoJS.enc.Utf8)
-      if (!plain) return null
-      return JSON.parse(plain)
-    } catch { return null }
-  }
-
-  // Migrate a single wallet's legacy entry (per-wallet blob or from the old
-  // single-blob) into the vault, returning the keys if found.
-  async function _migrateLegacyEntry(walletId) {
-    try {
-      const perWallet = localStorage.getItem(LS_PREFIX + walletId)
-      if (perWallet) {
-        const keys = _legacyDecrypt(perWallet)
-        if (keys && keys.scanSecret && keys.spendKey) {
-          await vaultStore(walletId, keys, _keyMaterial())
-          markVault(walletId, true); _keyIndex.value = vaultIndexList()
-          localStorage.removeItem(LS_PREFIX + walletId)
-          return keys
-        }
-      }
-      const legacy = localStorage.getItem(LS_KEY_LEGACY)
-      if (legacy) {
-        const all = _legacyDecrypt(legacy)
-        if (all && all[walletId] && all[walletId].scanSecret) {
-          await vaultStore(walletId, all[walletId], _keyMaterial())
-          markVault(walletId, true); _keyIndex.value = vaultIndexList()
-          return all[walletId]
-        }
-      }
-    } catch { /* non-fatal */ }
-    return null
-  }
-
-  // On login: migrate ALL legacy entries that decrypt with this user's key, then
-  // build the index. Non-fatal if anything fails.
-  async function _migrateAndIndex() {
-    if (typeof window.ThrillaBridge !== 'undefined') return
-    try {
-      // per-wallet legacy entries
+      const stale = []
       for (let i = 0; i < localStorage.length; i++) {
         const k = localStorage.key(i)
-        if (k && k.startsWith(LS_PREFIX)) {
-          const wid = k.slice(LS_PREFIX.length)
-          const keys = _legacyDecrypt(localStorage.getItem(k))
-          if (keys && keys.scanSecret && keys.spendKey) {
-            await vaultStore(wid, keys, _keyMaterial())
-          }
-        }
+        if (k && (k === LS_KEY_LEGACY || k.startsWith(LS_PREFIX))) stale.push(k)
       }
-      // old single blob
-      const legacy = localStorage.getItem(LS_KEY_LEGACY)
-      if (legacy) {
-        const all = _legacyDecrypt(legacy)
-        if (all && typeof all === 'object') {
-          for (const [wid, keys] of Object.entries(all)) {
-            if (keys && keys.scanSecret && keys.spendKey) {
-              await vaultStore(wid, keys, _keyMaterial())
-            }
-          }
-          localStorage.removeItem(LS_KEY_LEGACY)
-        }
-      }
+      for (const k of stale) localStorage.removeItem(k)
     } catch { /* non-fatal */ }
-    await refreshKeyIndex()
   }
 
   // clearAllWalletKeys removed — it wiped every wallet's keys across all users on

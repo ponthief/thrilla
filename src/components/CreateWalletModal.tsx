@@ -1,4 +1,4 @@
-import React, { useCallback, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   Modal,
@@ -47,9 +47,26 @@ export default function CreateWalletModal({ visible, onClose, onCreated }: Props
   const [passphrase, setPassphrase] = useState('');
   const [mnemonicInput, setMnemonicInput] = useState('');
   const [birthHeight, setBirthHeight] = useState('');
+  const [minScanHeight, setMinScanHeight] = useState(0);
+  const [tip, setTip] = useState(0);
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Valid birth-height range for an import: [indexer start block, chain tip].
+  // Below the start there's no tweak data to scan; above the tip is a
+  // future/invalid block.
+  useEffect(() => {
+    if (!inkey) return;
+    api
+      .getAppConfig(inkey)
+      .then((c) => setMinScanHeight(Number(c?.min_scan_height) || 0))
+      .catch(() => {});
+    api
+      .getChainTip(inkey)
+      .then((t) => setTip(Number(t?.height) || 0))
+      .catch(() => {});
+  }, [inkey]);
 
   const [mnemonic, setMnemonic] = useState<string>('');
   const [acknowledged, setAcknowledged] = useState(false);
@@ -105,6 +122,22 @@ export default function CreateWalletModal({ visible, onClose, onCreated }: Props
       const height = Number(birthHeight);
       if (!birthHeight || !Number.isFinite(height) || height < 0) {
         setError('Enter the wallet birth height (block number) to import.');
+        return;
+      }
+      // The indexer has no tweak data before its start block, so a wallet born
+      // below it can never scan.
+      if (minScanHeight && height < minScanHeight) {
+        setError(
+          `Birth height must be at least ${minScanHeight} — the indexer has no data before that block.`,
+        );
+        return;
+      }
+      // A birth height in the future (above the chain tip) is invalid — nothing
+      // to scan there.
+      if (tip && height > tip) {
+        setError(
+          `Birth height can't be above the current chain tip (${tip}).`,
+        );
         return;
       }
       lastHeight = Math.floor(height);
@@ -180,6 +213,8 @@ export default function CreateWalletModal({ visible, onClose, onCreated }: Props
     mode,
     mnemonicInput,
     birthHeight,
+    minScanHeight,
+    tip,
     inkey,
     netLock,
     onCreated,
@@ -308,13 +343,18 @@ export default function CreateWalletModal({ visible, onClose, onCreated }: Props
                     style={styles.input}
                     value={birthHeight}
                     onChangeText={(t) => setBirthHeight(t.replace(/[^0-9]/g, ''))}
-                    placeholder="e.g. 840000"
+                    placeholder={minScanHeight ? `e.g. ${minScanHeight}` : 'e.g. 840000'}
                     placeholderTextColor={colors.faint}
                     keyboardType="number-pad"
                   />
                   <Text style={styles.hint}>
                     The block height the wallet was created at. Scanning starts
                     here, so an accurate value avoids missing funds.
+                    {minScanHeight && tip
+                      ? ` Must be between ${minScanHeight} and the current tip (${tip}).`
+                      : minScanHeight
+                        ? ` Must be at least ${minScanHeight} — the indexer has no data before that block.`
+                        : ''}
                   </Text>
                 </>
               ) : null}

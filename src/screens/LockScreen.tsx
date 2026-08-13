@@ -1,4 +1,4 @@
-import React, { useCallback, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   Image,
@@ -11,19 +11,28 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAppLockStore } from '@stores/appLockStore';
 import { useAuthStore } from '@stores/authStore';
 import * as appLock from '@services/appLock';
+import { verifyPin } from '@services/appPin';
+import { runDuress } from '@services/duress';
+import PinPad from '../components/PinPad';
 import { colors } from '@/theme';
 
 const PRIMARY = colors.primary;
+const PIN_LENGTH = 6;
 
-// Shown when the app is locked. Auto-prompts for biometric/PIN unlock on mount;
-// offers a manual retry and a way out (log out) if the user can't authenticate.
+// Shown when the app is locked. Two modes:
+//  - PIN set  → numeric PIN pad. The normal PIN unlocks; a duress PIN silently
+//    wipes this device's wallet keys first, then unlocks identically.
+//  - otherwise → the device biometric/passcode prompt.
 export default function LockScreen() {
   const unlock = useAppLockStore((s) => s.unlock);
   const unlocking = useAppLockStore((s) => s.unlocking);
   const setUnlocking = useAppLockStore((s) => s.setUnlocking);
+  const pinSet = useAppLockStore((s) => s.pinSet);
   const logout = useAuthStore((s) => s.logout);
+  const inkey = useAuthStore((s) => s.inkey);
   const [failed, setFailed] = useState(false);
 
+  // ── Biometric mode ──
   const prompt = useCallback(async () => {
     if (unlocking) return;
     setUnlocking(true);
@@ -32,24 +41,85 @@ export default function LockScreen() {
       const ok = await appLock.authenticate();
       if (ok) {
         unlock();
-        return; // unlock() clears `unlocking`; the lock screen unmounts
+        return;
       }
     } catch {
-      // authenticate() already swallows errors, but never let an unexpected
-      // throw wedge the button in its disabled/spinner state.
+      /* authenticate() swallows errors; never wedge the button */
     }
-    // Failed / cancelled / unavailable: surface it (so it doesn't look like
-    // nothing happened) and re-enable the button so the user can retry or use
-    // "Log out instead". The Unlock button must never stay stuck disabled.
     setFailed(true);
     setUnlocking(false);
   }, [unlocking, setUnlocking, unlock]);
 
-  // NOTE: we deliberately do NOT auto-trigger the biometric prompt on mount.
-  // The lock screen appears as the Activity resumes from background, and Android's
-  // BiometricPrompt fails (silently, sometimes leaving a fragment that swallows
-  // touches) if started before the Activity is fully resumed — which made both
-  // buttons appear dead. The user taps "Unlock" once resumed, which is reliable.
+  // ── PIN mode ──
+  const [pin, setPin] = useState('');
+  const [pinError, setPinError] = useState(false);
+  const [busy, setBusy] = useState(false);
+
+  const submitPin = useCallback(
+    async (entered: string) => {
+      setBusy(true);
+      const kind = await verifyPin(entered);
+      if (kind === 'duress') {
+        // Silent duress response — looks like a normal unlock but wipes the
+        // device and drops the session (see runDuress).
+        setPin('');
+        await runDuress(inkey, logout);
+        return;
+      }
+      if (kind === 'normal') {
+        setPin('');
+        unlock();
+        return;
+      }
+      setPin('');
+      setPinError(true);
+      setBusy(false);
+    },
+    [unlock, logout, inkey],
+  );
+
+  useEffect(() => {
+    if (!busy && pin.length === PIN_LENGTH) submitPin(pin);
+  }, [pin, busy, submitPin]);
+
+  if (pinSet) {
+    return (
+      <SafeAreaView style={styles.container}>
+        <View style={styles.content}>
+          <Image
+            source={require('../assets/icon.png')}
+            style={styles.logoSm}
+            resizeMode="contain"
+          />
+          <Text style={styles.title}>Enter your PIN</Text>
+          <Text style={styles.subtitle}>Enter your PIN to unlock Thrilla.</Text>
+
+          <PinPad
+            value={pin}
+            onChange={(v) => {
+              setPinError(false);
+              setPin(v);
+            }}
+            length={PIN_LENGTH}
+            disabled={busy}
+          />
+
+          {busy ? (
+            <View style={styles.checkingRow}>
+              <ActivityIndicator color={colors.primary} />
+              <Text style={styles.checking}>Checking…</Text>
+            </View>
+          ) : pinError ? (
+            <Text style={styles.error}>Incorrect PIN. Try again.</Text>
+          ) : null}
+
+          <TouchableOpacity style={styles.logout} onPress={() => logout()}>
+            <Text style={styles.logoutText}>Log out instead</Text>
+          </TouchableOpacity>
+        </View>
+      </SafeAreaView>
+    );
+  }
 
   return (
     <SafeAreaView style={styles.container}>
@@ -93,6 +163,7 @@ const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.bg },
   content: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 24 },
   logo: { width: 88, height: 88, marginBottom: 16 },
+  logoSm: { width: 56, height: 56, marginBottom: 12 },
   title: { fontSize: 24, fontWeight: 'bold', color: colors.text },
   subtitle: {
     fontSize: 14,
@@ -119,6 +190,8 @@ const styles = StyleSheet.create({
     marginTop: 16,
     paddingHorizontal: 8,
   },
-  logout: { marginTop: 20 },
+  checkingRow: { flexDirection: 'row', alignItems: 'center', marginTop: 16 },
+  checking: { color: colors.muted, fontSize: 13, marginLeft: 8 },
+  logout: { marginTop: 28 },
   logoutText: { color: colors.muted, fontSize: 14, fontWeight: '600' },
 });

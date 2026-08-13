@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Keyboard,
@@ -14,11 +14,13 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Clipboard from '@react-native-clipboard/clipboard';
 import { useAuthStore } from '@stores/authStore';
+import { useAppLockStore } from '@stores/appLockStore';
 import * as api from '@services/api';
 import { getWalletKeys } from '@services/secureKeys';
 import { colors } from '@/theme';
 import QRScanner from '../components/QRScanner';
 import ContactsModal from '../components/ContactsModal';
+import ConfirmLockModal from '../components/ConfirmLockModal';
 
 type RecipientKind = 'sp' | 'onchain' | 'bitmail' | '';
 
@@ -81,6 +83,9 @@ function estimateFee(numInputs: number, feeRate: number): number {
 export default function SendScreen() {
   const inkey = useAuthStore((s) => s.inkey);
   const adminkey = useAuthStore((s) => s.adminkey);
+  // When an app lock (PIN or biometric) is on, re-authenticate before sending.
+  const lockEnabled = useAppLockStore((s) => s.enabled);
+  const [authOpen, setAuthOpen] = useState(false);
 
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -107,6 +112,15 @@ export default function SendScreen() {
   const [txid, setTxid] = useState('');
   const [scanning, setScanning] = useState(false);
 
+  // A catch-up scan (often thousands of blocks) can be running server-side after
+  // login. While it is, this wallet's coin set is still incomplete, so sending
+  // is paused until it finishes — then the user spends from a complete,
+  // up-to-date balance (and can't trip the backend's "state just changed"
+  // rejection). Progress is polled to clear the block the moment it's done.
+  const [scanActive, setScanActive] = useState(false);
+  const [scanCur, setScanCur] = useState(0);
+  const [scanTot, setScanTot] = useState(0);
+
   const [contacts, setContacts] = useState<api.SpContact[]>([]);
   const [showContacts, setShowContacts] = useState(false);
   const [savingContact, setSavingContact] = useState(false);
@@ -123,12 +137,12 @@ export default function SendScreen() {
     }
   }, [inkey]);
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (silent = false) => {
     if (!inkey) {
       setLoading(false);
       return;
     }
-    setLoading(true);
+    if (!silent) setLoading(true);
     setLoadError(null);
     setMissing(false);
     setNoKeys(false);
@@ -172,6 +186,41 @@ export default function SendScreen() {
     load();
     loadContacts();
   }, [load, loadContacts]);
+
+  // Keep `load` reachable from the scan-watcher without making it a dependency
+  // (avoids re-arming the poll every reload).
+  const loadRef = useRef(load);
+  loadRef.current = load;
+  const wasScanningRef = useRef(false);
+
+  // Poll for an in-flight catch-up scan while this screen is open. `scanActive`
+  // gates the Review button; on the active → done transition we quietly refresh
+  // so the just-scanned coins are present before the user sends.
+  useEffect(() => {
+    if (!inkey || !wallet?.id) return undefined;
+    let cancelled = false;
+    const walletId = wallet.id;
+    const tick = async () => {
+      try {
+        const p = await api.getScanProgress(inkey, walletId);
+        if (cancelled) return;
+        const active = !!p.active;
+        setScanActive(active);
+        setScanCur(Number(p.current) || 0);
+        setScanTot(Number(p.total) || 0);
+        if (!active && wasScanningRef.current) loadRef.current(true);
+        wasScanningRef.current = active;
+      } catch {
+        /* transient — keep polling */
+      }
+    };
+    tick();
+    const timer = setInterval(tick, 3000);
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+    };
+  }, [inkey, wallet?.id]);
 
   const rKind = recipientKind(recipient);
   const saveable = rKind === 'sp' || rKind === 'bitmail';
@@ -239,7 +288,8 @@ export default function SendScreen() {
     selectedUtxos.length > 0 &&
     feeRate > 0 &&
     !insufficient &&
-    !noKeys;
+    !noKeys &&
+    !scanActive;
 
   const pickTier = useCallback(
     (key: keyof api.FeeTiers | 'custom') => {
@@ -251,7 +301,7 @@ export default function SendScreen() {
     [tiers],
   );
 
-  const onBuild = useCallback(async () => {
+  const doBuild = useCallback(async () => {
     Keyboard.dismiss();
     setError(null);
     if (!wallet || !adminkey || !inkey) return;
@@ -290,7 +340,7 @@ export default function SendScreen() {
     }
   }, [wallet, adminkey, inkey, recipient, amountSats, feeRate, selectedUtxos]);
 
-  const onBroadcast = useCallback(async () => {
+  const doBroadcast = useCallback(async () => {
     if (!built || !wallet || !adminkey) return;
     setError(null);
     setBusy(true);
@@ -310,6 +360,25 @@ export default function SendScreen() {
       setBusy(false);
     }
   }, [built, wallet, adminkey, selectedUtxos, recipient, amountSats]);
+
+  // Review: require re-authentication (PIN/biometric) first when an app lock is
+  // enabled. Building the transaction exposes the spend key (sent to the server
+  // to sign), so gate here rather than at the final broadcast. With no lock,
+  // proceed straight to the review step.
+  const onReview = useCallback(() => {
+    if (busy) return;
+    if (lockEnabled) {
+      Keyboard.dismiss();
+      setAuthOpen(true);
+      return;
+    }
+    doBuild();
+  }, [busy, lockEnabled, doBuild]);
+
+  const onAuthenticated = useCallback(() => {
+    setAuthOpen(false);
+    doBuild();
+  }, [doBuild]);
 
   const reset = useCallback(() => {
     setStep('form');
@@ -351,7 +420,7 @@ export default function SendScreen() {
       <SafeAreaView style={styles.container} edges={['top']}>
         <View style={styles.center}>
           <Text style={styles.error}>{loadError}</Text>
-          <TouchableOpacity style={styles.primaryBtn} onPress={load}>
+          <TouchableOpacity style={styles.primaryBtn} onPress={() => load()}>
             <Text style={styles.primaryBtnText}>Retry</Text>
           </TouchableOpacity>
         </View>
@@ -406,7 +475,7 @@ export default function SendScreen() {
 
           <TouchableOpacity
             style={[styles.primaryBtn, busy && styles.btnDisabled]}
-            onPress={onBroadcast}
+            onPress={doBroadcast}
             disabled={busy}>
             {busy ? (
               <ActivityIndicator color={colors.onPrimary} />
@@ -444,6 +513,20 @@ export default function SendScreen() {
               This wallet's keys aren't on this device, so it can't sign a
               transaction. Re-import the wallet (Wallet tab) to send.
             </Text>
+          ) : null}
+
+          {scanActive ? (
+            <View style={styles.scanBanner}>
+              <ActivityIndicator color={colors.primary} size="small" />
+              <Text style={styles.scanBannerText}>
+                Catching up
+                {scanTot
+                  ? ` — block ${groupThousands(scanCur)} of ${groupThousands(scanTot)}`
+                  : ''}
+                . Sending is paused until your wallet finishes scanning, so you
+                spend from a complete, up-to-date balance.
+              </Text>
+            </View>
           ) : null}
 
           <Text style={styles.label}>Recipient</Text>
@@ -643,16 +726,26 @@ export default function SendScreen() {
 
           <TouchableOpacity
             style={[styles.primaryBtn, (!canBuild || busy) && styles.btnDisabled]}
-            onPress={onBuild}
+            onPress={onReview}
             disabled={!canBuild || busy}>
             {busy ? (
               <ActivityIndicator color={colors.onPrimary} />
             ) : (
-              <Text style={styles.primaryBtnText}>Review</Text>
+              <Text style={styles.primaryBtnText}>
+                {scanActive ? 'Scanning… please wait' : 'Review'}
+              </Text>
             )}
           </TouchableOpacity>
         </ScrollView>
       </KeyboardAvoidingView>
+
+      <ConfirmLockModal
+        visible={authOpen}
+        onAuthenticated={onAuthenticated}
+        onCancel={() => setAuthOpen(false)}
+        title="Confirm it’s you"
+        subtitle={`Authenticate to review this ${groupThousands(amountSats)} sats transaction.`}
+      />
 
       <QRScanner
         visible={scanning}
@@ -872,6 +965,16 @@ const styles = StyleSheet.create({
     marginTop: 8,
     lineHeight: 18,
   },
+  scanBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    backgroundColor: 'rgba(249,115,22,0.10)',
+    borderRadius: 8,
+    padding: 12,
+    marginTop: 8,
+  },
+  scanBannerText: { flex: 1, fontSize: 13, color: colors.primary, lineHeight: 18 },
   error: { color: colors.danger, fontSize: 13, marginTop: 14, textAlign: 'center' },
   privacyWarn: {
     backgroundColor: 'rgba(249,115,22,0.10)',

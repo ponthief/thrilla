@@ -15,9 +15,12 @@ import { useAuthStore } from '@stores/authStore';
 import { useAppLockStore } from '@stores/appLockStore';
 import * as api from '@services/api';
 import * as appLock from '@services/appLock';
-import { getWalletKeys } from '@services/secureKeys';
+import * as appPin from '@services/appPin';
+import { getWalletKeys, hasWalletKeys, removeWalletKeys } from '@services/secureKeys';
+import { resetCatchUp } from '../hooks/useCatchUpScan';
 import { colors, DEVICE_TRUST_ENABLED } from '@/theme';
 import DevicesModal from '../components/DevicesModal';
+import PinSetupModal from '../components/PinSetupModal';
 
 export default function SettingsScreen() {
   const username = useAuthStore((state) => state.username);
@@ -27,17 +30,72 @@ export default function SettingsScreen() {
   const [devicesOpen, setDevicesOpen] = useState(false);
 
   // App lock (biometric / device PIN).
-  const lockEnabled = useAppLockStore((s) => s.enabled);
-  const setLockEnabled = useAppLockStore((s) => s.setEnabled);
+  const lockEnabled = useAppLockStore((s) => s.bioEnabled);
+  const setLockEnabled = useAppLockStore((s) => s.setBioEnabled);
   const [biometry, setBiometry] = useState<string | null>(null);
   const [lockBusy, setLockBusy] = useState(false);
   const [lockMsg, setLockMsg] = useState<string | null>(null);
 
-  // Background scanning (opt-in server-side "Remote Scanner").
-  const [bgWalletId, setBgWalletId] = useState<string | null>(null);
+  // In-app PIN + duress PIN.
+  const pinSet = useAppLockStore((s) => s.pinSet);
+  const setPinSet = useAppLockStore((s) => s.setPinSet);
+  const [hasDuress, setHasDuress] = useState(false);
+  const [pinModal, setPinModal] = useState<null | 'normal' | 'duress'>(null);
+
+  useEffect(() => {
+    appPin.hasDuressPin().then(setHasDuress);
+  }, [pinSet]);
+
+  const onTogglePin = useCallback(
+    (v: boolean) => {
+      if (v) {
+        setPinModal('normal');
+        return;
+      }
+      Alert.alert(
+        'Turn off App PIN?',
+        'This removes your PIN and any duress PIN, and returns to biometric unlock.',
+        [
+          { text: 'Cancel', style: 'cancel' },
+          {
+            text: 'Turn off',
+            style: 'destructive',
+            onPress: async () => {
+              await appPin.clearPins();
+              setPinSet(false);
+              setHasDuress(false);
+            },
+          },
+        ],
+      );
+    },
+    [setPinSet],
+  );
+
+  const onPinDone = useCallback(() => {
+    setPinModal(null);
+    appPin.hasPin().then(setPinSet);
+    appPin.hasDuressPin().then(setHasDuress);
+  }, [setPinSet]);
+
+  const onToggleDuress = useCallback((v: boolean) => {
+    if (v) {
+      setPinModal('duress');
+      return;
+    }
+    appPin.setDuressPin(null).then(() => setHasDuress(false));
+  }, []);
+
+  // Current wallet (for background scanning + removal).
+  const [wallet, setWallet] = useState<api.SilntWallet | null>(null);
+  const bgWalletId = wallet?.id ?? null;
   const [bgEnabled, setBgEnabled] = useState(false);
   const [bgBusy, setBgBusy] = useState(false);
   const [bgMsg, setBgMsg] = useState<string | null>(null);
+
+  // Remove wallet.
+  const [removing, setRemoving] = useState(false);
+  const [removeMsg, setRemoveMsg] = useState<string | null>(null);
 
   useEffect(() => {
     (async () => {
@@ -45,13 +103,66 @@ export default function SettingsScreen() {
       try {
         const w = api.pickSilntWallet(await api.getSilntWallets(inkey));
         if (!w) return;
-        setBgWalletId(w.id);
+        setWallet(w);
         setBgEnabled(await api.getBackgroundScan(inkey, w.id));
       } catch {
         /* leave the toggle off/disabled if we can't load status */
       }
     })();
   }, [inkey]);
+
+  const doRemoveWallet = useCallback(async () => {
+    if (!inkey || !wallet) return;
+    setRemoving(true);
+    setRemoveMsg(null);
+    try {
+      // Best-effort: pull this wallet's scan key off the server first so nothing
+      // lingers there if the delete itself is retried. Deleting the wallet
+      // removes its record, coins, labeled addresses, and BitMail DNS too.
+      try {
+        await api.disableBackgroundScan(inkey, wallet.id);
+      } catch {
+        /* not enabled / already gone — ignore */
+      }
+      await api.deleteSilntWallet(inkey, wallet.id);
+      // Wipe the local keys and forget the catch-up evaluation for this id.
+      await removeWalletKeys(wallet.id);
+      resetCatchUp(wallet.id);
+      setWallet(null);
+      setBgEnabled(false);
+      setRemoveMsg('Wallet removed. Create or import one on the Wallet tab.');
+    } catch (e: any) {
+      setRemoveMsg(e?.message || 'Could not remove the wallet. Please try again.');
+    } finally {
+      setRemoving(false);
+    }
+  }, [inkey, wallet]);
+
+  const onRemoveWallet = useCallback(async () => {
+    if (!inkey || !wallet) return;
+    // Only allow removal from a device that holds the wallet's keys — proof the
+    // user can recover it from their seed afterwards (mirrors the web gate).
+    if (!(await hasWalletKeys(wallet.id))) {
+      Alert.alert(
+        'Keys not on this device',
+        "This wallet's keys aren't stored on this phone, so it can't be removed " +
+          'here. Recover the wallet from its recovery phrase first (Scan tab), ' +
+          'then remove it.',
+      );
+      return;
+    }
+    Alert.alert(
+      'Remove this wallet?',
+      `This permanently deletes "${wallet.title || 'this wallet'}" and all its ` +
+        'coins from the server, and erases its keys from this device. This ' +
+        "can't be undone — you can only restore it from your recovery phrase " +
+        '(and passphrase, if you set one).',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Remove wallet', style: 'destructive', onPress: doRemoveWallet },
+      ],
+    );
+  }, [inkey, wallet, doRemoveWallet]);
 
   const applyBackgroundScan = useCallback(
     async (enable: boolean) => {
@@ -140,6 +251,34 @@ export default function SettingsScreen() {
   const [savingDust, setSavingDust] = useState(false);
   const [dustError, setDustError] = useState<string | null>(null);
   const [dustSaved, setDustSaved] = useState(false);
+
+  // Invite a friend by email.
+  const [inviteEmail, setInviteEmail] = useState('');
+  const [inviting, setInviting] = useState(false);
+  const [inviteMsg, setInviteMsg] = useState<string | null>(null);
+  const [inviteErr, setInviteErr] = useState<string | null>(null);
+
+  const onInvite = useCallback(async () => {
+    if (!inkey) return;
+    const email = inviteEmail.trim().toLowerCase();
+    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) {
+      setInviteErr('Enter a valid email address.');
+      setInviteMsg(null);
+      return;
+    }
+    setInviting(true);
+    setInviteErr(null);
+    setInviteMsg(null);
+    try {
+      const res = await api.sendInvite(inkey, email);
+      setInviteEmail('');
+      setInviteMsg(res?.message || `Invitation sent to ${email}.`);
+    } catch (e: any) {
+      setInviteErr(e?.message || 'Could not send the invitation.');
+    } finally {
+      setInviting(false);
+    }
+  }, [inkey, inviteEmail]);
 
   const loadPrefs = useCallback(async () => {
     if (!inkey) return;
@@ -275,6 +414,50 @@ export default function SettingsScreen() {
             </View>
             <Text style={styles.help}>{lockSubtitle}</Text>
             {lockMsg ? <Text style={styles.dustError}>{lockMsg}</Text> : null}
+
+            <View style={styles.divider} />
+
+            <View style={styles.switchRow}>
+              <Text style={styles.itemLabel}>App PIN</Text>
+              <Switch
+                value={pinSet}
+                onValueChange={onTogglePin}
+                trackColor={{ true: colors.primary }}
+              />
+            </View>
+            <Text style={styles.help}>
+              Unlock with a 6-digit PIN. When on, it replaces biometrics as the
+              unlock method and enables a duress PIN.
+            </Text>
+            {pinSet ? (
+              <TouchableOpacity
+                style={[styles.switchRow, { marginTop: 12 }]}
+                onPress={() => setPinModal('normal')}
+                accessibilityRole="button">
+                <Text style={styles.itemLabel}>Change PIN</Text>
+                <Text style={styles.itemValue}>Change ›</Text>
+              </TouchableOpacity>
+            ) : null}
+
+            {pinSet ? (
+              <>
+                <View style={[styles.switchRow, { marginTop: 14 }]}>
+                  <Text style={styles.itemLabel}>Duress PIN</Text>
+                  <Switch
+                    value={hasDuress}
+                    onValueChange={onToggleDuress}
+                    trackColor={{ true: colors.primary }}
+                  />
+                </View>
+                <Text style={styles.help}>
+                  A second PIN that, entered at the lock screen, wipes this
+                  device's wallet keys, turns off server-side scanning, and signs
+                  you out. Funds can't be spent from here; they stay safe on-chain
+                  and recover from your seed. Use it if you're ever forced to
+                  unlock.
+                </Text>
+              </>
+            ) : null}
           </View>
 
           {DEVICE_TRUST_ENABLED ? (
@@ -313,6 +496,73 @@ export default function SettingsScreen() {
         </View>
 
         <View style={styles.section}>
+          <Text style={styles.sectionTitle}>Invite a friend</Text>
+          <View style={styles.column}>
+            <Text style={styles.help}>
+              Send someone an email invite to join Thrilla. We email them a
+              sign-up link — their address is used only for this invite, not
+              stored.
+            </Text>
+            <View style={styles.inputRow}>
+              <TextInput
+                style={styles.input}
+                value={inviteEmail}
+                onChangeText={(t) => {
+                  setInviteEmail(t);
+                  setInviteErr(null);
+                  setInviteMsg(null);
+                }}
+                placeholder="friend@email.com"
+                placeholderTextColor={colors.faint}
+                keyboardType="email-address"
+                autoCapitalize="none"
+                autoCorrect={false}
+              />
+              <TouchableOpacity
+                style={[
+                  styles.saveBtn,
+                  (inviting || !inviteEmail.trim()) && styles.saveDisabled,
+                ]}
+                onPress={onInvite}
+                disabled={inviting || !inviteEmail.trim()}>
+                {inviting ? (
+                  <ActivityIndicator color={colors.onPrimary} />
+                ) : (
+                  <Text style={styles.saveText}>Send</Text>
+                )}
+              </TouchableOpacity>
+            </View>
+            {inviteErr ? <Text style={styles.dustError}>{inviteErr}</Text> : null}
+            {inviteMsg ? <Text style={styles.dustSaved}>✓ {inviteMsg}</Text> : null}
+          </View>
+        </View>
+
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>Wallet</Text>
+          <View style={styles.column}>
+            <Text style={styles.help}>
+              Permanently delete this wallet and all its coins from the server and
+              erase its keys from this device. You can only restore it afterwards
+              from your recovery phrase (and passphrase, if set).
+            </Text>
+            <TouchableOpacity
+              style={[
+                styles.removeBtn,
+                (!wallet || removing) && styles.saveDisabled,
+              ]}
+              onPress={onRemoveWallet}
+              disabled={!wallet || removing}>
+              {removing ? (
+                <ActivityIndicator color={colors.danger} />
+              ) : (
+                <Text style={styles.removeText}>Remove wallet</Text>
+              )}
+            </TouchableOpacity>
+            {removeMsg ? <Text style={styles.help}>{removeMsg}</Text> : null}
+          </View>
+        </View>
+
+        <View style={styles.section}>
           <Text style={styles.sectionTitle}>About</Text>
           <View style={styles.item}>
             <Text style={styles.itemLabel}>Version</Text>
@@ -331,6 +581,13 @@ export default function SettingsScreen() {
           onClose={() => setDevicesOpen(false)}
         />
       ) : null}
+
+      <PinSetupModal
+        visible={pinModal !== null}
+        mode={pinModal === 'duress' ? 'duress' : 'normal'}
+        onClose={() => setPinModal(null)}
+        onDone={onPinDone}
+      />
     </SafeAreaView>
   );
 }
@@ -378,6 +635,11 @@ const styles = StyleSheet.create({
     marginLeft: 8,
   },
   help: { fontSize: 12, color: colors.faint, marginTop: 4, lineHeight: 17 },
+  divider: {
+    height: StyleSheet.hairlineWidth,
+    backgroundColor: colors.border,
+    marginVertical: 16,
+  },
   effective: { fontSize: 12, color: colors.muted, marginTop: 10, fontWeight: '600' },
   dustError: { fontSize: 13, color: colors.danger, marginTop: 10 },
   dustSaved: { fontSize: 13, color: colors.green, marginTop: 10, fontWeight: '600' },
@@ -401,6 +663,15 @@ const styles = StyleSheet.create({
   },
   saveDisabled: { opacity: 0.5 },
   saveText: { color: colors.onPrimary, fontSize: 14, fontWeight: '600' },
+  removeBtn: {
+    borderWidth: 1,
+    borderColor: colors.danger,
+    borderRadius: 8,
+    paddingVertical: 12,
+    alignItems: 'center',
+    marginTop: 14,
+  },
+  removeText: { color: colors.danger, fontSize: 15, fontWeight: '600' },
   logout: {
     backgroundColor: colors.surface,
     borderWidth: StyleSheet.hairlineWidth,
