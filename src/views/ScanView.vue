@@ -25,6 +25,29 @@ const progress   = ref({ active: false, current: 0, total: 0, found: 0 })
 const scanResult = ref(null)
 const error      = ref(null)
 
+// Client-side per-wallet scan cooldown, mirroring the backend's 60s per-wallet
+// limit. The web previously relied only on the server 429, so the button was
+// freely spammable; this disables it with a countdown between scans (matches the
+// mobile app's scanCooldown).
+const SCAN_COOLDOWN_SECONDS = 60
+const cooldownUntil = ref({})     // walletId -> epoch ms
+const nowTick = ref(Date.now())
+let cooldownTimer = null
+
+const cooldownRemaining = computed(() => {
+  const until = cooldownUntil.value[selectedWallet.value] || 0
+  const ms = until - nowTick.value
+  return ms > 0 ? Math.ceil(ms / 1000) : 0
+})
+
+function armCooldown(seconds = SCAN_COOLDOWN_SECONDS) {
+  if (!selectedWallet.value) return
+  cooldownUntil.value = {
+    ...cooldownUntil.value,
+    [selectedWallet.value]: Date.now() + Math.max(0, seconds) * 1000,
+  }
+}
+
 let pollTimer = null
 
 const pct = computed(() => {
@@ -203,6 +226,12 @@ async function startScan() {
           const secs = Math.max(1, 60 - Math.floor((Date.now() - autoAt) / 1000))
           msg = `An automatic catch-up scan just ran for this wallet. You can scan again in about ${secs}s.`
         }
+        // Sync the client cooldown to the backend's "try again in N seconds" so
+        // the button reflects the real server-side wait after a 429.
+        if (e.status === 429) {
+          const m = /(\d+)\s*second/i.exec(e.detail || e.message || '')
+          armCooldown(m ? Number(m[1]) : SCAN_COOLDOWN_SECONDS)
+        }
         error.value = msg; scanning.value = false; rejected = true
       })
 
@@ -213,6 +242,9 @@ async function startScan() {
     // "0 UTXOs found" completion toast even though nothing ran.
     await new Promise(r => setTimeout(r, 600))
     if (rejected || !scanning.value) return
+    // Accepted by the backend — arm the local cooldown so the button is disabled
+    // for the next minute (the backend just armed its own per-wallet cooldown).
+    armCooldown()
     notifyScanStarted(selectedWallet.value)
     pollTimer = setInterval(pollProgress, 1500)
   } catch (e) {
@@ -222,7 +254,12 @@ async function startScan() {
 
 async function stopScan() {
   stopping.value = true
-  try { await api.stopScan(auth.inkey, selectedWallet.value) } catch {}
+  try {
+    await api.stopScan(auth.inkey, selectedWallet.value)
+    // The backend clears its per-wallet cooldown on an explicit stop so the user
+    // can fix the range and retry — mirror that on the client.
+    armCooldown(0)
+  } catch {}
   finally { stopping.value = false }
 }
 
@@ -246,7 +283,13 @@ onMounted(async () => {
   }
 })
 
-onUnmounted(() => { if (pollTimer) clearInterval(pollTimer) })
+// Tick once a second so the cooldown countdown updates in the UI.
+cooldownTimer = setInterval(() => { nowTick.value = Date.now() }, 1000)
+
+onUnmounted(() => {
+  if (pollTimer) clearInterval(pollTimer)
+  if (cooldownTimer) clearInterval(cooldownTimer)
+})
 </script>
 
 <template>
@@ -311,9 +354,9 @@ onUnmounted(() => { if (pollTimer) clearInterval(pollTimer) })
             v-if="!scanning"
             class="btn btn-primary"
             style="align-self:flex-start"
-            :disabled="!selectedWallet || !fromHeight || !toHeight || !hasKeys || !!rangeError"
+            :disabled="!selectedWallet || !fromHeight || !toHeight || !hasKeys || !!rangeError || cooldownRemaining > 0"
             @click="startScan"
-          >↓ Check for Payments</button>
+          >{{ cooldownRemaining > 0 ? `Scan again in ${cooldownRemaining}s` : '↓ Check for Payments' }}</button>
           <button v-else class="btn btn-danger" style="align-self:flex-start" :disabled="stopping" @click="stopScan">
             <span v-if="stopping" class="spinner"></span>
             {{ stopping ? 'Stopping…' : '⏹ Stop Scan' }}
