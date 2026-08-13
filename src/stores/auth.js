@@ -74,13 +74,7 @@ export const useAuthStore = defineStore('auth', () => {
       // Fetch LNbits wallets to get API keys
       const wallets = await getLnbitsWallets(token.value)
       if (!wallets?.length) {
-        // TEMP DIAGNOSTIC: surface what actually came back so the phone shows
-        // the real cause (base URL, token presence, response shape).
-        let base = ''
-        try { base = (typeof window !== 'undefined' && window.THRILLA_CONFIG?.backendUrl) || (import.meta.env.VITE_LNBITS_URL || '(same-origin)') } catch (_) {}
-        const shape = Array.isArray(wallets) ? `array(len=${wallets.length})` : (typeof wallets + ':' + JSON.stringify(wallets).slice(0,120))
-        const tok = token.value ? `token(${String(token.value).slice(0,8)}…)` : 'NO-TOKEN'
-        throw new Error(`No wallets. base=${base} ${tok} resp=${shape}`)
+        throw new Error('No wallet found for this account. Please try again or contact support.')
       }
 
       // Use first wallet's keys — user can switch later
