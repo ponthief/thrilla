@@ -338,6 +338,12 @@ export default function CreateWalletModal({ visible, onClose, onCreated }: Props
                     onChangeText={setMnemonicInput}
                     placeholder="word1 word2 word3 …"
                   />
+                  <Text style={styles.hint}>
+                    Import only a Silent Payments wallet's recovery phrase.
+                    Thrilla derives keys at the BIP-352 path (m/352′), so a
+                    regular Bitcoin wallet phrase won't recover those coins here
+                    — it would just start a new, empty SP wallet.
+                  </Text>
                   <Text style={styles.label}>Born at height (block)</Text>
                   <TextInput
                     style={styles.input}

@@ -829,7 +829,9 @@ watch(swapCompletedAt, () => {
             <div v-if="createForm.mode === 'import'" class="field">
               <label>12-word Mnemonic</label>
               <SeedInput v-model="createForm.mnemonic" :rows="3" placeholder="word1 word2 word3 …" />
-              <span class="text-dim text-xs">Type your 12-word recovery phrase, separated by spaces.</span>
+              <span class="text-dim text-xs">
+                Type your 12-word recovery phrase, separated by spaces. Import only a Silent Payments wallet's phrase — Thrilla derives keys at the BIP-352 path (m/352′), so a regular Bitcoin wallet phrase won't recover those coins here (it starts a new, empty SP wallet).
+              </span>
             </div>
 
             <!-- Passphrase — required to generate, optional to import/recover -->
