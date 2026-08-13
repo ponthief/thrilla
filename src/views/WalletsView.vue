@@ -279,6 +279,22 @@ async function createWallet() {
         createError.value = 'Invalid recovery phrase — the checksum (last word) is incorrect.'
         creating.value = false; return
       }
+      // Birth height must be at/above the indexer's start — it has no tweak data
+      // before that block, so a lower birth can never scan.
+      const bh = Number(createForm.value.last_height)
+      if (createForm.value.last_height === '' || createForm.value.last_height === null || !Number.isFinite(bh)) {
+        createError.value = 'Enter the wallet birth height (block) to import.'
+        creating.value = false; return
+      }
+      if (minScanHeight.value && bh < minScanHeight.value) {
+        createError.value = `Birth height must be at least ${minScanHeight.value} — the indexer has no data before that block.`
+        creating.value = false; return
+      }
+      // A future birth (above the chain tip) is invalid — nothing to scan there.
+      if (tipHeight.value && bh > tipHeight.value) {
+        createError.value = `Birth height can't be above the current chain tip (${tipHeight.value}).`
+        creating.value = false; return
+      }
       seedPhrase = m
     } else {
       // New wallets require a passphrase (mixed into the seed, unrecoverable if
@@ -303,9 +319,9 @@ async function createWallet() {
     }
 
     const payload = { title: createForm.value.title.trim(), network, sp_address: keys.spAddress }
-    // Birth height: required-ish on import (to scan history), optional on generate
-    // (server defaults to the current tip).
-    if (createForm.value.last_height !== '' && createForm.value.last_height !== null) {
+    // Birth height: only sent (and validated) on import. New wallets always start
+    // at the current tip — the server defaults to it when last_height is omitted.
+    if (createForm.value.mode === 'import' && createForm.value.last_height !== '' && createForm.value.last_height !== null) {
       payload.last_height = Number(createForm.value.last_height)
     }
 
@@ -838,19 +854,23 @@ watch(swapCompletedAt, () => {
             </div>
 
             <div class="grid-2">
-              <div class="field">
-                <label>Born at Height {{ createForm.mode === 'import' ? '(required)' : '(optional)' }}</label>
+              <!-- Born-at-height only applies to import. New wallets always start
+                   at the current tip (there's no earlier history to scan), so the
+                   field is hidden and the server defaults to the tip. -->
+              <div class="field" v-if="createForm.mode === 'import'">
+                <label>Born at Height (required)</label>
                 <input
                   class="input"
                   v-model="createForm.last_height"
                   type="number"
-                  :placeholder="createForm.mode === 'import' ? `e.g. ${heightHint}` : (tipHeight ? `auto: ${tipHeight} (current tip)` : 'auto')"
+                  :min="minScanHeight || undefined"
+                  :max="tipHeight || undefined"
+                  :placeholder="`e.g. ${heightHint}`"
                 />
-                <span class="text-dim text-xs" v-if="createForm.mode === 'import'">
-                  Required for import. Set to the block height around when this wallet was first used (lower = scans more history).
-                </span>
-                <span class="text-dim text-xs" v-else>
-                  Leave blank to start from the current oracle tip. Set lower to recover history.
+                <span class="text-dim text-xs">
+                  The block height around when this wallet was first used (lower = scans more history).
+                  <template v-if="minScanHeight && tipHeight">Must be between {{ minScanHeight }} and the current tip ({{ tipHeight }}).</template>
+                  <template v-else-if="minScanHeight">Must be at least {{ minScanHeight }} — the indexer has no data before that block.</template>
                 </span>
               </div>
               <div class="field">

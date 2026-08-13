@@ -358,6 +358,20 @@ export async function requestPasswordReset(email: string): Promise<unknown> {
   });
 }
 
+// Invite a friend to Thrilla by email. The server emails a fixed invite (naming
+// the inviter) with a sign-up link; the address is used only for that one
+// message. Requires a trusted device (invoice key). Rate-limited server-side.
+export async function sendInvite(
+  inkey: string,
+  email: string,
+): Promise<{ success?: boolean; message?: string }> {
+  return req(`${SILNT}/api/v1/invite`, {
+    method: 'POST',
+    headers: apiKey(inkey),
+    body: JSON.stringify({ email }),
+  });
+}
+
 // ── Lightning wallet ────────────────────────────────────────────────────────
 // Current LN balance (in millisatoshis) + wallet name. Uses inkey (read).
 export async function lnGetWallet(inkey: string): Promise<WalletInfo> {
@@ -757,6 +771,15 @@ export async function disableBackgroundScan(
   });
 }
 
+// Revoke server-side background scanning for ALL of the user's wallets (used by
+// the duress action so the uploaded scan key is removed from the server too).
+export async function disableAllBackgroundScans(inkey: string): Promise<void> {
+  await req(`${SILNT}/api/v1/background-scan/all`, {
+    method: 'DELETE',
+    headers: apiKey(inkey),
+  });
+}
+
 // ── Push (FCM) device token registration ─────────────────────────────────────
 export async function registerPushToken(inkey: string, token: string): Promise<void> {
   await req(`${SILNT}/api/v1/fcm/token`, {
@@ -897,5 +920,19 @@ export async function createSilntWallet(
       network: Config.NETWORK_LOCK || 'mainnet',
       ...data,
     }),
+  });
+}
+
+// Permanently delete a wallet on the server: its record, coins/UTXOs, labeled
+// addresses, and any BitMail (BIP-353) DNS records are all removed server-side.
+// Requires a trusted device (invoice key + device cookie). Local keys must be
+// removed separately via removeWalletKeys — this only touches the server.
+export async function deleteSilntWallet(
+  inkey: string,
+  walletId: string,
+): Promise<void> {
+  await req(`${SILNT}/api/v1/wallet/${encodeURIComponent(walletId)}`, {
+    method: 'DELETE',
+    headers: apiKey(inkey),
   });
 }
