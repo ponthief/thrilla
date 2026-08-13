@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
+  Linking,
   StyleSheet,
   Switch,
   Text,
@@ -568,6 +569,19 @@ export default function SettingsScreen() {
             <Text style={styles.itemLabel}>Version</Text>
             <Text style={styles.itemValue}>0.1.0</Text>
           </View>
+          <TouchableOpacity
+            style={styles.item}
+            onPress={() =>
+              Linking.openURL('https://github.com/ponthief/thrilla').catch(
+                () => {},
+              )
+            }
+            accessibilityRole="link">
+            <Text style={styles.itemLabel}>Source code</Text>
+            <Text style={[styles.itemValue, styles.link]}>
+              github.com/ponthief/thrilla ›
+            </Text>
+          </TouchableOpacity>
         </View>
 
         <TouchableOpacity style={styles.logout} onPress={() => logout()}>
@@ -634,6 +648,7 @@ const styles = StyleSheet.create({
     textAlign: 'right',
     marginLeft: 8,
   },
+  link: { color: colors.primary, fontWeight: '600' },
   help: { fontSize: 12, color: colors.faint, marginTop: 4, lineHeight: 17 },
   divider: {
     height: StyleSheet.hairlineWidth,
