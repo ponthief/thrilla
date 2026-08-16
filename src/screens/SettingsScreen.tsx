@@ -154,10 +154,12 @@ export default function SettingsScreen() {
     }
     Alert.alert(
       'Remove this wallet?',
-      `This permanently deletes "${wallet.title || 'this wallet'}" and all its ` +
-        'coins from the server, and erases its keys from this device. This ' +
-        "can't be undone — you can only restore it from your recovery phrase " +
-        '(and passphrase, if you set one).',
+      `This removes "${wallet.title || 'this wallet'}" from the server ` +
+        "(its address and the record of its coins) and erases its keys from " +
+        'this device. Your bitcoin stays safe on-chain — only the wallet data ' +
+        "is deleted. You can restore the wallet, and rescan its coins, from " +
+        'your recovery phrase (and passphrase, if you set one). This can’t be ' +
+        'undone here.',
       [
         { text: 'Cancel', style: 'cancel' },
         { text: 'Remove wallet', style: 'destructive', onPress: doRemoveWallet },
@@ -542,9 +544,11 @@ export default function SettingsScreen() {
           <Text style={styles.sectionTitle}>Wallet</Text>
           <View style={styles.column}>
             <Text style={styles.help}>
-              Permanently delete this wallet and all its coins from the server and
-              erase its keys from this device. You can only restore it afterwards
-              from your recovery phrase (and passphrase, if set).
+              Remove this wallet from the server (its address and the record of
+              its coins) and erase its keys from this device. Your bitcoin stays
+              safe on-chain — only the wallet data is deleted. You can restore the
+              wallet, and rescan its coins, from your recovery phrase (and
+              passphrase, if set).
             </Text>
             <TouchableOpacity
               style={[
