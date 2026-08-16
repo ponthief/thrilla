@@ -1,6 +1,6 @@
 repository: https://github.com/ponthief/thrilla
-description: Self-custodial Bitcoin Wallet with optional BitMail
-summary: Bitcoin SilentPayments Wallet
+description: Self-custodial Bitcoin Wallet with support for SilentPayments - on-chain privacy when receiving
+summary: SilentPayments Wallet for Bitcoin
 tags:
     - bitcoin
     - wallet
@@ -9,7 +9,7 @@ tags:
 license: MIT
 website: https://thrilla.me
 images:
-    - /tmp/images
+    - screenshots
 metadata_sources:
     - github
 pubkey: npub1cfm900wdm4p0sky6tz3uhjdcdxsca3l94q5rclzxtxqke7gzenssthhk2w
