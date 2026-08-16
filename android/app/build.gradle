@@ -135,15 +135,34 @@ android {
             keyAlias 'androiddebugkey'
             keyPassword 'android'
         }
+        // Release signing. The keystore and passwords are NEVER committed — they
+        // are read from Gradle properties (put them in ~/.gradle/gradle.properties,
+        // outside this repo):
+        //   THRILLA_STORE_FILE=/absolute/path/to/thrilla-release.keystore
+        //   THRILLA_KEY_ALIAS=thrilla
+        //   THRILLA_STORE_PASSWORD=…
+        //   THRILLA_KEY_PASSWORD=…
+        // Generate the keystore once with:
+        //   keytool -genkeypair -v -keystore thrilla-release.keystore \
+        //           -alias thrilla -keyalg RSA -keysize 4096 -validity 10000
+        release {
+            if (project.hasProperty('THRILLA_STORE_FILE')) {
+                storeFile     file(THRILLA_STORE_FILE)
+                storePassword THRILLA_STORE_PASSWORD
+                keyAlias      THRILLA_KEY_ALIAS
+                keyPassword   THRILLA_KEY_PASSWORD
+            }
+        }
     }
     buildTypes {
         debug {
             signingConfig signingConfigs.debug
         }
         release {
-            // Caution! In production, you need to generate your own keystore file.
-            // see https://reactnative.dev/docs/signed-apk-android.
-            signingConfig signingConfigs.debug
+            // Sign release builds with the real release key when its properties
+            // are present; otherwise fall back to the debug key so local/dev
+            // release builds still assemble (never ship a debug-signed build).
+            signingConfig project.hasProperty('THRILLA_STORE_FILE') ? signingConfigs.release : signingConfigs.debug
             minifyEnabled enableProguardInReleaseBuilds
             proguardFiles getDefaultProguardFile("proguard-android.txt"), "proguard-rules.pro"
         }
