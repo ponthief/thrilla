@@ -25,7 +25,11 @@ import { useAuthStore } from '@stores/authStore';
 import { useAppLockStore } from '@stores/appLockStore';
 import { useIdleLogout } from './hooks/useIdleLogout';
 import { touchActivity } from '@services/sessionActivity';
-import { registerForPush, unregisterForPush } from '@services/push';
+import {
+  ensureNotificationPermission,
+  registerForPush,
+  unregisterForPush,
+} from '@services/push';
 import PushBanner from './components/PushBanner';
 import { colors, DEVICE_TRUST_ENABLED } from '@/theme';
 
@@ -149,6 +153,15 @@ const App = () => {
   useEffect(() => {
     refreshLock();
   }, [refreshLock]);
+
+  // Prompt for notification permission at first launch, so the user can allow
+  // payment alerts before (and independently of) device-trust + FCM token
+  // registration. The token itself is registered later, once the device is
+  // trusted (effect above); by then this grant is already in place, so
+  // registerForPush won't show a second dialog.
+  useEffect(() => {
+    ensureNotificationPermission();
+  }, []);
 
   // Lock when the app leaves the foreground (only 'background', not the
   // transient 'inactive' the OS emits during the unlock prompt itself, which
