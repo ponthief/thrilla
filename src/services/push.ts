@@ -7,6 +7,7 @@
 //
 // Everything is wrapped so the app works fine when Firebase ISN'T configured
 // (no android/app/google-services.json) — push simply stays off.
+import { PermissionsAndroid, Platform } from 'react-native';
 import messaging from '@react-native-firebase/messaging';
 import * as api from './api';
 import { usePushBanner } from '@stores/pushBanner';
@@ -33,6 +34,19 @@ function handleForegroundMessage(msg: any): void {
 // rotates. Safe no-op if Firebase/native push isn't available.
 export async function registerForPush(inkey: string): Promise<void> {
   try {
+    // Android 13+ (API 33) gates notifications behind the POST_NOTIFICATIONS
+    // runtime permission, which the OS does NOT auto-grant. messaging()
+    // .requestPermission() alone doesn't reliably show the Android system
+    // dialog, so request it explicitly here — otherwise the user is never
+    // prompted and every push is silently dropped. (No-op on Android <13 and
+    // iOS, where this permission model doesn't apply.)
+    if (Platform.OS === 'android' && Number(Platform.Version) >= 33) {
+      const res = await PermissionsAndroid.request(
+        PermissionsAndroid.PERMISSIONS.POST_NOTIFICATIONS,
+      );
+      if (res !== PermissionsAndroid.RESULTS.GRANTED) return;
+    }
+
     const status = await messaging().requestPermission();
     const granted =
       status === messaging.AuthorizationStatus.AUTHORIZED ||
