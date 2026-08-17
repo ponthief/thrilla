@@ -258,7 +258,7 @@ export default function ScanPanel() {
     setScanning(true);
     setProgress({ active: true, current: 0, total: 0, found: 0 });
     try {
-      await api.startScan(inkey, wallet.id, keys.scanSecret, keys.spendKey, from, to);
+      await api.startScan(inkey, wallet.id, keys.scanSecret, from, to);
       markScanStarted(wallet.id); // arm the 1-min cooldown
       setCooldownSec(cooldownRemaining(wallet.id));
       poll(wallet.id);
