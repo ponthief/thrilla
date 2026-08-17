@@ -232,7 +232,7 @@ async function maybeScanAfterSwap(silntWalletId) {
     if (!keys || !keys.scanSecret || !keys.spendKey) return  // keys locked: skip silently
     // Fire-and-forget; the scan runs async on the backend. No toast — it's a
     // background convenience so the next swap/send sees the change UTXO.
-    api.startScan(auth.inkey, silntWalletId, keys.scanSecret, keys.spendKey)
+    api.startScan(auth.inkey, silntWalletId, keys.scanSecret)
       .catch(() => { /* non-fatal background scan */ })
   } catch { /* keys not available / vault locked — skip */ }
 }
@@ -309,7 +309,7 @@ async function autoScanForChange(walletId, blockHeight) {
       if (p && p.active) return
     } catch { /* if we can't check, err on not starting */ return }
     // Targeted single-block scan of the confirmation block.
-    await api.startScan(auth.inkey, walletId, keys.scanSecret, keys.spendKey, blockHeight, blockHeight)
+    await api.startScan(auth.inkey, walletId, keys.scanSecret, blockHeight, blockHeight)
     notifyScanStarted(walletId)   // let the global watcher track + toast completion
   } catch { /* best-effort; never block the send-confirm flow */ }
 }

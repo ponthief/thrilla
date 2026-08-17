@@ -86,12 +86,12 @@ export function useCatchUpScan(
   );
 
   const begin = useCallback(
-    async (walletId: string, scanSecret: string, spendKey: string, from: number) => {
+    async (walletId: string, scanSecret: string, from: number) => {
       if (!inkey) return;
       setStatus('scanning');
       setProgress({ active: true, current: 0, total: 0, found: 0 });
       try {
-        await api.startScan(inkey, walletId, scanSecret, spendKey, from, null);
+        await api.startScan(inkey, walletId, scanSecret, from, null);
         markScanStarted(walletId);
         poll(walletId);
       } catch (e: any) {
@@ -171,7 +171,7 @@ export function useCatchUpScan(
 
       setGap(g);
       if (g < threshold) {
-        begin(walletId, keys.scanSecret, keys.spendKey, last);
+        begin(walletId, keys.scanSecret, last);
       } else {
         setStatus('prompt');
       }
@@ -197,7 +197,7 @@ export function useCatchUpScan(
       Number(wallet.last_scan_height ?? 0),
       Number(wallet.last_height ?? 0),
     );
-    begin(wallet.id, keys.scanSecret, keys.spendKey, from);
+    begin(wallet.id, keys.scanSecret, from);
   }, [wallet, begin]);
 
   const dismiss = useCallback(() => {
