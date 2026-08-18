@@ -132,7 +132,7 @@ function _startBackgroundScan(auth, w, keys, fromHeight = null) {
   try {
     // pass explicit from_height (last scan progress) so we scan ONLY the gap,
     // not from the wallet birth height (the backend's default when null).
-    api.startScan(auth.inkey, w.id, keys.scanSecret, keys.spendKey, fromHeight, null)
+    api.startScan(auth.inkey, w.id, keys.scanSecret, fromHeight, null)
       .then(() => {
         notifyScanStarted(w.id)
         lastAutoScanAt.value = { ...lastAutoScanAt.value, [w.id]: Date.now() }
