@@ -803,11 +803,13 @@ export async function unregisterPushToken(inkey: string, token: string): Promise
 
 // Kick off a scan. `fromHeight` limits it to the gap (defaults server-side to
 // the wallet birth height when null).
+// Scanning transmits only the scan key. The server derives the spend PUBLIC key
+// from the wallet's sp_address, so the spend secret never leaves the device for
+// a scan (it's only sent when building a transaction to spend).
 export async function startScan(
   inkey: string,
   walletId: string,
   scanSecret: string,
-  spendKey: string,
   fromHeight: number | null = null,
   toHeight: number | null = null,
 ): Promise<unknown> {
@@ -818,7 +820,6 @@ export async function startScan(
       from_height: fromHeight,
       to_height: toHeight,
       scan_secret: scanSecret,
-      spend_key: spendKey,
     }),
   });
 }

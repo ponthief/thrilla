@@ -215,7 +215,7 @@ async function startScan() {
     let rejected = false
     // POST now returns {started:true} immediately — the scan runs detached on the
     // backend and survives navigation. Completion + summary come from the poller.
-    api.startScan(auth.inkey, selectedWallet.value, keys.scanSecret, keys.spendKey, fromHeight.value, toHeight.value)
+    api.startScan(auth.inkey, selectedWallet.value, keys.scanSecret, fromHeight.value, toHeight.value)
       .catch(e => {
         let msg = e.message || e.detail || 'Scan failed.'
         // If this 429 is the wallet cooldown AND an auto catch-up scan just ran

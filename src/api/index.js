@@ -180,7 +180,10 @@ export async function getUtxos(inkey, walletId) {
 }
 
 // ── Scanning ──────────────────────────────────────────────────────────────────
-export async function startScan(inkey, walletId, scanSecret, spendKey, fromHeight = null, toHeight = null) {
+// Scanning transmits only the scan key. The server derives the spend PUBLIC key
+// from the wallet's sp_address, so the spend secret never leaves the device for
+// a scan (it's only sent when building a transaction to spend).
+export async function startScan(inkey, walletId, scanSecret, fromHeight = null, toHeight = null) {
   return req(`${SILNT}/api/v1/wallet/${walletId}/scan`, {
     method: 'POST',
     headers: keyHeaders(inkey),
@@ -188,7 +191,6 @@ export async function startScan(inkey, walletId, scanSecret, spendKey, fromHeigh
       from_height:  fromHeight,
       to_height:    toHeight,
       scan_secret:  scanSecret,   // passed transiently, never stored server-side
-      spend_key:    spendKey,
     }),
   })
 }
