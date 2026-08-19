@@ -1,0 +1,38 @@
+# Zapstore publishing config for the SIGNET (test-network) build of Thrilla.
+# Kept separate from ./zapstore.yaml (the primary config). Publish it with the
+# config path as a positional argument:
+#
+#   zsp publish --check zapstore.signet.yaml     # validate first
+#   SIGN_WITH=nsec1... zsp publish zapstore.signet.yaml
+#
+# Build the signed Signet APK first (npm run apk:signet — signed with your
+# release keystore; first publish links that cert to your pubkey via your .jks).
+# Signet is a separate package (com.thrilla_btc.thrilla.signet), so it lists as
+# its own app alongside the mainnet build.
+repository: https://github.com/ponthief/thrilla
+name: Thrilla (Signet)
+summary: Bitcoin Silent Payments wallet — Signet test build
+description: |
+  Self-custodial Bitcoin wallet with support for Silent Payments — on-chain
+  privacy when receiving. Keys are derived on-device; your spend key never
+  leaves the phone.
+
+  This is the SIGNET (test network) build — it does NOT hold real bitcoin. Use
+  it to try Thrilla on Signet. For real funds, use the mainnet build.
+tags:
+    - bitcoin
+    - wallet
+    - silentpayments
+    - self-custody
+    - signet
+license: MIT
+website: https://thrilla.me
+images:
+    - screenshots
+# The signed Signet APK. Local build-artifact path shown; alternatively drop this
+# and point at a GitHub Release, filtering to the signet asset with
+# `--match signet` so it doesn't pick up the mainnet APK.
+release_source: ./android/app/build/outputs/apk/signet/release/app-signet-release.apk
+metadata_sources:
+    - github
+pubkey: npub1cfm900wdm4p0sky6tz3uhjdcdxsca3l94q5rclzxtxqke7gzenssthhk2w
