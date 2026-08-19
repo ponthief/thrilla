@@ -39,9 +39,12 @@ interface ScanResult {
 
 // Where a resume scan should start: the block after the last scanned one (or the
 // birth height for a never-scanned wallet), clamped to [minHeight, tip].
-function resumeFrom(w: api.SilntWallet, tip: number, minHeight: number): number {
-  const birth = Number(w.last_height) || 0;
-  const scanned = Number(w.last_scan_height) || 0;
+function resumeFrom(
+  birth: number,
+  scanned: number,
+  tip: number,
+  minHeight: number,
+): number {
   let start = scanned > birth ? scanned + 1 : birth;
   if (minHeight && start < minHeight) start = minHeight;
   if (tip && start > tip) start = tip;
@@ -82,6 +85,14 @@ export default function ScanPanel() {
   // circular useCallback dependency (poll depends on load, load must not depend
   // on poll). Assigned right after poll is defined below.
   const pollFn = useRef<(walletId: string) => void>(() => {});
+  // Guards against a transient/stale backend read right after a scan: the
+  // highest last_scan_height we've seen (monotonic — scanning only moves
+  // forward) and the last-known min scan height. Using these for the resume
+  // range means a momentarily-low read can never produce a below-minimum
+  // `from` (which the server rejects with a spurious min-height error).
+  const walletIdRef = useRef<string | null>(null);
+  const scannedFloorRef = useRef(0);
+  const minHeightRef = useRef(0);
   const stopPoll = useCallback(() => {
     if (pollRef.current) {
       clearInterval(pollRef.current);
@@ -116,11 +127,27 @@ export default function ScanPanel() {
       setWallet(w);
       setKeysPresent(await hasWalletKeys(w.id));
 
+      // Reset the monotonic floors when switching wallets.
+      if (walletIdRef.current !== w.id) {
+        walletIdRef.current = w.id;
+        scannedFloorRef.current = 0;
+      }
+      // last_scan_height only ever advances; keep the highest we've seen so a
+      // stale/racy low read right after a scan can't rewind the resume point.
+      scannedFloorRef.current = Math.max(
+        scannedFloorRef.current,
+        Number(w.last_scan_height) || 0,
+      );
+
       const newTip =
         tipRes.status === 'fulfilled' ? Number(tipRes.value?.height) || null : null;
       setTip(newTip);
-      const minH =
+      // Keep the last-known min height if the config fetch failed/returned 0, so
+      // the clamp and the send-time validation never momentarily drop to 0.
+      let minH =
         cfgRes.status === 'fulfilled' ? Number(cfgRes.value?.min_scan_height) || 0 : 0;
+      if (!minH) minH = minHeightRef.current;
+      else minHeightRef.current = minH;
       setMinHeight(minH);
 
       // Attach to an already-running scan (the login catch-up, or one started
@@ -143,7 +170,10 @@ export default function ScanPanel() {
 
       // Prefill the range only when idle (not mid-scan and none just detected).
       if (!scanning && !active && newTip) {
-        setFromHeight(String(resumeFrom(w, newTip, minH)));
+        const birth = Number(w.last_height) || 0;
+        setFromHeight(
+          String(resumeFrom(birth, scannedFloorRef.current, newTip, minH)),
+        );
         setToHeight(String(newTip));
       }
     } catch (e: any) {
@@ -173,13 +203,18 @@ export default function ScanPanel() {
     setRefreshing(false);
   }, [load]);
 
+  // Effective scanned height: floored at the highest we've seen so a transient
+  // low read doesn't make the status/labels flicker backwards (and disagree with
+  // the resume range, which uses the same floor).
+  const effectiveScanned = Math.max(
+    Number(wallet?.last_scan_height) || 0,
+    Number(wallet?.last_height) || 0,
+    scannedFloorRef.current,
+  );
+
   const upToDate = (() => {
     if (!wallet || !tip) return false;
-    const scanned = Math.max(
-      Number(wallet.last_scan_height) || 0,
-      Number(wallet.last_height) || 0,
-    );
-    return scanned >= tip;
+    return effectiveScanned >= tip;
   })();
 
   const pct = progress.total
@@ -315,16 +350,7 @@ export default function ScanPanel() {
   }
 
   const behind =
-    tip && wallet
-      ? Math.max(
-          0,
-          tip -
-            Math.max(
-              Number(wallet.last_scan_height) || 0,
-              Number(wallet.last_height) || 0,
-            ),
-        )
-      : null;
+    tip && wallet ? Math.max(0, tip - effectiveScanned) : null;
 
   return (
     <View style={styles.container}>
@@ -349,9 +375,8 @@ export default function ScanPanel() {
               // last_scan_height is 0/1 (or ≤ birth) until a scan makes real
               // progress, so only show a height once it's past the wallet's
               // birth — otherwise a never-scanned wallet reads "Scanned to 1".
-              wallet &&
-              Number(wallet.last_scan_height) > Number(wallet.last_height || 0)
-                ? groupThousands(wallet.last_scan_height)
+              wallet && effectiveScanned > Number(wallet.last_height || 0)
+                ? groupThousands(effectiveScanned)
                 : '—'
             }
           />
