@@ -18,6 +18,13 @@ const toHeight        = ref(null)
 const chainTip        = ref(null)
 const loadingTip      = ref(false)
 const minScanHeight   = ref(0)
+// Highest last_scan_height we've seen for the current wallet (monotonic —
+// scanning only advances). The backend writes last_scan_height incrementally, so
+// a refresh right after a scan can briefly read a stale/low value; flooring the
+// resume start at this prevents that from rewinding `from` (which otherwise
+// yields a below-minimum or needlessly huge rescan).
+const scannedFloor    = ref(0)
+let floorWalletId = null
 
 const scanning   = ref(false)
 const stopping   = ref(false)
@@ -82,7 +89,11 @@ const upToDate = computed(() => {
   if (!tip) return false
   const w = wallets.value.find(x => x.id === selectedWallet.value)
   if (!w) return false
-  const scanned = Math.max(Number(w.last_scan_height) || 0, Number(w.last_height) || 0)
+  const scanned = Math.max(
+    Number(w.last_scan_height) || 0,
+    Number(w.last_height) || 0,
+    scannedFloor.value,
+  )
   return scanned >= tip
 })
 
@@ -133,7 +144,11 @@ function onWalletChange(preserveProgress = false) {
   // the wallet's birth height (last_height). Use whichever is the larger
   // meaningful value so resuming a scan doesn't re-scan from the birth height.
   const birth = Number(w.last_height) || 0
-  const scanned = Number(w.last_scan_height) || 0
+  // Floor last_scan_height at the highest we've seen (reset per wallet) so a
+  // transient low read after a scan can't rewind the resume point.
+  if (floorWalletId !== w.id) { floorWalletId = w.id; scannedFloor.value = 0 }
+  scannedFloor.value = Math.max(scannedFloor.value, Number(w.last_scan_height) || 0)
+  const scanned = scannedFloor.value
   // last_scan_height is the last block ALREADY scanned, so a resume must start at
   // the NEXT block (scanned + 1) — otherwise "blocks to scan" counts the already-
   // scanned block and is off by one. A fresh wallet (not scanned past birth)
