@@ -611,15 +611,21 @@ export default function SendScreen() {
           ) : null}
           {contactMsg ? <Text style={styles.contactMsg}>{contactMsg}</Text> : null}
 
-          <Text style={styles.label}>Amount (sats)</Text>
-          <TextInput
-            style={styles.input}
-            value={amount}
-            onChangeText={(t) => setAmount(t.replace(/[^0-9]/g, ''))}
-            keyboardType="number-pad"
-            placeholder="0"
-            placeholderTextColor={colors.faint}
-          />
+          <Text style={styles.label}>Amount</Text>
+          {/* Sized for the digits it holds rather than the full screen width: a
+              sats amount is at most ~9 characters, and the unit sits beside the
+              box so the narrower field reads as deliberate. */}
+          <View style={styles.amountRow}>
+            <TextInput
+              style={[styles.input, styles.amountInput]}
+              value={amount}
+              onChangeText={(t) => setAmount(t.replace(/[^0-9]/g, ''))}
+              keyboardType="number-pad"
+              placeholder="0"
+              placeholderTextColor={colors.faint}
+            />
+            <Text style={styles.amountUnit}>sats</Text>
+          </View>
 
           <Text style={styles.label}>Fee rate</Text>
           <View style={styles.feeRow}>
@@ -850,6 +856,12 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
   },
   pasteText: { color: PRIMARY, fontWeight: '600', fontSize: 13 },
+
+  amountRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  // ~9 digits at fontSize 16 plus the input's own padding; fits on a 320dp
+  // screen with the unit beside it.
+  amountInput: { width: 150 },
+  amountUnit: { fontSize: 14, fontWeight: '600', color: colors.muted },
 
   feeRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   feeChip: {
