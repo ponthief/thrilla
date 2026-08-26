@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
+  Alert,
   Keyboard,
   KeyboardAvoidingView,
   Platform,
@@ -17,6 +18,7 @@ import { useAuthStore } from '@stores/authStore';
 import { useAppLockStore } from '@stores/appLockStore';
 import * as api from '@services/api';
 import { getWalletKeys } from '@services/secureKeys';
+import { markScanStarted } from '@services/scanCooldown';
 import { colors } from '@/theme';
 import QRScanner from '../components/QRScanner';
 import ContactsModal from '../components/ContactsModal';
@@ -67,6 +69,9 @@ function groupThousands(n: number): string {
     .toString()
     .replace(/\B(?=(\d{3})+(?!\d))/g, ',');
 }
+
+// Blocks a wallet may lag the tip before the Send screen says so (~1 hour).
+const STALE_BLOCKS = 6;
 
 function utxoKey(u: api.Utxo): string {
   return `${u.txid}:${u.vout}`;
@@ -121,6 +126,14 @@ export default function SendScreen() {
   const [scanCur, setScanCur] = useState(0);
   const [scanTot, setScanTot] = useState(0);
 
+  // A wallet can also be behind the tip with NO scan running (the catch-up
+  // prompt was dismissed, background scanning is off, a scan hit its cooldown).
+  // Nothing is mid-flight then, so sending isn't paused — but the coin list may
+  // be missing recent payments, which is worth saying out loud.
+  const [tipHeight, setTipHeight] = useState(0);
+  const [catchUpBusy, setCatchUpBusy] = useState(false);
+  const [catchUpMsg, setCatchUpMsg] = useState<string | null>(null);
+
   const [contacts, setContacts] = useState<api.SpContact[]>([]);
   const [showContacts, setShowContacts] = useState(false);
   const [savingContact, setSavingContact] = useState(false);
@@ -157,9 +170,10 @@ export default function SendScreen() {
       setWallet(w);
       setNoKeys(!(await getWalletKeys(w.id)));
 
-      const [utxoRes, feeRes] = await Promise.allSettled([
+      const [utxoRes, feeRes, tipRes] = await Promise.allSettled([
         api.getUtxos(inkey, w.id),
         api.getRecommendedFees(inkey),
+        api.getChainTip(inkey),
       ]);
 
       if (utxoRes.status === 'fulfilled') {
@@ -175,6 +189,12 @@ export default function SendScreen() {
         const def = feeRes.value.halfHourFee ?? feeRes.value.fastestFee;
         if (def) setFeeRate(def);
       }
+
+      // Unavailable oracle → 0, which reads as "can't tell" and shows no
+      // warning rather than a bogus one.
+      setTipHeight(
+        tipRes.status === 'fulfilled' ? Number(tipRes.value?.height) || 0 : 0,
+      );
     } catch (e: any) {
       setLoadError(e?.message || 'Failed to load wallet.');
     } finally {
@@ -282,6 +302,20 @@ export default function SendScreen() {
   const insufficient =
     amountSats > 0 && selectedTotal > 0 && amountSats + estFee > selectedTotal;
 
+  // How far this wallet has been scanned vs. the chain tip. last_scan_height is
+  // progress, last_height the birth height (static) — a wallet born at the tip
+  // has no progress yet but is up to date, so take the max (same rule as the
+  // catch-up scan).
+  const walletHeight = Math.max(
+    Number(wallet?.last_scan_height ?? 0),
+    Number(wallet?.last_height ?? 0),
+  );
+  const blocksBehind =
+    tipHeight && walletHeight ? Math.max(0, tipHeight - walletHeight) : 0;
+  // Blocks arrive every ~10 minutes, so a handful behind is normal and warning
+  // about it would be noise. ~1 hour without scanning is worth flagging.
+  const behind = !scanActive && blocksBehind > STALE_BLOCKS;
+
   const canBuild =
     !!recipient.trim() &&
     amountSats > 0 &&
@@ -361,19 +395,78 @@ export default function SendScreen() {
     }
   }, [built, wallet, adminkey, selectedUtxos, recipient, amountSats]);
 
-  // Review: require re-authentication (PIN/biometric) first when an app lock is
+  // Start a catch-up scan from here, so a wallet that's behind can be brought
+  // up to date without leaving the Send screen. The existing poller takes over:
+  // it flips to the "Sending is paused" banner and reloads the coins when the
+  // scan finishes.
+  const onCatchUp = useCallback(async () => {
+    if (!inkey || !wallet) return;
+    setCatchUpBusy(true);
+    setCatchUpMsg(null);
+    try {
+      const keys = await getWalletKeys(wallet.id);
+      if (!keys) {
+        setCatchUpMsg(
+          "This wallet's keys aren't on this device, so it can only be scanned " +
+            'where they are.',
+        );
+        return;
+      }
+      await api.startScan(inkey, wallet.id, keys.scanSecret, walletHeight, null);
+      markScanStarted(wallet.id);
+      // Show the paused banner immediately rather than after the next poll, and
+      // make sure the poller's active → done transition reloads the coin list.
+      wasScanningRef.current = true;
+      setScanActive(true);
+    } catch (e: any) {
+      const msg = e?.message || 'Could not start a scan.';
+      // Already running / per-wallet cooldown: benign here, the poller picks it
+      // up either way.
+      setCatchUpMsg(
+        /recently|already|budget|too many/i.test(msg)
+          ? 'A scan was requested recently — this wallet will catch up shortly.'
+          : msg,
+      );
+    } finally {
+      setCatchUpBusy(false);
+    }
+  }, [inkey, wallet, walletHeight]);
+
+  // Require re-authentication (PIN/biometric) first when an app lock is
   // enabled. Building the transaction exposes the spend key (sent to the server
   // to sign), so gate here rather than at the final broadcast. With no lock,
   // proceed straight to the review step.
-  const onReview = useCallback(() => {
-    if (busy) return;
+  const proceedToReview = useCallback(() => {
     if (lockEnabled) {
       Keyboard.dismiss();
       setAuthOpen(true);
       return;
     }
     doBuild();
-  }, [busy, lockEnabled, doBuild]);
+  }, [lockEnabled, doBuild]);
+
+  const onReview = useCallback(() => {
+    if (busy) return;
+    // Merging coins is the one choice on this screen that can't be undone after
+    // broadcast — the link between them is published on-chain for good. The
+    // inline note sits below a long coin list where it's easy to scroll past,
+    // so confirm it here, where it can't be missed.
+    if (selectedUtxos.length > 1) {
+      Keyboard.dismiss();
+      Alert.alert(
+        `Combine ${selectedUtxos.length} coins?`,
+        `Spending ${selectedUtxos.length} coins in one transaction publicly ` +
+          'links them to the same owner — you — and that link is permanent. ' +
+          'Spend a single coin when one covers the amount.',
+        [
+          { text: 'Cancel', style: 'cancel' },
+          { text: 'Combine anyway', onPress: proceedToReview },
+        ],
+      );
+      return;
+    }
+    proceedToReview();
+  }, [busy, selectedUtxos.length, proceedToReview]);
 
   const onAuthenticated = useCallback(() => {
     setAuthOpen(false);
@@ -467,6 +560,16 @@ export default function SendScreen() {
               label="Network fee"
               value={`${groupThousands(built.fee || 0)} sats`}
             />
+            {/* The coin count drives both the fee and the on-chain link between
+                them, so it belongs on the last screen before broadcast. */}
+            <ReviewRow
+              label="Coins"
+              value={
+                selectedUtxos.length > 1
+                  ? `${selectedUtxos.length} — linked on-chain`
+                  : '1'
+              }
+            />
             <View style={styles.divider} />
             <ReviewRow label="Total" value={`${groupThousands(total)} sats`} bold />
           </View>
@@ -526,6 +629,31 @@ export default function SendScreen() {
                 . Sending is paused until your wallet finishes scanning, so you
                 spend from a complete, up-to-date balance.
               </Text>
+            </View>
+          ) : null}
+
+          {behind ? (
+            <View style={styles.behindBanner}>
+              <Text style={styles.behindText}>
+                ⚠ This wallet is scanned up to block{' '}
+                {groupThousands(walletHeight)} — {groupThousands(blocksBehind)}{' '}
+                blocks behind the chain tip. Payments that arrived since then
+                aren't listed below yet, so you may be spending from an
+                incomplete balance. The coins shown are still yours to spend.
+              </Text>
+              <TouchableOpacity
+                style={[styles.behindBtn, catchUpBusy && styles.btnDisabled]}
+                onPress={onCatchUp}
+                disabled={catchUpBusy}>
+                {catchUpBusy ? (
+                  <ActivityIndicator color={PRIMARY} />
+                ) : (
+                  <Text style={styles.behindBtnText}>Catch up now</Text>
+                )}
+              </TouchableOpacity>
+              {catchUpMsg ? (
+                <Text style={styles.behindMsg}>{catchUpMsg}</Text>
+              ) : null}
             </View>
           ) : null}
 
@@ -999,6 +1127,26 @@ const styles = StyleSheet.create({
     marginTop: 8,
   },
   scanBannerText: { flex: 1, fontSize: 13, color: colors.primary, lineHeight: 18 },
+  // Behind the tip but nothing scanning: a warning with a way to act on it,
+  // not a block — the coins already listed are spendable either way.
+  behindBanner: {
+    backgroundColor: 'rgba(249,115,22,0.10)',
+    borderRadius: 8,
+    padding: 12,
+    marginTop: 8,
+  },
+  behindText: { fontSize: 13, color: colors.primary, lineHeight: 18 },
+  behindBtn: {
+    borderWidth: 1,
+    borderColor: PRIMARY,
+    borderRadius: 8,
+    paddingHorizontal: 14,
+    paddingVertical: 9,
+    alignSelf: 'flex-start',
+    marginTop: 10,
+  },
+  behindBtnText: { color: PRIMARY, fontSize: 13, fontWeight: '600' },
+  behindMsg: { fontSize: 12, color: colors.muted, marginTop: 8, lineHeight: 17 },
   error: { color: colors.danger, fontSize: 13, marginTop: 14, textAlign: 'center' },
   privacyWarn: {
     backgroundColor: 'rgba(249,115,22,0.10)',
