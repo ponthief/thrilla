@@ -11,6 +11,7 @@ import { PermissionsAndroid, Platform } from 'react-native';
 import messaging from '@react-native-firebase/messaging';
 import * as api from './api';
 import { usePushBanner } from '@stores/pushBanner';
+import { paymentAlertsOn } from '@stores/notifyStore';
 
 let unsubscribeRefresh: (() => void) | null = null;
 let unsubscribeMessage: (() => void) | null = null;
@@ -20,6 +21,10 @@ let unsubscribeMessage: (() => void) | null = null;
 // a payment that lands with the app open would be silent.
 function handleForegroundMessage(msg: any): void {
   try {
+    // Payment alerts turned off in Settings → stay quiet. The token is also
+    // unregistered in that case, so this is just belt and braces for a message
+    // that was already in flight (or a removal that failed while offline).
+    if (!paymentAlertsOn()) return;
     const n = msg?.notification;
     const title = n?.title || 'Payment received';
     const body = n?.body || msg?.data?.body || 'You have a new payment.';
@@ -59,11 +64,39 @@ export async function ensureNotificationPermission(): Promise<boolean> {
   }
 }
 
+// Is the OS notification permission currently granted? Unlike
+// ensureNotificationPermission this never prompts — Settings uses it to warn
+// when payment alerts are switched on but the phone is blocking them anyway.
+// Returns true when it can't tell (no native module, Android < 13), so the UI
+// doesn't cry wolf.
+export async function hasNotificationPermission(): Promise<boolean> {
+  try {
+    if (Platform.OS === 'android') {
+      if (Number(Platform.Version) < 33) return true;
+      return await PermissionsAndroid.check(
+        PermissionsAndroid.PERMISSIONS.POST_NOTIFICATIONS,
+      );
+    }
+    const status = await messaging().hasPermission();
+    return (
+      status === messaging.AuthorizationStatus.AUTHORIZED ||
+      status === messaging.AuthorizationStatus.PROVISIONAL
+    );
+  } catch {
+    return true;
+  }
+}
+
 // Ask for notification permission (Android 13+ prompts), get the FCM token, and
 // register it with the backend. Also keeps the backend in sync if the token
 // rotates. Safe no-op if Firebase/native push isn't available.
 export async function registerForPush(inkey: string): Promise<void> {
   try {
+    // "Payment alerts" off in Settings → don't hand the server a token to push
+    // to. Callers already gate on the pref; this is a second line of defence so
+    // no code path can quietly re-enable notifications the user switched off.
+    if (!paymentAlertsOn()) return;
+
     // Ensure the OS notification permission (no-op / no second dialog if the
     // first-launch prompt already granted it). Without a grant, pushes are
     // silently dropped, so don't bother registering a token.
@@ -91,7 +124,8 @@ export async function registerForPush(inkey: string): Promise<void> {
   }
 }
 
-// Stop this device from receiving pushes (on logout).
+// Stop this device from receiving pushes (on logout, or when the user turns
+// payment alerts off in Settings).
 export async function unregisterForPush(inkey: string): Promise<void> {
   try {
     if (unsubscribeRefresh) {
