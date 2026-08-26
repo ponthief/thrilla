@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
+  Alert,
   Keyboard,
   KeyboardAvoidingView,
   Platform,
@@ -17,6 +18,7 @@ import { useAuthStore } from '@stores/authStore';
 import { useAppLockStore } from '@stores/appLockStore';
 import * as api from '@services/api';
 import { getWalletKeys } from '@services/secureKeys';
+import { markScanStarted } from '@services/scanCooldown';
 import { colors } from '@/theme';
 import QRScanner from '../components/QRScanner';
 import ContactsModal from '../components/ContactsModal';
@@ -67,6 +69,9 @@ function groupThousands(n: number): string {
     .toString()
     .replace(/\B(?=(\d{3})+(?!\d))/g, ',');
 }
+
+// Blocks a wallet may lag the tip before the Send screen says so (~1 hour).
+const STALE_BLOCKS = 6;
 
 function utxoKey(u: api.Utxo): string {
   return `${u.txid}:${u.vout}`;
@@ -121,6 +126,14 @@ export default function SendScreen() {
   const [scanCur, setScanCur] = useState(0);
   const [scanTot, setScanTot] = useState(0);
 
+  // A wallet can also be behind the tip with NO scan running (the catch-up
+  // prompt was dismissed, background scanning is off, a scan hit its cooldown).
+  // Nothing is mid-flight then, so sending isn't paused — but the coin list may
+  // be missing recent payments, which is worth saying out loud.
+  const [tipHeight, setTipHeight] = useState(0);
+  const [catchUpBusy, setCatchUpBusy] = useState(false);
+  const [catchUpMsg, setCatchUpMsg] = useState<string | null>(null);
+
   const [contacts, setContacts] = useState<api.SpContact[]>([]);
   const [showContacts, setShowContacts] = useState(false);
   const [savingContact, setSavingContact] = useState(false);
@@ -157,9 +170,10 @@ export default function SendScreen() {
       setWallet(w);
       setNoKeys(!(await getWalletKeys(w.id)));
 
-      const [utxoRes, feeRes] = await Promise.allSettled([
+      const [utxoRes, feeRes, tipRes] = await Promise.allSettled([
         api.getUtxos(inkey, w.id),
         api.getRecommendedFees(inkey),
+        api.getChainTip(inkey),
       ]);
 
       if (utxoRes.status === 'fulfilled') {
@@ -175,6 +189,12 @@ export default function SendScreen() {
         const def = feeRes.value.halfHourFee ?? feeRes.value.fastestFee;
         if (def) setFeeRate(def);
       }
+
+      // Unavailable oracle → 0, which reads as "can't tell" and shows no
+      // warning rather than a bogus one.
+      setTipHeight(
+        tipRes.status === 'fulfilled' ? Number(tipRes.value?.height) || 0 : 0,
+      );
     } catch (e: any) {
       setLoadError(e?.message || 'Failed to load wallet.');
     } finally {
@@ -282,6 +302,20 @@ export default function SendScreen() {
   const insufficient =
     amountSats > 0 && selectedTotal > 0 && amountSats + estFee > selectedTotal;
 
+  // How far this wallet has been scanned vs. the chain tip. last_scan_height is
+  // progress, last_height the birth height (static) — a wallet born at the tip
+  // has no progress yet but is up to date, so take the max (same rule as the
+  // catch-up scan).
+  const walletHeight = Math.max(
+    Number(wallet?.last_scan_height ?? 0),
+    Number(wallet?.last_height ?? 0),
+  );
+  const blocksBehind =
+    tipHeight && walletHeight ? Math.max(0, tipHeight - walletHeight) : 0;
+  // Blocks arrive every ~10 minutes, so a handful behind is normal and warning
+  // about it would be noise. ~1 hour without scanning is worth flagging.
+  const behind = !scanActive && blocksBehind > STALE_BLOCKS;
+
   const canBuild =
     !!recipient.trim() &&
     amountSats > 0 &&
@@ -361,19 +395,78 @@ export default function SendScreen() {
     }
   }, [built, wallet, adminkey, selectedUtxos, recipient, amountSats]);
 
-  // Review: require re-authentication (PIN/biometric) first when an app lock is
+  // Start a catch-up scan from here, so a wallet that's behind can be brought
+  // up to date without leaving the Send screen. The existing poller takes over:
+  // it flips to the "Sending is paused" banner and reloads the coins when the
+  // scan finishes.
+  const onCatchUp = useCallback(async () => {
+    if (!inkey || !wallet) return;
+    setCatchUpBusy(true);
+    setCatchUpMsg(null);
+    try {
+      const keys = await getWalletKeys(wallet.id);
+      if (!keys) {
+        setCatchUpMsg(
+          "This wallet's keys aren't on this device, so it can only be scanned " +
+            'where they are.',
+        );
+        return;
+      }
+      await api.startScan(inkey, wallet.id, keys.scanSecret, walletHeight, null);
+      markScanStarted(wallet.id);
+      // Show the paused banner immediately rather than after the next poll, and
+      // make sure the poller's active → done transition reloads the coin list.
+      wasScanningRef.current = true;
+      setScanActive(true);
+    } catch (e: any) {
+      const msg = e?.message || 'Could not start a scan.';
+      // Already running / per-wallet cooldown: benign here, the poller picks it
+      // up either way.
+      setCatchUpMsg(
+        /recently|already|budget|too many/i.test(msg)
+          ? 'A scan was requested recently — this wallet will catch up shortly.'
+          : msg,
+      );
+    } finally {
+      setCatchUpBusy(false);
+    }
+  }, [inkey, wallet, walletHeight]);
+
+  // Require re-authentication (PIN/biometric) first when an app lock is
   // enabled. Building the transaction exposes the spend key (sent to the server
   // to sign), so gate here rather than at the final broadcast. With no lock,
   // proceed straight to the review step.
-  const onReview = useCallback(() => {
-    if (busy) return;
+  const proceedToReview = useCallback(() => {
     if (lockEnabled) {
       Keyboard.dismiss();
       setAuthOpen(true);
       return;
     }
     doBuild();
-  }, [busy, lockEnabled, doBuild]);
+  }, [lockEnabled, doBuild]);
+
+  const onReview = useCallback(() => {
+    if (busy) return;
+    // Merging coins is the one choice on this screen that can't be undone after
+    // broadcast — the link between them is published on-chain for good. The
+    // inline note sits below a long coin list where it's easy to scroll past,
+    // so confirm it here, where it can't be missed.
+    if (selectedUtxos.length > 1) {
+      Keyboard.dismiss();
+      Alert.alert(
+        `Combine ${selectedUtxos.length} coins?`,
+        `Spending ${selectedUtxos.length} coins in one transaction publicly ` +
+          'links them to the same owner — you — and that link is permanent. ' +
+          'Spend a single coin when one covers the amount.',
+        [
+          { text: 'Cancel', style: 'cancel' },
+          { text: 'Combine anyway', onPress: proceedToReview },
+        ],
+      );
+      return;
+    }
+    proceedToReview();
+  }, [busy, selectedUtxos.length, proceedToReview]);
 
   const onAuthenticated = useCallback(() => {
     setAuthOpen(false);
@@ -467,6 +560,16 @@ export default function SendScreen() {
               label="Network fee"
               value={`${groupThousands(built.fee || 0)} sats`}
             />
+            {/* The coin count drives both the fee and the on-chain link between
+                them, so it belongs on the last screen before broadcast. */}
+            <ReviewRow
+              label="Coins"
+              value={
+                selectedUtxos.length > 1
+                  ? `${selectedUtxos.length} — linked on-chain`
+                  : '1'
+              }
+            />
             <View style={styles.divider} />
             <ReviewRow label="Total" value={`${groupThousands(total)} sats`} bold />
           </View>
@@ -529,57 +632,82 @@ export default function SendScreen() {
             </View>
           ) : null}
 
+          {behind ? (
+            <View style={styles.behindBanner}>
+              <Text style={styles.behindText}>
+                ⚠ This wallet is scanned up to block{' '}
+                {groupThousands(walletHeight)} — {groupThousands(blocksBehind)}{' '}
+                blocks behind the chain tip. Payments that arrived since then
+                aren't listed below yet, so you may be spending from an
+                incomplete balance. The coins shown are still yours to spend.
+              </Text>
+              <TouchableOpacity
+                style={[styles.behindBtn, catchUpBusy && styles.btnDisabled]}
+                onPress={onCatchUp}
+                disabled={catchUpBusy}>
+                {catchUpBusy ? (
+                  <ActivityIndicator color={PRIMARY} />
+                ) : (
+                  <Text style={styles.behindBtnText}>Catch up now</Text>
+                )}
+              </TouchableOpacity>
+              {catchUpMsg ? (
+                <Text style={styles.behindMsg}>{catchUpMsg}</Text>
+              ) : null}
+            </View>
+          ) : null}
+
           <Text style={styles.label}>Recipient</Text>
           <Text style={styles.recipientHelp}>
             Silent Payment (sp1…), on-chain (bc1…), or BitMail (name@domain).
           </Text>
-          <View style={styles.recipientRow}>
-            <TextInput
-              style={[styles.input, styles.recipientInput]}
-              value={recipient}
-              onChangeText={(t) => {
-                setRecipient(t);
-                setContactMsg(null);
-              }}
-              placeholder="sp1… / bc1… / name@domain"
-              placeholderTextColor={colors.faint}
-              autoCapitalize="none"
-              autoCorrect={false}
-              multiline
-            />
-            <View style={styles.recipientActions}>
-              <TouchableOpacity
-                style={styles.pasteBtn}
-                onPress={() => setScanning(true)}>
-                <Text style={styles.pasteText}>Scan</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={styles.pasteBtn}
-                onPress={async () =>
-                  setRecipient(parseScannedAddress(await Clipboard.getString()))
-                }>
-                <Text style={styles.pasteText}>Paste</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
+          <TextInput
+            style={[styles.input, styles.recipientInput]}
+            value={recipient}
+            onChangeText={(t) => {
+              setRecipient(t);
+              setContactMsg(null);
+            }}
+            placeholder="sp1… / bc1… / name@domain"
+            placeholderTextColor={colors.faint}
+            autoCapitalize="none"
+            autoCorrect={false}
+            multiline
+          />
 
           {rKind ? (
             <Text style={styles.kindHint}>Detected: {KIND_LABEL[rKind]}</Text>
           ) : null}
 
-          <View style={styles.contactRow}>
+          {/* Every one of these fills in the address above, so they sit in a
+              single wrapping row beneath it. Beside the input they had to be a
+              column, which set the row's height and left dead space under the
+              address. */}
+          <View style={styles.recipientActions}>
             <TouchableOpacity
-              style={styles.contactBtn}
+              style={styles.actionBtn}
+              onPress={() => setScanning(true)}>
+              <Text style={styles.actionBtnText}>Scan</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.actionBtn}
+              onPress={async () =>
+                setRecipient(parseScannedAddress(await Clipboard.getString()))
+              }>
+              <Text style={styles.actionBtnText}>Paste</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.actionBtn}
               onPress={() => setShowContacts(true)}>
-              <Text style={styles.contactBtnText}>
+              <Text style={styles.actionBtnText}>
                 Contacts{contacts.length ? ` (${contacts.length})` : ''}
               </Text>
             </TouchableOpacity>
             {saveable && !alreadySaved ? (
               <TouchableOpacity
-                style={styles.contactBtn}
+                style={styles.actionBtn}
                 onPress={() => setShowSaveContact((v) => !v)}>
-                <Text style={styles.contactBtnText}>★ Save contact</Text>
+                <Text style={styles.actionBtnText}>★ Save contact</Text>
               </TouchableOpacity>
             ) : null}
             {alreadySaved ? (
@@ -598,13 +726,13 @@ export default function SendScreen() {
                 maxLength={40}
               />
               <TouchableOpacity
-                style={[styles.pasteBtn, savingContact && styles.btnDisabled]}
+                style={[styles.inlineSaveBtn, savingContact && styles.btnDisabled]}
                 onPress={onSaveContact}
                 disabled={savingContact}>
                 {savingContact ? (
                   <ActivityIndicator color={PRIMARY} />
                 ) : (
-                  <Text style={styles.pasteText}>Save</Text>
+                  <Text style={styles.inlineSaveText}>Save</Text>
                 )}
               </TouchableOpacity>
             </View>
@@ -831,31 +959,39 @@ const styles = StyleSheet.create({
     backgroundColor: colors.surfaceAlt,
   },
   recipientHelp: { fontSize: 12, color: colors.faint, marginBottom: 8, marginTop: -2 },
-  recipientRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 8 },
-  recipientActions: { gap: 8 },
-  recipientInput: { flex: 1, minHeight: 46 },
+  recipientInput: { minHeight: 46 },
   kindHint: { fontSize: 12, color: PRIMARY, fontWeight: '600', marginTop: 6 },
-  contactRow: { flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 12 },
-  contactBtn: {
+  // Scan / Paste / Contacts / Save contact, wrapping onto a second line on
+  // narrow screens instead of squeezing.
+  recipientActions: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    alignItems: 'center',
+    gap: 8,
+    marginTop: 12,
+  },
+  actionBtn: {
     borderWidth: 1,
     borderColor: PRIMARY,
     borderRadius: 8,
     paddingHorizontal: 14,
-    paddingVertical: 8,
+    paddingVertical: 9,
   },
-  contactBtnText: { color: PRIMARY, fontSize: 13, fontWeight: '600' },
+  actionBtnText: { color: PRIMARY, fontSize: 13, fontWeight: '600' },
   savedHint: { color: colors.green, fontSize: 13, fontWeight: '600' },
   saveContactRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 10 },
   contactLabelInput: { flex: 1 },
   contactMsg: { fontSize: 13, color: colors.muted, marginTop: 8 },
-  pasteBtn: {
+  // The "Save" button beside the contact-label input: taller than actionBtn so
+  // it lines up with the input's height.
+  inlineSaveBtn: {
     borderWidth: 1,
     borderColor: PRIMARY,
     borderRadius: 8,
     paddingHorizontal: 14,
     paddingVertical: 12,
   },
-  pasteText: { color: PRIMARY, fontWeight: '600', fontSize: 13 },
+  inlineSaveText: { color: PRIMARY, fontWeight: '600', fontSize: 13 },
 
   // Short numeric fields (amount, custom fee rate) are sized to their content
   // rather than the screen width, with the unit beside the box so the narrower
@@ -991,6 +1127,26 @@ const styles = StyleSheet.create({
     marginTop: 8,
   },
   scanBannerText: { flex: 1, fontSize: 13, color: colors.primary, lineHeight: 18 },
+  // Behind the tip but nothing scanning: a warning with a way to act on it,
+  // not a block — the coins already listed are spendable either way.
+  behindBanner: {
+    backgroundColor: 'rgba(249,115,22,0.10)',
+    borderRadius: 8,
+    padding: 12,
+    marginTop: 8,
+  },
+  behindText: { fontSize: 13, color: colors.primary, lineHeight: 18 },
+  behindBtn: {
+    borderWidth: 1,
+    borderColor: PRIMARY,
+    borderRadius: 8,
+    paddingHorizontal: 14,
+    paddingVertical: 9,
+    alignSelf: 'flex-start',
+    marginTop: 10,
+  },
+  behindBtnText: { color: PRIMARY, fontSize: 13, fontWeight: '600' },
+  behindMsg: { fontSize: 12, color: colors.muted, marginTop: 8, lineHeight: 17 },
   error: { color: colors.danger, fontSize: 13, marginTop: 14, textAlign: 'center' },
   privacyWarn: {
     backgroundColor: 'rgba(249,115,22,0.10)',
