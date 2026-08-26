@@ -533,53 +533,53 @@ export default function SendScreen() {
           <Text style={styles.recipientHelp}>
             Silent Payment (sp1…), on-chain (bc1…), or BitMail (name@domain).
           </Text>
-          <View style={styles.recipientRow}>
-            <TextInput
-              style={[styles.input, styles.recipientInput]}
-              value={recipient}
-              onChangeText={(t) => {
-                setRecipient(t);
-                setContactMsg(null);
-              }}
-              placeholder="sp1… / bc1… / name@domain"
-              placeholderTextColor={colors.faint}
-              autoCapitalize="none"
-              autoCorrect={false}
-              multiline
-            />
-            <View style={styles.recipientActions}>
-              <TouchableOpacity
-                style={styles.pasteBtn}
-                onPress={() => setScanning(true)}>
-                <Text style={styles.pasteText}>Scan</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={styles.pasteBtn}
-                onPress={async () =>
-                  setRecipient(parseScannedAddress(await Clipboard.getString()))
-                }>
-                <Text style={styles.pasteText}>Paste</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
+          <TextInput
+            style={[styles.input, styles.recipientInput]}
+            value={recipient}
+            onChangeText={(t) => {
+              setRecipient(t);
+              setContactMsg(null);
+            }}
+            placeholder="sp1… / bc1… / name@domain"
+            placeholderTextColor={colors.faint}
+            autoCapitalize="none"
+            autoCorrect={false}
+            multiline
+          />
 
           {rKind ? (
             <Text style={styles.kindHint}>Detected: {KIND_LABEL[rKind]}</Text>
           ) : null}
 
-          <View style={styles.contactRow}>
+          {/* Every one of these fills in the address above, so they sit in a
+              single wrapping row beneath it. Beside the input they had to be a
+              column, which set the row's height and left dead space under the
+              address. */}
+          <View style={styles.recipientActions}>
             <TouchableOpacity
-              style={styles.contactBtn}
+              style={styles.actionBtn}
+              onPress={() => setScanning(true)}>
+              <Text style={styles.actionBtnText}>Scan</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.actionBtn}
+              onPress={async () =>
+                setRecipient(parseScannedAddress(await Clipboard.getString()))
+              }>
+              <Text style={styles.actionBtnText}>Paste</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.actionBtn}
               onPress={() => setShowContacts(true)}>
-              <Text style={styles.contactBtnText}>
+              <Text style={styles.actionBtnText}>
                 Contacts{contacts.length ? ` (${contacts.length})` : ''}
               </Text>
             </TouchableOpacity>
             {saveable && !alreadySaved ? (
               <TouchableOpacity
-                style={styles.contactBtn}
+                style={styles.actionBtn}
                 onPress={() => setShowSaveContact((v) => !v)}>
-                <Text style={styles.contactBtnText}>★ Save contact</Text>
+                <Text style={styles.actionBtnText}>★ Save contact</Text>
               </TouchableOpacity>
             ) : null}
             {alreadySaved ? (
@@ -598,13 +598,13 @@ export default function SendScreen() {
                 maxLength={40}
               />
               <TouchableOpacity
-                style={[styles.pasteBtn, savingContact && styles.btnDisabled]}
+                style={[styles.inlineSaveBtn, savingContact && styles.btnDisabled]}
                 onPress={onSaveContact}
                 disabled={savingContact}>
                 {savingContact ? (
                   <ActivityIndicator color={PRIMARY} />
                 ) : (
-                  <Text style={styles.pasteText}>Save</Text>
+                  <Text style={styles.inlineSaveText}>Save</Text>
                 )}
               </TouchableOpacity>
             </View>
@@ -831,31 +831,39 @@ const styles = StyleSheet.create({
     backgroundColor: colors.surfaceAlt,
   },
   recipientHelp: { fontSize: 12, color: colors.faint, marginBottom: 8, marginTop: -2 },
-  recipientRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 8 },
-  recipientActions: { gap: 8 },
-  recipientInput: { flex: 1, minHeight: 46 },
+  recipientInput: { minHeight: 46 },
   kindHint: { fontSize: 12, color: PRIMARY, fontWeight: '600', marginTop: 6 },
-  contactRow: { flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 12 },
-  contactBtn: {
+  // Scan / Paste / Contacts / Save contact, wrapping onto a second line on
+  // narrow screens instead of squeezing.
+  recipientActions: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    alignItems: 'center',
+    gap: 8,
+    marginTop: 12,
+  },
+  actionBtn: {
     borderWidth: 1,
     borderColor: PRIMARY,
     borderRadius: 8,
     paddingHorizontal: 14,
-    paddingVertical: 8,
+    paddingVertical: 9,
   },
-  contactBtnText: { color: PRIMARY, fontSize: 13, fontWeight: '600' },
+  actionBtnText: { color: PRIMARY, fontSize: 13, fontWeight: '600' },
   savedHint: { color: colors.green, fontSize: 13, fontWeight: '600' },
   saveContactRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 10 },
   contactLabelInput: { flex: 1 },
   contactMsg: { fontSize: 13, color: colors.muted, marginTop: 8 },
-  pasteBtn: {
+  // The "Save" button beside the contact-label input: taller than actionBtn so
+  // it lines up with the input's height.
+  inlineSaveBtn: {
     borderWidth: 1,
     borderColor: PRIMARY,
     borderRadius: 8,
     paddingHorizontal: 14,
     paddingVertical: 12,
   },
-  pasteText: { color: PRIMARY, fontWeight: '600', fontSize: 13 },
+  inlineSaveText: { color: PRIMARY, fontWeight: '600', fontSize: 13 },
 
   // Short numeric fields (amount, custom fee rate) are sized to their content
   // rather than the screen width, with the unit beside the box so the narrower
