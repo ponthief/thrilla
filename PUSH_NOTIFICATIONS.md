@@ -56,6 +56,29 @@ tells you exactly what's wrong if nothing arrives:
   fed by the `messaging().onMessage` handler in `src/services/push.ts`).
 - On logout the device unregisters its token.
 
+## Turning it off (Settings → Notifications → Payment alerts)
+
+Users who'd rather receive silently can switch **Payment alerts** off. It's a
+per-device preference (stored in the platform keystore via
+`src/services/notifyPrefs.ts`, mirrored in `src/stores/notifyStore.ts`), so
+turning it off on one phone leaves another phone on the same account alerting.
+
+Off means all three surfaces of the alert go quiet:
+
+| Surface | How it's suppressed |
+| --- | --- |
+| System notification while the app is closed | `App.tsx` removes this device's FCM token from the server (`DELETE /api/v1/fcm/token`) and stops registering it, so there's nothing to push to. The removal is retried every session while the switch is off, in case it first failed offline. |
+| In-app banner for a foreground push | `handleForegroundMessage` in `src/services/push.ts` drops the message. |
+| In-app banner from the foreground catch-up scan | `src/hooks/useCatchUpScan.ts` skips the banner when it finds new coins. |
+
+Coins still arrive and still show up in the balance and history — only the
+announcement is suppressed. Turning the switch back on re-requests the OS
+notification permission if needed (Settings shows a link to the system settings
+when Android has stopped prompting) and re-registers the token.
+
+Because the mechanism is token removal, no backend change is involved: the
+server simply has no device to send to.
+
 ## Privacy
 
 FCM "notification" messages pass their title/body/data through Google in

@@ -14,9 +14,15 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAuthStore } from '@stores/authStore';
 import { useAppLockStore } from '@stores/appLockStore';
+import { useNotifyStore } from '@stores/notifyStore';
+import { usePushBanner } from '@stores/pushBanner';
 import * as api from '@services/api';
 import * as appLock from '@services/appLock';
 import * as appPin from '@services/appPin';
+import {
+  ensureNotificationPermission,
+  hasNotificationPermission,
+} from '@services/push';
 import { getWalletKeys, hasWalletKeys, removeWalletKeys } from '@services/secureKeys';
 import { resetCatchUp } from '../hooks/useCatchUpScan';
 import { colors, DEVICE_TRUST_ENABLED } from '@/theme';
@@ -78,6 +84,66 @@ export default function SettingsScreen() {
     appPin.hasPin().then(setPinSet);
     appPin.hasDuressPin().then(setHasDuress);
   }, [setPinSet]);
+
+  // Payment-arrival notifications (per-device).
+  const paymentAlerts = useNotifyStore((s) => s.paymentAlerts);
+  const setPaymentAlerts = useNotifyStore((s) => s.setPaymentAlerts);
+  const [alertsBusy, setAlertsBusy] = useState(false);
+  const [alertsMsg, setAlertsMsg] = useState<string | null>(null);
+  const [permBlocked, setPermBlocked] = useState(false);
+
+  // Alerts can be on in the app while the phone blocks notifications for
+  // Thrilla (permission denied, or revoked later in system settings) — say so
+  // instead of showing a switch that promises alerts the OS will drop. Checked
+  // on mount, so returning from system settings and reopening Settings picks up
+  // a fresh grant.
+  useEffect(() => {
+    if (!paymentAlerts) {
+      setPermBlocked(false);
+      return;
+    }
+    let cancelled = false;
+    hasNotificationPermission().then((ok) => {
+      if (!cancelled) setPermBlocked(!ok);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [paymentAlerts]);
+
+  // Turning alerts on needs the OS notification permission; without it the
+  // system notification would never show, so keep the switch off and point the
+  // user at their phone's settings (Android won't re-prompt after two denials).
+  // Turning them off only stores the pref — App.tsx reacts by removing this
+  // device's push token from the server.
+  const onTogglePaymentAlerts = useCallback(
+    async (value: boolean) => {
+      setAlertsBusy(true);
+      setAlertsMsg(null);
+      try {
+        if (value) {
+          if (!(await ensureNotificationPermission())) {
+            setPermBlocked(true);
+            setAlertsMsg(
+              "Notifications are blocked for Thrilla in your phone's settings. " +
+                'Allow them there, then turn this on again.',
+            );
+            return;
+          }
+          setPermBlocked(false);
+          await setPaymentAlerts(true);
+        } else {
+          setPermBlocked(false);
+          await setPaymentAlerts(false);
+          // Drop any banner already on screen so the switch takes effect now.
+          usePushBanner.getState().clear();
+        }
+      } finally {
+        setAlertsBusy(false);
+      }
+    },
+    [setPaymentAlerts],
+  );
 
   const onToggleDuress = useCallback((v: boolean) => {
     if (v) {
@@ -495,6 +561,51 @@ export default function SettingsScreen() {
               (detection only — it can never spend your funds).
             </Text>
             {bgMsg ? <Text style={styles.dustError}>{bgMsg}</Text> : null}
+          </View>
+        </View>
+
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>Notifications</Text>
+          <View style={styles.column}>
+            <View style={styles.switchRow}>
+              <Text style={styles.itemLabel}>Payment alerts</Text>
+              {alertsBusy ? (
+                <ActivityIndicator color={colors.primary} />
+              ) : (
+                <Switch
+                  value={paymentAlerts}
+                  onValueChange={onTogglePaymentAlerts}
+                  trackColor={{ true: colors.primary }}
+                />
+              )}
+            </View>
+            <Text style={styles.help}>
+              Be told when a payment arrives — a notification while the app is
+              closed (needs background scanning) and a banner while it's open.
+              Turn this off for silent receiving: coins still arrive and show up
+              in your balance and history. This setting applies to this phone
+              only.
+            </Text>
+            {alertsMsg ? (
+              <Text style={styles.dustError}>{alertsMsg}</Text>
+            ) : permBlocked ? (
+              <Text style={styles.dustError}>
+                Your phone is blocking notifications for Thrilla, so payment
+                alerts won't appear while the app is closed. Allow them in system
+                settings.
+              </Text>
+            ) : null}
+            {permBlocked ? (
+              <TouchableOpacity
+                style={[styles.switchRow, { marginTop: 12 }]}
+                onPress={() => Linking.openSettings().catch(() => {})}
+                accessibilityRole="button">
+                <Text style={styles.itemLabel}>Notification permission</Text>
+                <Text style={[styles.itemValue, styles.link]}>
+                  Open system settings ›
+                </Text>
+              </TouchableOpacity>
+            ) : null}
           </View>
         </View>
 

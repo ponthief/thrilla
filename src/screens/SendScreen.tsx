@@ -611,15 +611,18 @@ export default function SendScreen() {
           ) : null}
           {contactMsg ? <Text style={styles.contactMsg}>{contactMsg}</Text> : null}
 
-          <Text style={styles.label}>Amount (sats)</Text>
-          <TextInput
-            style={styles.input}
-            value={amount}
-            onChangeText={(t) => setAmount(t.replace(/[^0-9]/g, ''))}
-            keyboardType="number-pad"
-            placeholder="0"
-            placeholderTextColor={colors.faint}
-          />
+          <Text style={styles.label}>Amount</Text>
+          <View style={styles.unitRow}>
+            <TextInput
+              style={[styles.input, styles.amountInput]}
+              value={amount}
+              onChangeText={(t) => setAmount(t.replace(/[^0-9]/g, ''))}
+              keyboardType="number-pad"
+              placeholder="0"
+              placeholderTextColor={colors.faint}
+            />
+            <Text style={styles.unitLabel}>sats</Text>
+          </View>
 
           <Text style={styles.label}>Fee rate</Text>
           <View style={styles.feeRow}>
@@ -654,14 +657,17 @@ export default function SendScreen() {
             </TouchableOpacity>
           </View>
           {feeChoice === 'custom' ? (
-            <TextInput
-              style={styles.input}
-              value={String(feeRate || '')}
-              onChangeText={(t) => setFeeRate(Number(t.replace(/[^0-9]/g, '')) || 0)}
-              keyboardType="number-pad"
-              placeholder="sat/vB"
-              placeholderTextColor={colors.faint}
-            />
+            <View style={[styles.unitRow, styles.feeRateRow]}>
+              <TextInput
+                style={[styles.input, styles.feeRateInput]}
+                value={String(feeRate || '')}
+                onChangeText={(t) => setFeeRate(Number(t.replace(/[^0-9]/g, '')) || 0)}
+                keyboardType="number-pad"
+                placeholder="0"
+                placeholderTextColor={colors.faint}
+              />
+              <Text style={styles.unitLabel}>sat/vB</Text>
+            </View>
           ) : null}
 
           <Text style={styles.label}>
@@ -850,6 +856,16 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
   },
   pasteText: { color: PRIMARY, fontWeight: '600', fontSize: 13 },
+
+  // Short numeric fields (amount, custom fee rate) are sized to their content
+  // rather than the screen width, with the unit beside the box so the narrower
+  // field reads as deliberate. Widths are the digits each holds at fontSize 16
+  // plus the input's own padding, and both fit a 320dp screen with the unit.
+  unitRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  unitLabel: { fontSize: 14, fontWeight: '600', color: colors.muted },
+  amountInput: { width: 150 }, // sats: up to ~9 digits
+  feeRateInput: { width: 100 }, // sat/vB: 1–4 digits
+  feeRateRow: { marginTop: 10 },
 
   feeRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   feeChip: {

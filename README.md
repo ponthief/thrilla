@@ -29,7 +29,8 @@ fresh addresses.
   coins; dust from third parties is flagged so you can avoid it.
 - **Notifications.** Get a push when a payment arrives (even with the app
   closed) via an opt-in background scanner — the amount is shown in-app, not to
-  the push provider.
+  the push provider. Prefer to receive silently? Turn **Payment alerts** off in
+  Settings → Notifications (per device).
 - **Lock & duress.** Biometric or in-app PIN lock, plus an optional **duress
   PIN** that wipes this device's keys and signs out. Sending re-authenticates.
 

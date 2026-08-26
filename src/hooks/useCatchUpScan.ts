@@ -3,6 +3,7 @@ import * as api from '@services/api';
 import { getWalletKeys } from '@services/secureKeys';
 import { markScanStarted } from '@services/scanCooldown';
 import { usePushBanner } from '@stores/pushBanner';
+import { paymentAlertsOn } from '@stores/notifyStore';
 
 // Wallets already evaluated this app session, so returning to the Wallet tab
 // doesn't re-trigger a scan/prompt. Cleared on create/import (id may be reused)
@@ -61,9 +62,12 @@ export function useCatchUpScan(
             // only fires when the app is closed). Surface new coins in-app so a
             // payment that lands while you're using the app is still noticed.
             // `found` counts only newly-inserted UTXOs, so this won't fire on
-            // rescans of already-known blocks.
+            // rescans of already-known blocks. Suppressed when payment alerts
+            // are off (Settings → Notifications) — the coins still land, they
+            // just don't announce themselves; the balance and history update as
+            // usual.
             const found = Number(p.found || 0);
-            if (found > 0) {
+            if (found > 0 && paymentAlertsOn()) {
               const sats = Number(p.amount || 0);
               usePushBanner.getState().show({
                 title: 'Payment received',
