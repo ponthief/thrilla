@@ -23,6 +23,7 @@ import DeviceConfirmScreen from './screens/DeviceConfirmScreen';
 import LockScreen from './screens/LockScreen';
 import { useAuthStore } from '@stores/authStore';
 import { useAppLockStore } from '@stores/appLockStore';
+import { useNotifyStore } from '@stores/notifyStore';
 import { useIdleLogout } from './hooks/useIdleLogout';
 import { touchActivity } from '@services/sessionActivity';
 import {
@@ -128,17 +129,35 @@ const App = () => {
   // would otherwise never register once the device is confirmed. Gating on it
   // (and depending on it) both silences the 403 and registers right after the
   // 6-digit confirmation succeeds.
+  //
+  // Also gated on the "Payment alerts" pref (Settings → Notifications): with it
+  // off, this device holds no server-side token, which is what actually stops
+  // the system notification while the app is closed. Waiting for
+  // `notifyReady` avoids registering a token on launch only to remove it a tick
+  // later when the persisted pref turns out to be off.
   const deviceReady = !DEVICE_TRUST_ENABLED || deviceStatus === 'trusted';
+  const paymentAlerts = useNotifyStore((s) => s.paymentAlerts);
+  const notifyReady = useNotifyStore((s) => s.ready);
+  const refreshNotify = useNotifyStore((s) => s.refresh);
   const lastInkey = useRef<string | null>(null);
   useEffect(() => {
+    if (!notifyReady) return;
     if (isAuthenticated && inkey && deviceReady) {
-      lastInkey.current = inkey;
-      registerForPush(inkey);
-    } else if (!isAuthenticated && lastInkey.current) {
+      if (paymentAlerts) {
+        lastInkey.current = inkey;
+        registerForPush(inkey);
+      } else {
+        // Alerts off: make sure the server has no token for this device. Re-run
+        // on every session (not just on the switch flip) so a removal that
+        // failed while offline is retried instead of leaving pushes coming.
+        lastInkey.current = null;
+        unregisterForPush(inkey);
+      }
+    } else if (lastInkey.current) {
       unregisterForPush(lastInkey.current);
       lastInkey.current = null;
     }
-  }, [isAuthenticated, inkey, deviceReady]);
+  }, [isAuthenticated, inkey, deviceReady, paymentAlerts, notifyReady]);
 
   const lockEnabled = useAppLockStore((s) => s.enabled);
   const locked = useAppLockStore((s) => s.locked);
@@ -149,19 +168,23 @@ const App = () => {
   // Idle session timeout (mirrors web): sign out after inactivity.
   useIdleLogout();
 
-  // Load the app-lock preference once at startup.
+  // Load the app-lock and notification preferences once at startup.
   useEffect(() => {
     refreshLock();
-  }, [refreshLock]);
+    refreshNotify();
+  }, [refreshLock, refreshNotify]);
 
   // Prompt for notification permission at first launch, so the user can allow
   // payment alerts before (and independently of) device-trust + FCM token
   // registration. The token itself is registered later, once the device is
   // trusted (effect above); by then this grant is already in place, so
   // registerForPush won't show a second dialog.
+  //
+  // Skipped when payment alerts are switched off, so a user who turned them off
+  // isn't asked again on the next launch for a permission the app won't use.
   useEffect(() => {
-    ensureNotificationPermission();
-  }, []);
+    if (notifyReady && paymentAlerts) ensureNotificationPermission();
+  }, [notifyReady, paymentAlerts]);
 
   // Lock when the app leaves the foreground (only 'background', not the
   // transient 'inactive' the OS emits during the unlock prompt itself, which
