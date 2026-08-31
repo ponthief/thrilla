@@ -330,7 +330,7 @@ async function createWallet() {
     // Persist the locally-derived keys (NOT from the response — the server never
     // had them).
     if (result && result.wallet_id) {
-      await auth.storeWalletKeys(result.wallet_id, keys.scanSecret, keys.spendKey)
+      await auth.storeWalletKeys(result.wallet_id, keys.scanSecret, keys.spendKey, keys.refundAddress)
     }
 
     // Only reveal the seed on a fresh generate so the user can back it up. On
@@ -501,7 +501,7 @@ async function submitRecoverKeys() {
     if (keys.spAddress.toLowerCase() !== (recoverTarget.value.sp_address || '').toLowerCase()) {
       throw new Error("That phrase doesn't match this wallet's address. Check the words and passphrase.")
     }
-    await auth.storeWalletKeys(recoverTarget.value.id, keys.scanSecret, keys.spendKey)
+    await auth.storeWalletKeys(recoverTarget.value.id, keys.scanSecret, keys.spendKey, keys.refundAddress)
     showRecover.value = false
   } catch (e) { recoverError.value = e.message }
   finally { recoverLoading.value = false }
