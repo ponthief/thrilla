@@ -646,6 +646,16 @@ watch(swapCompletedAt, () => {
     <!-- Error -->
     <div v-if="error" class="alert alert-error" style="margin-bottom:16px">⚠ {{ error }}</div>
 
+    <!-- Signet: say the coins are worthless, and hand over the faucet -->
+    <div v-if="NETWORK_LOCK === 'signet' && wallets.length" class="alert alert-warn faucet-note">
+      <div>
+        <strong>Signet coins are worthless.</strong> This is a test network — nothing here is real bitcoin.
+        Copy your <span class="mono">tsp1…</span> address below and claim free test coins from the
+        <a href="https://silentpayments.dev/faucet/signet" target="_blank" rel="noopener noreferrer">Signet faucet</a>,
+        then scan on the Receive tab to watch them arrive.
+      </div>
+    </div>
+
     <!-- Loading -->
     <div v-if="loading" class="flex items-center gap-2 text-dim" style="padding:40px 0">
       <span class="spinner"></span> Loading wallets…
@@ -1151,6 +1161,8 @@ watch(swapCompletedAt, () => {
 </template>
 
 <style scoped>
+.faucet-note { margin-bottom: 16px; text-align: left; line-height: 1.55; }
+.faucet-note a { color: inherit; font-weight: 600; text-decoration: underline; }
 .wallet-card .card-body { padding: 20px; }
 .wallets-grid {
   display: grid;
