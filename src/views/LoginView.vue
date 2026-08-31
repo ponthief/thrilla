@@ -6,6 +6,11 @@ import * as api from '@/api'
 
 const router = useRouter()
 const route  = useRoute()
+
+// Build-time network lock (.env.signet sets 'signet'). The Signet build is a
+// test deployment, so it says so before anyone types a password.
+const IS_SIGNET = (import.meta.env.VITE_NETWORK_LOCK || '') === 'signet'
+const FAUCET_URL = 'https://silentpayments.dev/faucet/signet'
 const sessionExpired = route.query.expired === '1'
 const accountClosed = route.query.closed === '1'
 const auth   = useAuthStore()
@@ -153,6 +158,16 @@ onUnmounted(() => clearInterval(lockTimer))
         <p>Self custody · BitMail · Private payments</p>
       </div>
 
+      <div v-if="IS_SIGNET" class="alert alert-warn signet-banner">
+        <div>
+          <strong>Signet test network.</strong> The coins here are <strong>worthless</strong> —
+          they exist only for testing, and nothing you do costs real bitcoin.
+          Create an account and a wallet, then top it up for free from the
+          <a :href="FAUCET_URL" target="_blank" rel="noopener noreferrer">Signet faucet</a>
+          using the <span class="mono">tsp1…</span> address the wallet gives you.
+        </div>
+      </div>
+
       <div class="card login-card">
         <div class="card-body">
           <form @submit.prevent="handleLogin">
@@ -225,6 +240,9 @@ onUnmounted(() => clearInterval(lockTimer))
 </template>
 
 <style scoped>
+.signet-banner { margin-bottom: 16px; text-align: left; line-height: 1.55; }
+.signet-banner a { color: inherit; font-weight: 600; text-decoration: underline; }
+
 .login-page {
   position: relative; z-index: 1;
   min-height: 100vh;
