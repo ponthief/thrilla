@@ -2,7 +2,12 @@
 import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
+// From derivationPaths, not spKeys: this view only shows the path, and spKeys
+// would pull the BIP-39 wordlist and secp256k1 into the bundle for a string.
+import { refundDerivationPath } from '@/services/derivationPaths'
 import * as api from '@/api'
+
+const NETWORK = import.meta.env.VITE_NETWORK_LOCK || 'regtest'
 
 const router = useRouter()
 const auth = useAuthStore()
@@ -30,6 +35,13 @@ const error         = ref('')
 // path that has already gone wrong. It's the standard m/84'/…/0/0 path, so the
 // same seed sweeps it in any wallet, not just this one. Falls back to manual
 // entry when this device doesn't hold the wallet's keys.
+//
+// Thrilla can't spend that address itself: the key for it lives in the seed,
+// and only the Silent Payments scan/spend keys are kept on the device. So the
+// path is surfaced wherever the address is — restoring the same 12 words in any
+// BIP-84 wallet (Sparrow, Electrum) sweeps a refund without Thrilla involved.
+const refundPath = computed(() => refundDerivationPath(NETWORK))
+
 const refundIsSp = computed(() => /^(sp1|tsp1)/i.test((refundAddress.value || '').trim()))
 const refundValid = computed(() => {
   const r = (refundAddress.value || '').trim()
@@ -134,7 +146,7 @@ async function createSwap() {
       amount: Number(amount.value),
       refund_address: refundAddress.value.trim(),
       silnt_wallet_id: silntWalletId.value || undefined,
-      network: import.meta.env.VITE_NETWORK_LOCK || 'regtest',
+      network: NETWORK,
     })
 
     // Register this swap's invoice hash so the global LN-receive poller never
@@ -251,7 +263,10 @@ async function doRefund(swap) {
   refundingId.value = swap.swap_id
   try {
     const res = await api.refundSwap(auth.adminkey, swap.swap_id, addr ? { address: addr } : {})
-    refundResult.value = { txid: res.txid, swap_id: swap.swap_id }
+    // `refunded_to` is where the backend actually paid out (the override above,
+    // or the address stored with the swap). Kept so the result can tell the user
+    // how to reach the funds when they landed on this wallet's own address.
+    refundResult.value = { txid: res.txid, swap_id: swap.swap_id, refundedTo: res.refunded_to || '' }
     await loadRefundable()
     await loadSwapHistory()
   } catch (e) {
@@ -327,6 +342,10 @@ onBeforeUnmount(() => {
         <p class="text-sm text-dim" style="margin:0">
           These swaps failed or timed out. Refund returns your on-chain funds to the
           address saved with the swap — or enter a different on-chain address below to override it.
+          <template v-if="derivedRefund">
+            A refund to your wallet's own address (<code>{{ refundPath }}</code>) doesn't
+            re-enter your Silent Payments balance; restore your seed in a BIP-84 wallet to spend it.
+          </template>
         </p>
         <div v-for="s in refundable" :key="s.swap_id"
              style="display:flex;flex-direction:column;gap:8px;padding:10px;border:1px solid var(--border);border-radius:var(--radius)">
@@ -360,8 +379,33 @@ onBeforeUnmount(() => {
     <div v-if="refundResult" class="alert alert-success" style="margin-bottom:20px;display:flex;flex-direction:column;gap:6px">
       <div><strong>✓ Refund broadcast</strong></div>
       <div style="font-family:var(--font-mono);font-size:11px;word-break:break-all">{{ refundResult.txid }}</div>
+      <div v-if="refundResult.refundedTo" class="text-xs text-dim">
+        Refunded to <code style="word-break:break-all">{{ refundResult.refundedTo }}</code>
+      </div>
+
+      <!-- These funds are NOT in the Silent Payments wallet: they're on a plain
+           on-chain address, and the key for it is in the seed rather than on
+           this device. Say so here, where the user is looking, rather than
+           leaving them to wonder why their balance didn't move. -->
+      <div v-if="refundResult.refundedTo && refundResult.refundedTo === derivedRefund"
+           class="text-sm" style="margin-top:2px">
+        <strong>Getting to these funds.</strong>
+        They landed on your wallet's own refund address, not in your Silent
+        Payments balance — so your balance here won't change. Restore this
+        wallet's 12 words in any BIP-84 wallet (Sparrow, Electrum) and the coins
+        are at <code>{{ refundPath }}</code>, ready to spend or send back to your
+        Silent Payment address.
+      </div>
+      <div v-else-if="refundResult.refundedTo" class="text-sm" style="margin-top:2px">
+        These funds went to an address outside this wallet, so your Silent
+        Payments balance won't change — spend them from whichever wallet holds
+        that address.
+      </div>
+
       <div style="display:flex;gap:8px;flex-wrap:wrap">
         <button class="btn btn-ghost btn-sm" @click="copyText(refundResult.txid)">⎘ Copy txid</button>
+        <button v-if="refundResult.refundedTo && refundResult.refundedTo === derivedRefund"
+                class="btn btn-ghost btn-sm" @click="copyText(refundPath)">⎘ Copy path</button>
         <a class="btn btn-ghost btn-sm" :href="refundExplorerUrl(refundResult.txid)" target="_blank" rel="noopener noreferrer">View on explorer ↗</a>
         <button class="btn btn-ghost btn-sm" @click="refundResult = null">Dismiss</button>
       </div>
@@ -421,8 +465,11 @@ onBeforeUnmount(() => {
               <button type="button" class="btn btn-ghost btn-sm" @click="copyText(derivedRefund)">Copy</button>
             </div>
             <div class="text-xs text-dim" style="margin-top:4px">
-              Your own wallet's address, derived from this wallet's seed — the same
-              12 words recover it, so there's nothing extra to back up.
+              Your own wallet's address, derived from this wallet's seed at
+              <code>{{ refundPath }}</code> — the same 12 words recover it, so
+              there's nothing extra to back up. Thrilla can't spend it (only your
+              Silent Payments keys are kept on this device), so a refund that
+              lands here is swept by restoring your seed in any BIP-84 wallet.
               <button type="button" class="btn btn-ghost btn-sm" @click="useDifferentRefund">Use a different address</button>
             </div>
           </template>

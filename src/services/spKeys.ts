@@ -18,6 +18,12 @@ import { secp256k1 } from '@noble/curves/secp256k1';
 import { sha256 } from '@noble/hashes/sha256';
 import { ripemd160 } from '@noble/hashes/ripemd160';
 import { bech32, bech32m } from '@scure/base';
+import { coinType, refundDerivationPath } from './derivationPaths';
+
+// Re-exported so callers that already import this module don't need a second
+// import; views that only want the path string should import it directly from
+// services/derivationPaths and skip this module's crypto payload entirely.
+export { refundDerivationPath };
 
 export interface SilentPaymentKeys {
   spAddress: string; // sp1…/tsp1… receive address
@@ -137,13 +143,6 @@ function bech32Hrp(network: string): string {
   return 'tb';
 }
 
-// BIP-84 external-chain path. Coin type matches the BIP-352 derivation above
-// (mainnet → 0, every test network → 1).
-export function refundDerivationPath(network: string, index = 0): string {
-  const coin = network === 'mainnet' ? 0 : 1;
-  return `m/84'/${coin}'/0'/0/${index}`;
-}
-
 function refundAddressFromRoot(root: HDKey, network: string, index: number): string {
   const priv = root.derive(refundDerivationPath(network, index)).privateKey;
   if (!priv) {
@@ -176,7 +175,7 @@ export function deriveSilentPayment(
   network: string,
 ): SilentPaymentKeys {
   const mn = mnemonic.trim().toLowerCase();
-  const coin = network === 'mainnet' ? 0 : 1;
+  const coin = coinType(network);
   const hrp = network === 'mainnet' ? 'sp' : 'tsp';
 
   const seed = mnemonicToSeedSync(mn, passphrase || '');
