@@ -72,6 +72,19 @@ note "wrote $sums"
 while read -r line; do note "$line"; done < "$sums"
 
 echo
+# With no key pinned, gpg signs with whatever it considers the default secret
+# key. That is fine on a machine holding one key and a coin flip on a machine
+# holding several, so say so rather than letting a release go out signed by the
+# wrong identity.
+if [ -z "$gpg_key" ]; then
+  secret_count="$(gpg --with-colons --list-secret-keys 2>/dev/null | grep -c '^sec:' || true)"
+  if [ "${secret_count:-0}" -gt 1 ]; then
+    echo "Note: $secret_count secret keys in this keyring and no THRILLA_GPG_KEY set —"
+    echo "gpg will use its default. Check the fingerprint printed below is the one"
+    echo "published on thrilla.me, or re-run with THRILLA_GPG_KEY=<key-id>."
+    echo
+  fi
+fi
 echo "Signing…"
 # Remove a stale signature first: gpg would prompt to overwrite, which wedges a
 # non-interactive run, and a leftover .asc from a previous build verifying
@@ -90,31 +103,37 @@ echo
 echo "Verifying the signature we just made…"
 gpg --verify "$sig" "$sums" 2>&1 | sed 's/^/  /'
 
+# The fingerprint comes from the signature we just made, NOT from a keyring
+# listing. This matters: `gpg --fingerprint` with no key argument lists EVERY
+# public key in the ring and the first one out is whichever sorts first, which
+# on any real machine is somebody else's key. An earlier version of this script
+# published that instead of the signing key, and the whole point of the value is
+# that it identifies the key that signed THIS release.
+#
+# --status-fd is gpg's machine interface. VALIDSIG's last field is the primary
+# key fingerprint (the first is the signing key, which may be a subkey — for
+# publishing we want the primary).
+fpr="$(gpg --status-fd=1 --verify "$sig" "$sums" 2>/dev/null \
+        | awk '/^\[GNUPG:\] VALIDSIG/{print $NF; exit}')"
+
 echo
-echo "Signing key fingerprint (publish this, and say it somewhere other than the download page):"
-if [ -n "$gpg_key" ]; then
-  gpg --fingerprint "$gpg_key" | sed 's/^/  /'
-else
-  gpg --fingerprint --list-secret-keys | sed 's/^/  /'
+if [ -z "$fpr" ]; then
+  echo "Could not read the signing key fingerprint from the signature." >&2
+  echo "Publish nothing until this is resolved — the signature above may be bad." >&2
+  exit 1
 fi
 
-# Pull the fingerprint out as one paste-ready line. --with-colons is the stable
-# machine-readable format (the human output above is explicitly not), so the
-# value can be lifted without eyeballing which line of gpg's output to copy.
-# Regrouped into gpg's usual 4-char blocks, double space at the halfway mark,
-# which is the form verify.html displays.
-# Array, not ${gpg_key:+…}: unquoted it would word-split a key id given as a
-# name ("Thrilla Signing"), and quoted it would pass an empty argument.
-fpr_args=()
-[ -n "$gpg_key" ] && fpr_args=("$gpg_key")
-fpr="$(gpg --with-colons --fingerprint "${fpr_args[@]+"${fpr_args[@]}"}" 2>/dev/null \
-        | awk -F: '$1=="fpr"{print $10; exit}')"
-if [ -n "$fpr" ]; then
-  spaced="$(echo "$fpr" | sed -E 's/(.{4})/\1 /g; s/ $//; s/^(.{24})/\1 /')"
-  echo
-  echo "Paste this into verify.html (the #fp div — the only line to change there):"
-  echo "  $spaced"
-fi
+echo "Signing key (publish this, and say it somewhere other than the download page):"
+# Scoped to $fpr for the same reason: the human listing and the paste line below
+# must describe one key, or they can disagree and one of them will be wrong.
+gpg --fingerprint "$fpr" | sed 's/^/  /'
+
+# Regrouped into gpg's usual 4-char blocks with the double space at the halfway
+# mark, which is the form verify.html displays.
+spaced="$(echo "$fpr" | sed -E 's/(.{4})/\1 /g; s/ $//; s/^(.{24})/\1 /')"
+echo
+echo "Paste this into verify.html (the #fp div — the only line to change there):"
+echo "  $spaced"
 
 # The Android side. Not a GPG matter, but it belongs in the same release notes:
 # this fingerprint is what Android itself checks on every update.
