@@ -15,12 +15,21 @@ import { generateMnemonic as scureGenerate, mnemonicToSeedSync, validateMnemonic
 import { wordlist } from '@scure/bip39/wordlists/english';
 import { HDKey } from '@scure/bip32';
 import { secp256k1 } from '@noble/curves/secp256k1';
-import { bech32m } from '@scure/base';
+import { sha256 } from '@noble/hashes/sha256';
+import { ripemd160 } from '@noble/hashes/ripemd160';
+import { bech32, bech32m } from '@scure/base';
+import { coinType, refundDerivationPath } from './derivationPaths';
+
+// Re-exported so callers that already import this module don't need a second
+// import; views that only want the path string should import it directly from
+// services/derivationPaths and skip this module's crypto payload entirely.
+export { refundDerivationPath };
 
 export interface SilentPaymentKeys {
   spAddress: string; // sp1…/tsp1… receive address
   scanSecret: string; // 32-byte scan private key, hex
   spendKey: string; // 32-byte spend private key, hex
+  refundAddress: string; // bc1q…/tb1q… BIP-84 address, see deriveRefundAddress
 }
 
 // Silent Payments addresses are long (two compressed pubkeys), so bech32m's
@@ -99,6 +108,64 @@ export function validateNewWalletPassphrase(passphrase: string): string | null {
   return null;
 }
 
+// ── BIP-84 refund address ────────────────────────────────────────────────────
+//
+// A refund destination for a failed swap CANNOT be a Silent Payment address.
+// BIP-352 only accepts P2TR key-path, P2WPKH, P2SH-P2WPKH and P2PKH inputs for
+// shared-secret derivation, because the sender needs the private key behind
+// each input to compute a·B_scan. A Boltz refund is a Taproot SCRIPT-path spend
+// (siLNt/boltz_refund.py) whose output key is a MuSig2 aggregate — nobody holds
+// a private key for it, so no silent payment can be constructed from it. The
+// same is true of any script-encumbered output, so this is a property of the
+// swap layer, not of Boltz.
+//
+// The refund therefore has to land on a plain address, and until now the user
+// had to paste one in from some other wallet — a footgun on exactly the path
+// that is already the risky one. Deriving it from the wallet's own seed makes
+// the destination self-custodial with no extra backup: the standard BIP-84
+// path means the same 12 words recover it in Electrum, Sparrow or any other
+// wallet, not just Thrilla.
+//
+// Address reuse: index 0 is what gets derived and stored at wallet creation, so
+// repeated refunds to the same wallet cluster on one address. That's an
+// accepted trade-off — refunds only happen on failed swaps, and a stored
+// address is what lets the field prefill without re-entering the seed. Callers
+// that can track an index may pass one to spread refunds across addresses.
+
+function hash160(b: Uint8Array): Uint8Array {
+  return ripemd160(sha256(b));
+}
+
+// Segwit v0 human-readable part. Signet shares testnet's 'tb' (BIP-173).
+function bech32Hrp(network: string): string {
+  if (network === 'mainnet') return 'bc';
+  if (network === 'regtest') return 'bcrt';
+  return 'tb';
+}
+
+function refundAddressFromRoot(root: HDKey, network: string, index: number): string {
+  const priv = root.derive(refundDerivationPath(network, index)).privateKey;
+  if (!priv) {
+    throw new Error('Refund key derivation failed.');
+  }
+  const pub = secp256k1.getPublicKey(priv, true);
+  // P2WPKH: witness version 0 ++ hash160(compressed pubkey), bech32 (not m).
+  const words = [0, ...bech32.toWords(hash160(pub))];
+  return bech32.encode(bech32Hrp(network), words);
+}
+
+// Standalone BIP-84 address derivation, for callers that hold a mnemonic but
+// don't need the Silent Payments keys.
+export function deriveRefundAddress(
+  mnemonic: string,
+  passphrase: string,
+  network: string,
+  index = 0,
+): string {
+  const seed = mnemonicToSeedSync(mnemonic.trim().toLowerCase(), passphrase || '');
+  return refundAddressFromRoot(HDKey.fromMasterSeed(seed), network, index);
+}
+
 // Derive the Silent Payments address + scan/spend private keys from a mnemonic.
 // `network` picks the BIP-352 coin type + address HRP (mainnet → 0/'sp',
 // otherwise → 1/'tsp'), matching the backend exactly.
@@ -108,7 +175,7 @@ export function deriveSilentPayment(
   network: string,
 ): SilentPaymentKeys {
   const mn = mnemonic.trim().toLowerCase();
-  const coin = network === 'mainnet' ? 0 : 1;
+  const coin = coinType(network);
   const hrp = network === 'mainnet' ? 'sp' : 'tsp';
 
   const seed = mnemonicToSeedSync(mn, passphrase || '');
@@ -132,5 +199,10 @@ export function deriveSilentPayment(
   const words = [0, ...bech32m.toWords(payload)]; // version 0 ++ 8→5 bit payload
   const spAddress = bech32m.encode(hrp, words, BECH32M_LIMIT);
 
-  return { spAddress, scanSecret: toHex(scanPriv), spendKey: toHex(spendPriv) };
+  return {
+    spAddress,
+    scanSecret: toHex(scanPriv),
+    spendKey: toHex(spendPriv),
+    refundAddress: refundAddressFromRoot(root, network, 0),
+  };
 }

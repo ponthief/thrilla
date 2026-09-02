@@ -122,6 +122,55 @@ Without those properties, release builds fall back to the debug key (fine for
 local testing, never for distribution). **Back up the keystore + passwords** —
 losing them means you can't ship updates.
 
+### Publish a verifiable release
+
+The APKs are sideloaded from a website, so nothing about the transport proves
+where a build came from. Two independent checks cover that, and a release
+should ship both.
+
+**1. The APK signing certificate.** Android already enforces this: an APK
+signed by a different key cannot replace an installed Thrilla, so every user
+is protected whether or not they check anything. Publish the fingerprint so
+they *can* check:
+
+```bash
+apksigner verify --print-certs thrilla.apk | grep -i 'SHA-256 digest'
+```
+
+**2. A GPG signature over the checksums.** This covers the download itself,
+before it is ever installed. One signature over a `SHA256SUMS` file covers
+every artifact — the layout Bitcoin Core and Tor use, so the steps are ones
+people may already know:
+
+```bash
+scripts/sign-release.sh                    # → SHA256SUMS + SHA256SUMS.asc
+THRILLA_GPG_KEY=<key-id> scripts/sign-release.sh    # pick a specific key
+```
+
+The script checksums the APKs, signs the sums, **verifies the signature it
+just made** (a bad signature that ships reads to users as a compromised
+build), and prints both fingerprints.
+
+First time only, create a signing key and export the public half:
+
+```bash
+gpg --quick-generate-key "Thrilla <you@example.com>" ed25519 sign 3y
+gpg --armor --export "you@example.com" > thrilla-signing-key.asc
+```
+
+Then publish, per release:
+
+- `SHA256SUMS` and `SHA256SUMS.asc` next to the APKs
+- `thrilla-signing-key.asc` on the site (once)
+- the key fingerprint in `verify.html` on thrilla.me
+
+**Publish the fingerprint somewhere other than the download page too** — the
+GitHub profile, X, the Telegram channel. Someone who can serve a fake APK from
+the site can serve a fake key beside it; a second source is what makes the
+check mean anything. And keep the signing key off the build machine, on
+hardware if you can: it is the one secret that lets anyone else's build pass
+as yours.
+
 ## Project Structure
 
 ```

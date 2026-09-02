@@ -196,7 +196,14 @@ export const useAuthStore = defineStore('auth', () => {
     _keyIndex.value = vaultIndexList()
   }
 
-  async function storeWalletKeys(walletId, scanSecret, spendKey) {
+  // `refundAddress` is the wallet's BIP-84 address (services/spKeys). It is
+  // PUBLIC, not key material — it rides along in the vault blob only because
+  // that's already the per-wallet record, and because deriving it needs the
+  // mnemonic, which is in memory only at create/recover time. Optional: the
+  // native bridge below takes three arguments and can't carry it, so wallets
+  // stored through that path simply have no prefill and fall back to entering a
+  // refund address by hand.
+  async function storeWalletKeys(walletId, scanSecret, spendKey, refundAddress) {
     if (typeof window.ThrillaBridge !== 'undefined') {
       try {
         window.ThrillaBridge.storeWalletKeys(walletId, scanSecret, spendKey)
@@ -206,7 +213,7 @@ export const useAuthStore = defineStore('auth', () => {
       return true
     }
     try {
-      await vaultStore(walletId, { scanSecret, spendKey }, _keyMaterial())
+      await vaultStore(walletId, { scanSecret, spendKey, refundAddress }, _keyMaterial())
       markVault(walletId, true)
       _keyIndex.value = vaultIndexList()
       // verify round-trip
@@ -233,6 +240,19 @@ export const useAuthStore = defineStore('auth', () => {
     // WebCrypto vault is the only store — legacy CryptoJS/localStorage support
     // was removed. A miss means the keys aren't on this device.
     return await vaultGet(walletId, _keyMaterial())
+  }
+
+  // The wallet's BIP-84 refund address, or '' when this device doesn't hold it
+  // (keys not stored here, stored through the native bridge, or a wallet created
+  // before refund addresses were derived — all fall back to manual entry).
+  // Returns the address only, never key material.
+  async function getRefundAddress(walletId) {
+    try {
+      const k = await getWalletKeys(walletId)
+      return (k && k.refundAddress) || ''
+    } catch {
+      return ''
+    }
   }
 
   async function removeWalletKeys(walletId) {
@@ -266,6 +286,6 @@ export const useAuthStore = defineStore('auth', () => {
 
   return { token, adminkey, inkey, walletId, username, email, error, loading, lastFailureKind, isLoggedIn, hasCredentials, login, logout,
            touchActivity, isSessionExpired, logoutIfExpired, IDLE_TIMEOUT_MS,
-           storeWalletKeys, getWalletKeys, removeWalletKeys,
+           storeWalletKeys, getWalletKeys, getRefundAddress, removeWalletKeys,
            hasWalletKeys, refreshKeyIndex }
 })
