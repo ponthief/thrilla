@@ -98,6 +98,24 @@ else
   gpg --fingerprint --list-secret-keys | sed 's/^/  /'
 fi
 
+# Pull the fingerprint out as one paste-ready line. --with-colons is the stable
+# machine-readable format (the human output above is explicitly not), so the
+# value can be lifted without eyeballing which line of gpg's output to copy.
+# Regrouped into gpg's usual 4-char blocks, double space at the halfway mark,
+# which is the form verify.html displays.
+# Array, not ${gpg_key:+…}: unquoted it would word-split a key id given as a
+# name ("Thrilla Signing"), and quoted it would pass an empty argument.
+fpr_args=()
+[ -n "$gpg_key" ] && fpr_args=("$gpg_key")
+fpr="$(gpg --with-colons --fingerprint "${fpr_args[@]+"${fpr_args[@]}"}" 2>/dev/null \
+        | awk -F: '$1=="fpr"{print $10; exit}')"
+if [ -n "$fpr" ]; then
+  spaced="$(echo "$fpr" | sed -E 's/(.{4})/\1 /g; s/ $//; s/^(.{24})/\1 /')"
+  echo
+  echo "Paste this into verify.html (the #fp div — the only line to change there):"
+  echo "  $spaced"
+fi
+
 # The Android side. Not a GPG matter, but it belongs in the same release notes:
 # this fingerprint is what Android itself checks on every update.
 echo
