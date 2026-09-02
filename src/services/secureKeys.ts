@@ -8,6 +8,11 @@ import * as Keychain from 'react-native-keychain';
 export interface WalletKeys {
   scanSecret: string;
   spendKey: string;
+  // The wallet's BIP-84 refund address (services/spKeys). PUBLIC, not key
+  // material — it lives here only because this is already the per-wallet record
+  // and deriving it needs the mnemonic, which exists in memory only at
+  // create/recover time. Absent on wallets stored before it was derived.
+  refundAddress?: string;
 }
 
 function serviceFor(walletId: string): string {
@@ -45,11 +50,12 @@ export async function storeWalletKeys(
   walletId: string,
   scanSecret: string,
   spendKey: string,
+  refundAddress?: string,
 ): Promise<boolean> {
   try {
     await Keychain.setGenericPassword(
       walletId,
-      JSON.stringify({ scanSecret, spendKey }),
+      JSON.stringify({ scanSecret, spendKey, refundAddress }),
       {
         service: serviceFor(walletId),
         accessible: Keychain.ACCESSIBLE.WHEN_UNLOCKED,

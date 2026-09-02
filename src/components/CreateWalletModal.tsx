@@ -188,7 +188,7 @@ export default function CreateWalletModal({ visible, onClose, onCreated }: Props
       // Persist the locally-derived SP keys in the platform keystore so this
       // device can scan (and later spend). These come from local derivation, not
       // the response — the server never had them.
-      await storeWalletKeys(res.wallet_id, keys.scanSecret, keys.spendKey);
+      await storeWalletKeys(res.wallet_id, keys.scanSecret, keys.spendKey, keys.refundAddress);
       // A reimport reuses the same seed-derived id — let it be re-evaluated for
       // catch-up scanning instead of being treated as already-checked.
       resetCatchUp(res.wallet_id);
