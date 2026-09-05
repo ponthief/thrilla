@@ -155,8 +155,22 @@ export default function TxDetailModal({
                 ) : null}
               </View>
 
+              {/* A label is stored on a coin this wallet owns, matched by the
+                  funding txid. The only output a send gives us is its change,
+                  and that does not exist until the send confirms and a scan
+                  picks it up — so offering the field before then produces a
+                  "UTXO not found in this wallet" from the server. Say why
+                  instead of failing. */}
               <View style={styles.card}>
                 <Text style={styles.cardTitle}>Label</Text>
+                {!detail.own_outputs?.length ? (
+                  <Text style={styles.labelHint}>
+                    {detail.confirmed === false
+                      ? 'You can label this once it confirms — the coin it pays back to you doesn’t exist on-chain yet.'
+                      : 'Nothing to label: this transaction left no coin in this wallet.'}
+                  </Text>
+                ) : (
+                <>
                 <View style={styles.labelRow}>
                   <TextInput
                     style={styles.labelInput}
@@ -186,6 +200,8 @@ export default function TxDetailModal({
                 <Text style={styles.labelHint}>
                   Labels this transaction's coin in your wallet.
                 </Text>
+                </>
+                )}
               </View>
 
               <View style={styles.card}>
