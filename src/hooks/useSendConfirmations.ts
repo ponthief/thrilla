@@ -83,7 +83,7 @@ export function useSendConfirmations() {
           const res = await api.getTxConfirmation(adminkey, send.txid, send.walletId);
           if (cancelled) return;
           if (res?.confirmed) {
-            usePendingSends.getState().remove(send.txid);
+            usePendingSends.getState().markConfirmed(send.txid);
             // Bring in the change output so the balance settles and the
             // transaction becomes labellable, without the user scanning.
             if (inkey && res.block_height) {
@@ -110,7 +110,10 @@ export function useSendConfirmations() {
       if (!cancelled) timer.current = setTimeout(tick, POLL_MS);
     };
 
-    timer.current = setTimeout(tick, POLL_MS);
+    // Check straight away, not after a full interval: coming back to the app
+    // with a send that confirmed while it was closed should not show Pending
+    // for another 30 seconds.
+    tick();
     return () => {
       cancelled = true;
       if (timer.current) clearTimeout(timer.current);

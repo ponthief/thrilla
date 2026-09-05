@@ -215,6 +215,15 @@ export default function WalletScreen() {
     setLoading(false);
   }, [inkey, setBalance]);
 
+  // Reload when a send confirms. The watcher flips it server-side, so without
+  // this the row keeps its "Pending" badge — and its stale balance — until the
+  // user pulls to refresh or switches tabs.
+  const confirmedTick = usePendingSends((s) => s.confirmedTick);
+  useEffect(() => {
+    if (confirmedTick > 0) load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [confirmedTick]);
+
   useEffect(() => {
     load();
   }, [load]);
