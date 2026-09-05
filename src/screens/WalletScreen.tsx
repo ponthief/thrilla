@@ -20,6 +20,7 @@ import CreateWalletModal from '../components/CreateWalletModal';
 import RecoverKeysModal from '../components/RecoverKeysModal';
 import TransactionList, { TxItem } from '../components/TransactionList';
 import TxDetailModal from '../components/TxDetailModal';
+import BitcoinSign from '../components/BitcoinSign';
 import { useCatchUpScan } from '../hooks/useCatchUpScan';
 
 function normalizeTime(t?: number | string | null): number | null {
@@ -274,7 +275,10 @@ export default function WalletScreen() {
                 <Text style={styles.error}>No balance available.</Text>
               ) : (
                 <>
-                  <Text style={styles.balance}>{btc} BTC</Text>
+                  <View style={styles.balanceRow}>
+                    <Text style={styles.balance}>{btc}</Text>
+                    <BitcoinSign size={34} color={colors.primary} weight={2.6} />
+                  </View>
                   <Text style={styles.sub}>{groupThousands(sats)} sats</Text>
                   {usd != null ? (
                     <Text style={styles.sub}>≈ ${usd.toFixed(2)} USD</Text>
@@ -472,6 +476,12 @@ const styles = StyleSheet.create({
   },
   label: { fontSize: 14, color: colors.muted, marginBottom: 8 },
   spinner: { marginVertical: 12, alignSelf: 'flex-start' },
+  // The sign is set larger than the 30px text on purpose: its B occupies only
+  // 15 of the 24 viewBox units (the strokes above and below take the rest), so
+  // at a matching size its body would read noticeably shorter than the digits.
+  // 34 puts the B's height level with them, with the strokes overshooting, as
+  // they do in the real glyph.
+  balanceRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   balance: { fontSize: 30, fontWeight: 'bold', color: colors.primary },
   sub: { fontSize: 15, color: colors.muted, marginTop: 4 },
   error: { fontSize: 14, color: colors.danger, marginTop: 4 },
