@@ -3,6 +3,7 @@ import { AppState } from 'react-native';
 import * as api from '@services/api';
 import { useAuthStore } from '@stores/authStore';
 import { getWalletKeys } from '@services/secureKeys';
+import { markScanStarted } from '@services/scanCooldown';
 import { usePendingSends, getPendingSends } from '@stores/pendingSends';
 import { usePushBanner } from '@stores/pushBanner';
 import { paymentAlertsOn } from '@stores/notifyStore';
@@ -19,6 +20,15 @@ import { paymentAlertsOn } from '@stores/notifyStore';
 // of this.
 
 const POLL_MS = 30_000;
+// Stop watching a send that never lands. Without a ceiling, a transaction
+// dropped from the mempool or replaced by a higher fee would be polled every 30
+// seconds for as long as the app runs. The wallet still shows it as pending —
+// that is the server's call and it is accurate — this only ends the polling.
+// Mirrors the 24h cutoff the web app applies in removePendingSend.
+const WATCH_MAX_MS = 24 * 60 * 60 * 1000;
+// A single-block scan is quick; give it a bounded window and stop caring.
+const SCAN_WAIT_MS = 2 * 60 * 1000;
+const SCAN_POLL_MS = 5_000;
 
 // Hermes ships without full Intl, so Number.toLocaleString does not group —
 // the same manual formatting the transaction list uses.
@@ -39,22 +49,48 @@ async function scanForChange(
   inkey: string,
   walletId: string,
   blockHeight: number,
-): Promise<void> {
+): Promise<boolean> {
   try {
     // Scanning needs this device's keys. Without them (keys held elsewhere),
     // skip quietly; the user can still scan manually.
     const keys = await getWalletKeys(walletId);
-    if (!keys?.scanSecret) return;
+    if (!keys?.scanSecret) return false;
     // Don't collide with a scan already running.
     try {
       const progress = await api.getScanProgress(inkey, walletId);
-      if (progress?.active) return;
+      if (progress?.active) return false;
     } catch {
-      return; // can't tell — safer not to start one
+      return false; // can't tell — safer not to start one
     }
     await api.startScan(inkey, walletId, keys.scanSecret, blockHeight, blockHeight);
+    // Respect the shared cooldown, so the UI does not immediately offer another
+    // scan on top of this one.
+    markScanStarted(walletId);
+    return true;
   } catch {
     /* best-effort */
+  }
+  return false;
+}
+
+// The confirmation reload fires as soon as the send confirms, which is before
+// the change output has been scanned in — so the balance would still be short
+// by the change until something reloaded again. Wait for the scan to finish and
+// signal once more. Bounded: if it takes longer than SCAN_WAIT_MS we stop
+// waiting rather than poll indefinitely.
+async function signalWhenScanDone(inkey: string, walletId: string): Promise<void> {
+  const deadline = Date.now() + SCAN_WAIT_MS;
+  while (Date.now() < deadline) {
+    await new Promise<void>((r) => setTimeout(r, SCAN_POLL_MS));
+    try {
+      const progress = await api.getScanProgress(inkey, walletId);
+      if (!progress?.active) {
+        usePendingSends.getState().signalRefresh();
+        return;
+      }
+    } catch {
+      return; // lost track of it; the next wallet load will catch up
+    }
   }
 }
 
@@ -79,6 +115,10 @@ export function useSendConfirmations() {
         return;
       }
       for (const send of getPendingSends()) {
+        if (Date.now() - send.addedAt > WATCH_MAX_MS) {
+          usePendingSends.getState().remove(send.txid);
+          continue;
+        }
         try {
           const res = await api.getTxConfirmation(adminkey, send.txid, send.walletId);
           if (cancelled) return;
@@ -87,7 +127,10 @@ export function useSendConfirmations() {
             // Bring in the change output so the balance settles and the
             // transaction becomes labellable, without the user scanning.
             if (inkey && res.block_height) {
-              await scanForChange(inkey, send.walletId, res.block_height);
+              const started = await scanForChange(inkey, send.walletId, res.block_height);
+              // Don't await: the banner and the list update should not wait on
+              // a scan finishing.
+              if (started) signalWhenScanDone(inkey, send.walletId);
             }
             // Same switch that governs incoming-payment alerts: someone who
             // turned those off does not want this either.
