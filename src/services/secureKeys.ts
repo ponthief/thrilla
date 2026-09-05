@@ -13,6 +13,15 @@ export interface WalletKeys {
   // and deriving it needs the mnemonic, which exists in memory only at
   // create/recover time. Absent on wallets stored before it was derived.
   refundAddress?: string;
+  // BIP-84 ACCOUNT extended private key (m/84'/coin'/0'), for the sweep chain.
+  // Held here so the wallet can hand out a fresh sweep address per payment and
+  // sign the sweep without the user re-entering their recovery phrase.
+  //
+  // A smaller secret than the spendKey already in this record: it reaches one
+  // throwaway branch that holds coins in transit, where the spend key reaches
+  // the whole wallet. Wiped with everything else by the duress PIN. Absent on
+  // wallets stored before sweeping existed — SweepCard backfills it.
+  sweepAccount?: string;
 }
 
 function serviceFor(walletId: string): string {
@@ -48,14 +57,12 @@ async function writeIndex(ids: string[]): Promise<void> {
 
 export async function storeWalletKeys(
   walletId: string,
-  scanSecret: string,
-  spendKey: string,
-  refundAddress?: string,
+  keys: WalletKeys,
 ): Promise<boolean> {
   try {
     await Keychain.setGenericPassword(
       walletId,
-      JSON.stringify({ scanSecret, spendKey, refundAddress }),
+      JSON.stringify(keys),
       {
         service: serviceFor(walletId),
         accessible: Keychain.ACCESSIBLE.WHEN_UNLOCKED,
