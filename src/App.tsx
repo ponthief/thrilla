@@ -32,13 +32,25 @@ import {
   unregisterForPush,
 } from '@services/push';
 import PushBanner from './components/PushBanner';
+import BitcoinSign from './components/BitcoinSign';
 import { colors, DEVICE_TRUST_ENABLED } from '@/theme';
 
 // Scan lives inside Receive now (Address / Scan toggle), so it's no longer a tab.
 type TabKey = 'wallet' | 'send' | 'receive' | 'settings';
 
-const TABS: { key: TabKey; label: string; icon: string; Screen: React.ComponentType }[] = [
-  { key: 'wallet', label: 'Wallet', icon: '₿', Screen: WalletScreen },
+// `icon` is a character; `Icon` a drawn one. The wallet tab uses the drawn sign
+// because U+20BF is missing from Roboto before Android 8.0 (API 26) and this
+// app supports 23 — and because it should match the balance exactly.
+type TabIcon = React.ComponentType<{ size?: number; color: string; weight?: number }>;
+
+const TABS: {
+  key: TabKey;
+  label: string;
+  icon?: string;
+  Icon?: TabIcon;
+  Screen: React.ComponentType;
+}[] = [
+  { key: 'wallet', label: 'Wallet', Icon: BitcoinSign, Screen: WalletScreen },
   { key: 'send', label: 'Send', icon: '↑', Screen: SendScreen },
   { key: 'receive', label: 'Receive', icon: '↓', Screen: ReceiveScreen },
   { key: 'settings', label: 'Settings', icon: '⚙', Screen: SettingsScreen },
@@ -46,6 +58,17 @@ const TABS: { key: TabKey; label: string; icon: string; Screen: React.ComponentT
 
 const PRIMARY = colors.primary;
 const INACTIVE = colors.inactive;
+
+function TabIconFor(
+  tab: { icon?: string; Icon?: TabIcon },
+  color: string,
+) {
+  const Icon = tab.Icon;
+  if (Icon) {
+    return <Icon size={26} color={color} weight={2.6} />;
+  }
+  return <Text style={[styles.tabIcon, { color }]}>{tab.icon}</Text>;
+}
 
 function TabBar({
   active,
@@ -68,7 +91,9 @@ function TabBar({
             accessibilityRole="button"
             accessibilityState={{ selected: focused }}
             accessibilityLabel={tab.label}>
-            <Text style={[styles.tabIcon, { color }]}>{tab.icon}</Text>
+            <View style={styles.tabIconBox}>
+              {TabIconFor(tab, color)}
+            </View>
             <Text style={[styles.tabLabel, { color }]}>{tab.label}</Text>
           </TouchableOpacity>
         );
@@ -254,9 +279,14 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  tabIconBox: {
+    height: 26,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 2,
+  },
   tabIcon: {
     fontSize: 20,
-    marginBottom: 2,
   },
   tabLabel: {
     fontSize: 11,
