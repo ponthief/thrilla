@@ -482,6 +482,10 @@ export interface SpTransaction {
   timestamp: number; // unix seconds
   amount_sats: number;
   labels?: string[];
+  // False while a send's inputs are still unconfirmed_spent — i.e. broadcast
+  // but not yet mined. Optional so an older backend simply reads as settled
+  // rather than showing everything as pending.
+  confirmed?: boolean;
 }
 
 // Enriched detail for one on-chain transaction (confirmation, block, fee,
@@ -510,6 +514,20 @@ export async function getWalletTransaction(
   return req(
     `${SILNT}/api/v1/wallet/${walletId}/transactions/${encodeURIComponent(txid)}`,
     { headers: apiKey(inkey) },
+  );
+}
+
+// Has an outgoing send confirmed on-chain? One txid lookup, not a scan. The
+// backend flips the spent inputs to 'spent' and refreshes the balance when it
+// sees the tx in a block.
+export async function getTxConfirmation(
+  adminkey: string,
+  txid: string,
+  walletId: string,
+): Promise<{ confirmed: boolean; block_height?: number | null }> {
+  return req(
+    `${SILNT}/api/v1/tx/${encodeURIComponent(txid)}/confirmation?wallet_id=${encodeURIComponent(walletId)}`,
+    { headers: apiKey(adminkey) },
   );
 }
 
