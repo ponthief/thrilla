@@ -30,13 +30,19 @@ const SYNC_GRACE_MS = 2 * 60 * 1000;
 
 interface PendingSendsState {
   sends: PendingSend[];
+  // Bumped whenever a send confirms. The wallet screen watches it and reloads:
+  // confirming flips the inputs to 'spent' server-side, so the list's "pending"
+  // badge is stale until it refetches, and nothing else would tell it.
+  confirmedTick: number;
   add: (send: Omit<PendingSend, 'addedAt'>) => void;
   remove: (txid: string) => void;
+  markConfirmed: (txid: string) => void;
   sync: (pending: { txid: string; walletId: string; amountSats: number | null }[]) => void;
 }
 
 export const usePendingSends = create<PendingSendsState>((set) => ({
   sends: [],
+  confirmedTick: 0,
 
   add: (send) =>
     set((s) =>
@@ -46,6 +52,12 @@ export const usePendingSends = create<PendingSendsState>((set) => ({
     ),
 
   remove: (txid) => set((s) => ({ sends: s.sends.filter((x) => x.txid !== txid) })),
+
+  markConfirmed: (txid) =>
+    set((s) => ({
+      sends: s.sends.filter((x) => x.txid !== txid),
+      confirmedTick: s.confirmedTick + 1,
+    })),
 
   // The server's list is authoritative: anything it no longer calls pending has
   // confirmed (or been replaced) and stops being watched. The one exception is
