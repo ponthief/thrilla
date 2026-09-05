@@ -18,6 +18,7 @@ import { useAuthStore } from '@stores/authStore';
 import { useAppLockStore } from '@stores/appLockStore';
 import * as api from '@services/api';
 import { getWalletKeys } from '@services/secureKeys';
+import { usePendingSends } from '@stores/pendingSends';
 import { markScanStarted } from '@services/scanCooldown';
 import { colors } from '@/theme';
 import QRScanner from '../components/QRScanner';
@@ -387,6 +388,12 @@ export default function SendScreen() {
         { recipient: recipient.trim(), amount: amountSats, fee: built.fee },
       );
       setTxid(res.txid);
+      // Start the confirmation watch immediately, before any list refresh.
+      usePendingSends.getState().add({
+        txid: res.txid,
+        walletId: wallet.id,
+        amountSats: amountSats || null,
+      });
       setStep('done');
     } catch (e: any) {
       setError(e?.message || 'Broadcast failed.');
