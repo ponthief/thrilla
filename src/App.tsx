@@ -33,6 +33,7 @@ import {
 } from '@services/push';
 import PushBanner from './components/PushBanner';
 import BitcoinSign from './components/BitcoinSign';
+import { useSendConfirmations } from './hooks/useSendConfirmations';
 import { colors, DEVICE_TRUST_ENABLED } from '@/theme';
 
 // Scan lives inside Receive now (Address / Scan toggle), so it's no longer a tab.
@@ -104,6 +105,9 @@ function TabBar({
 
 function Shell() {
   const [active, setActive] = useState<TabKey>('wallet');
+  // App-wide, so a send confirming while the user is on Receive or Settings
+  // still surfaces.
+  useSendConfirmations();
   const ActiveScreen =
     TABS.find((t) => t.key === active)?.Screen ?? WalletScreen;
 

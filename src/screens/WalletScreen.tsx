@@ -21,6 +21,7 @@ import RecoverKeysModal from '../components/RecoverKeysModal';
 import TransactionList, { TxItem } from '../components/TransactionList';
 import TxDetailModal from '../components/TxDetailModal';
 import BitcoinSign from '../components/BitcoinSign';
+import { usePendingSends } from '@stores/pendingSends';
 import { useCatchUpScan } from '../hooks/useCatchUpScan';
 
 function normalizeTime(t?: number | string | null): number | null {
@@ -37,7 +38,9 @@ function spTxToItem(t: api.SpTransaction): TxItem {
     amountSats: Math.abs(t.amount_sats),
     label: t.labels?.[0] || (t.kind === 'send' ? 'Sent' : 'Received'),
     timestamp: t.timestamp || null,
-    pending: false,
+    // Only a send can be pending: a receive is recorded once it is already in a
+    // block. `confirmed` is absent on older backends, hence the explicit false.
+    pending: t.kind === 'send' && t.confirmed === false,
   };
 }
 
@@ -139,6 +142,18 @@ export default function WalletScreen() {
         try {
           const txs = await api.listWalletTransactions(inkey, w.id, 25);
           setSpTxs(txs.map(spTxToItem));
+          // Hand the watcher whatever is still unconfirmed. This is what makes
+          // a send survive an app restart, or arrive from the web app on
+          // another device, rather than relying on local registration alone.
+          usePendingSends.getState().sync(
+            txs
+              .filter((t) => t.kind === 'send' && t.confirmed === false)
+              .map((t) => ({
+                txid: t.txid,
+                walletId: w.id,
+                amountSats: Math.abs(t.amount_sats) || null,
+              })),
+          );
         } catch {
           setSpTxs([]);
         }

@@ -72,9 +72,18 @@ export default function TransactionList({
                 <Text style={styles.rowLabel} numberOfLines={1}>
                   {tx.label}
                 </Text>
-                <Text style={styles.rowMeta}>
-                  {tx.pending ? 'pending' : fmtDate(tx.timestamp) || 'settled'}
-                </Text>
+                {tx.pending ? (
+                  <View style={styles.pendingRow}>
+                    <View style={styles.pendingDot} />
+                    <Text style={styles.pendingText}>
+                      Pending · waiting for 1st confirmation
+                    </Text>
+                  </View>
+                ) : (
+                  <Text style={styles.rowMeta}>
+                    {fmtDate(tx.timestamp) || 'settled'}
+                  </Text>
+                )}
               </View>
               <Text
                 style={[
@@ -104,6 +113,17 @@ const styles = StyleSheet.create({
     marginBottom: 16,
   },
   cardTitle: { fontSize: 16, fontWeight: '600', color: colors.text, marginBottom: 8 },
+  // Pending needs to read as a state, not as a missing date — the whole point
+  // is that the user should not have to open Manage coins to learn a send is
+  // still in flight.
+  pendingRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 2 },
+  pendingDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: colors.primary,
+  },
+  pendingText: { fontSize: 12, color: colors.primary, fontWeight: '600' },
   spinner: { marginVertical: 12, alignSelf: 'flex-start' },
   empty: { fontSize: 14, color: colors.faint },
   row: {
