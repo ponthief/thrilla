@@ -18,6 +18,7 @@ import { useAuthStore } from '@stores/authStore';
 import * as api from '@services/api';
 import QRCode from '../components/QRCode';
 import BitMailCard from '../components/BitMailCard';
+import SweepCard from '../components/SweepCard';
 import ScanPanel from './ScanScreen';
 import { colors, LIGHTNING_ENABLED } from '@/theme';
 
@@ -408,6 +409,7 @@ function OnchainReceive() {
       </View>
 
       <BitMailCard wallet={wallet} />
+      <SweepCard wallet={wallet} />
     </>
   );
 }
