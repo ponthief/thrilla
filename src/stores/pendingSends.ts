@@ -37,6 +37,7 @@ interface PendingSendsState {
   add: (send: Omit<PendingSend, 'addedAt'>) => void;
   remove: (txid: string) => void;
   markConfirmed: (txid: string) => void;
+  signalRefresh: () => void;
   sync: (pending: { txid: string; walletId: string; amountSats: number | null }[]) => void;
 }
 
@@ -52,6 +53,10 @@ export const usePendingSends = create<PendingSendsState>((set) => ({
     ),
 
   remove: (txid) => set((s) => ({ sends: s.sends.filter((x) => x.txid !== txid) })),
+
+  // Ask watchers to reload without changing the pending list — used when a
+  // background scan finishes and the balance has moved.
+  signalRefresh: () => set((s) => ({ confirmedTick: s.confirmedTick + 1 })),
 
   markConfirmed: (txid) =>
     set((s) => ({
