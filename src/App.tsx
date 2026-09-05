@@ -34,6 +34,7 @@ import {
 import PushBanner from './components/PushBanner';
 import BitcoinSign from './components/BitcoinSign';
 import { useSendConfirmations } from './hooks/useSendConfirmations';
+import { useTxLabelStore } from '@stores/txLabelStore';
 import { colors, DEVICE_TRUST_ENABLED } from '@/theme';
 
 // Scan lives inside Receive now (Address / Scan toggle), so it's no longer a tab.
@@ -108,6 +109,12 @@ function Shell() {
   // App-wide, so a send confirming while the user is on Receive or Settings
   // still surfaces.
   useSendConfirmations();
+  // Device-only transaction labels: read once from the keystore so the wallet
+  // list can render them synchronously.
+  const loadTxLabels = useTxLabelStore((s) => s.load);
+  useEffect(() => {
+    loadTxLabels();
+  }, [loadTxLabels]);
   const ActiveScreen =
     TABS.find((t) => t.key === active)?.Screen ?? WalletScreen;
 

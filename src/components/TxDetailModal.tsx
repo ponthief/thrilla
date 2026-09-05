@@ -13,6 +13,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Clipboard from '@react-native-clipboard/clipboard';
 import { useAuthStore } from '@stores/authStore';
+import { useTxLabelStore } from '@stores/txLabelStore';
 import * as api from '@services/api';
 import { colors } from '@/theme';
 
@@ -57,22 +58,40 @@ export default function TxDetailModal({
   const [labelBusy, setLabelBusy] = useState(false);
   const [labelSaved, setLabelSaved] = useState(false);
   const [labelError, setLabelError] = useState<string | null>(null);
+  const setLocalLabel = useTxLabelStore((s) => s.setLabel);
+  const localLabel = useTxLabelStore((s) => (txid ? s.labels[txid] : undefined));
+  // A label needs a coin of ours to attach to on the server; without one it is
+  // kept locally instead.
+  const ownsCoin = !!detail?.own_outputs?.length;
 
   useEffect(() => {
     if (visible) {
-      setLabelDraft(initialLabel);
+      setLabelDraft(initialLabel || localLabel || '');
       setLabelSaved(false);
       setLabelError(null);
     }
+    // localLabel is intentionally not a dependency: re-seeding the field while
+    // the user is typing would discard their edit.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [visible, initialLabel]);
 
   const saveLabel = useCallback(async () => {
-    if (!inkey || !walletId || !txid) return;
+    if (!txid) return;
     setLabelBusy(true);
     setLabelSaved(false);
     setLabelError(null);
     try {
-      await api.updateUtxoLabel(inkey, txid, labelDraft.trim(), walletId);
+      if (ownsCoin) {
+        // Shared label on a coin this wallet owns.
+        if (!inkey || !walletId) return;
+        await api.updateUtxoLabel(inkey, txid, labelDraft.trim(), walletId);
+      } else {
+        // No owned coin to hang it on (a send before its change exists, or a
+        // send with no change at all), so keep it on the device. It never goes
+        // to the server: a txid→identity map there would be a deanonymization
+        // risk — the same call the web app made in stores/txlabels.js.
+        await setLocalLabel(txid, labelDraft);
+      }
       setLabelSaved(true);
       onLabelSaved?.();
     } catch (e: any) {
@@ -80,7 +99,7 @@ export default function TxDetailModal({
     } finally {
       setLabelBusy(false);
     }
-  }, [inkey, walletId, txid, labelDraft, onLabelSaved]);
+  }, [inkey, walletId, txid, labelDraft, onLabelSaved, ownsCoin, setLocalLabel]);
 
   const load = useCallback(async () => {
     if (!inkey || !walletId || !txid) return;
@@ -155,22 +174,14 @@ export default function TxDetailModal({
                 ) : null}
               </View>
 
-              {/* A label is stored on a coin this wallet owns, matched by the
-                  funding txid. The only output a send gives us is its change,
-                  and that does not exist until the send confirms and a scan
-                  picks it up — so offering the field before then produces a
-                  "UTXO not found in this wallet" from the server. Say why
-                  instead of failing. */}
+              {/* Where the label goes depends on whether this transaction left
+                  a coin here. With one, it labels that coin server-side and is
+                  shared across devices. Without one — a send before its change
+                  exists, or a send with no change — it stays on this device,
+                  because a txid→identity map on the server is a
+                  deanonymization risk. */}
               <View style={styles.card}>
                 <Text style={styles.cardTitle}>Label</Text>
-                {!detail.own_outputs?.length ? (
-                  <Text style={styles.labelHint}>
-                    {detail.confirmed === false
-                      ? 'You can label this once it confirms — the coin it pays back to you doesn’t exist on-chain yet.'
-                      : 'Nothing to label: this transaction left no coin in this wallet.'}
-                  </Text>
-                ) : (
-                <>
                 <View style={styles.labelRow}>
                   <TextInput
                     style={styles.labelInput}
@@ -198,10 +209,10 @@ export default function TxDetailModal({
                 {labelSaved ? <Text style={styles.saved}>✓ Saved</Text> : null}
                 {labelError ? <Text style={styles.errorSm}>{labelError}</Text> : null}
                 <Text style={styles.labelHint}>
-                  Labels this transaction's coin in your wallet.
+                  {ownsCoin
+                    ? "Labels this transaction's coin in your wallet."
+                    : 'Saved on this device only — it never reaches the server, and it is erased by the duress PIN.'}
                 </Text>
-                </>
-                )}
               </View>
 
               <View style={styles.card}>
