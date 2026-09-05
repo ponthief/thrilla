@@ -245,6 +245,14 @@ export default function SendScreen() {
   }, [inkey, wallet?.id]);
 
   const rKind = recipientKind(recipient);
+  // Paying this wallet's own Silent Payment address. Easy to do by accident —
+  // scanning the receive QR from the web app on the same wallet lands here —
+  // and it costs a fee to move coins to yourself while publicly linking the
+  // inputs to the new output. Legitimate for consolidation, so warn rather
+  // than block.
+  const isSelfSend =
+    !!wallet?.sp_address &&
+    recipient.trim().toLowerCase() === wallet.sp_address.trim().toLowerCase();
   const saveable = rKind === 'sp' || rKind === 'bitmail';
   const alreadySaved = contacts.some(
     (c) => c.value.trim().toLowerCase() === recipient.trim().toLowerCase(),
@@ -461,8 +469,9 @@ export default function SendScreen() {
     doBuild();
   }, [lockEnabled, doBuild]);
 
-  const onReview = useCallback(() => {
-    if (busy) return;
+  // The coin-merging confirmation, split out so the self-send warning can run
+  // ahead of it and still chain into it.
+  const confirmCoinsThenReview = useCallback(() => {
     // Merging coins is the one choice on this screen that can't be undone after
     // broadcast — the link between them is published on-chain for good. The
     // inline note sits below a long coin list where it's easy to scroll past,
@@ -482,7 +491,26 @@ export default function SendScreen() {
       return;
     }
     proceedToReview();
-  }, [busy, selectedUtxos.length, proceedToReview]);
+  }, [selectedUtxos.length, proceedToReview]);
+
+  const onReview = useCallback(() => {
+    if (busy) return;
+    if (isSelfSend) {
+      Keyboard.dismiss();
+      Alert.alert(
+        'This is your own address',
+        "You're about to pay this wallet's own Silent Payment address. It " +
+          'works, but it costs a fee and links the coins you spend to the new ' +
+          'output on-chain. Send elsewhere unless you meant to consolidate.',
+        [
+          { text: 'Cancel', style: 'cancel' },
+          { text: 'Send to myself', onPress: () => confirmCoinsThenReview() },
+        ],
+      );
+      return;
+    }
+    confirmCoinsThenReview();
+  }, [busy, isSelfSend, confirmCoinsThenReview]);
 
   const onAuthenticated = useCallback(() => {
     setAuthOpen(false);
