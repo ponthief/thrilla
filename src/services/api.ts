@@ -709,6 +709,90 @@ export async function broadcastTx(
   });
 }
 
+// ── Sweep (plain bech32 address → this wallet) ──────────────────────────────
+//
+// For paying-in from anything that can't send to a Silent Payments address —
+// an exchange withdrawal, mostly. The wallet has one BIP-84 address for this
+// (the same one a swap refund lands on); coins sit there until swept in.
+//
+// The server is told that ONE address, never an xpub, so it cannot derive or
+// watch any other address the seed could produce.
+
+export interface SweepUtxo {
+  txid: string;
+  vout: number;
+  amount: number;
+  height: number;
+}
+
+export interface SweepPreview {
+  address: string;
+  utxos: SweepUtxo[];
+  confirmed_sats: number;
+  // Coins seen but not yet mined. Never swept: an unconfirmed exchange
+  // withdrawal can still be replaced, which would orphan the sweep with it.
+  unconfirmed_sats: number;
+}
+
+export interface BuiltSweep {
+  tx_hex: string;
+  amount: number;
+  fee: number;
+  total_input: number;
+  vsize: number;
+  fee_rate_used: number;
+  input_count: number;
+  sweep_address: string;
+  unconfirmed_sats: number;
+}
+
+// What's currently sitting on the sweep address. Uses inkey.
+export async function getSweepPreview(
+  inkey: string,
+  walletId: string,
+  address: string,
+): Promise<SweepPreview> {
+  return req(
+    `${SILNT}/api/v1/sweep/${walletId}?address=${encodeURIComponent(address)}`,
+    { headers: apiKey(inkey) },
+  );
+}
+
+// Build and sign the sweep. The key is passed transiently for signing, the same
+// as the spend key in buildTx — it is never stored, here or on the device.
+// There's no destination parameter: the server always sweeps into this wallet's
+// own Silent Payment address.
+export async function buildSweepTx(
+  adminkey: string,
+  walletId: string,
+  sweepKeyHex: string,
+  feeRate: number,
+): Promise<BuiltSweep> {
+  return req(`${SILNT}/api/v1/sweep/build`, {
+    method: 'POST',
+    headers: apiKey(adminkey),
+    body: JSON.stringify({
+      wallet_id: walletId,
+      sweep_key: sweepKeyHex,
+      fee_rate: feeRate,
+    }),
+  });
+}
+
+// Separate from broadcastTx: a sweep spends coins the wallet never tracked, so
+// there are no input UTXOs to mark spent.
+export async function broadcastSweepTx(
+  adminkey: string,
+  walletId: string,
+  txHex: string,
+): Promise<{ txid: string }> {
+  return req(`${SILNT}/api/v1/sweep/broadcast`, {
+    method: 'POST',
+    headers: apiKey(adminkey),
+    body: JSON.stringify({ wallet_id: walletId, tx_hex: txHex }),
+  });
+}
+
 // ── Contacts (address book) ─────────────────────────────────────────────────
 // Server-stored per user. `value` is a Silent-Payments address or a BitMail
 // (name@domain); bech32 on-chain addresses can be sent to but not saved here

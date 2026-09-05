@@ -143,7 +143,11 @@ function bech32Hrp(network: string): string {
   return 'tb';
 }
 
-function refundAddressFromRoot(root: HDKey, network: string, index: number): string {
+function refundKeyFromRoot(
+  root: HDKey,
+  network: string,
+  index: number,
+): { address: string; privateKey: Uint8Array } {
   const priv = root.derive(refundDerivationPath(network, index)).privateKey;
   if (!priv) {
     throw new Error('Refund key derivation failed.');
@@ -151,7 +155,45 @@ function refundAddressFromRoot(root: HDKey, network: string, index: number): str
   const pub = secp256k1.getPublicKey(priv, true);
   // P2WPKH: witness version 0 ++ hash160(compressed pubkey), bech32 (not m).
   const words = [0, ...bech32.toWords(hash160(pub))];
-  return bech32.encode(bech32Hrp(network), words);
+  return { address: bech32.encode(bech32Hrp(network), words), privateKey: priv };
+}
+
+function refundAddressFromRoot(root: HDKey, network: string, index: number): string {
+  return refundKeyFromRoot(root, network, index).address;
+}
+
+// ── Sweeping ─────────────────────────────────────────────────────────────────
+//
+// The refund address doubles as the wallet's sweep address: the place to send
+// coins from a service that can only pay a bech32 address. One address serves
+// both, and sweeping collects whatever is on it — a stalled swap refund and an
+// exchange withdrawal alike.
+//
+// The private key behind it is DELIBERATELY not kept anywhere. It is not in the
+// device keystore next to the scan and spend keys, and it is not on the server.
+// It exists only for the seconds between the user typing their recovery phrase
+// and the sweep being signed. That is the whole reason the sweep asks for the
+// phrase: the alternative is one more key at rest, for an address that holds
+// coins only in transit.
+
+export interface SweepKey {
+  address: string;
+  privateKeyHex: string;
+}
+
+export function deriveSweepKey(
+  mnemonic: string,
+  passphrase: string,
+  network: string,
+  index = 0,
+): SweepKey {
+  const seed = mnemonicToSeedSync(mnemonic.trim().toLowerCase(), passphrase || '');
+  const { address, privateKey } = refundKeyFromRoot(
+    HDKey.fromMasterSeed(seed),
+    network,
+    index,
+  );
+  return { address, privateKeyHex: toHex(privateKey) };
 }
 
 // Standalone BIP-84 address derivation, for callers that hold a mnemonic but
