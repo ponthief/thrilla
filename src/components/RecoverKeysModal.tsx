@@ -70,7 +70,12 @@ export default function RecoverKeysModal({
           "That phrase doesn't match this wallet's address. Check the words and passphrase.",
         );
       }
-      await storeWalletKeys(wallet.id, keys.scanSecret, keys.spendKey, keys.refundAddress);
+      await storeWalletKeys(wallet.id, {
+        scanSecret: keys.scanSecret,
+        spendKey: keys.spendKey,
+        refundAddress: keys.refundAddress,
+        sweepAccount: keys.sweepAccount,
+      });
       resetCatchUp(wallet.id);
       onRecovered();
       onClose();

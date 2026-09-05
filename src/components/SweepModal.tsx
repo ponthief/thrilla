@@ -12,7 +12,8 @@ import {
 import * as api from '@services/api';
 import { useAuthStore } from '@stores/authStore';
 import { getWalletKeys, storeWalletKeys } from '@services/secureKeys';
-import { deriveSilentPayment, deriveSweepKey, isValidMnemonic } from '@services/spKeys';
+import { deriveSilentPayment, isValidMnemonic } from '@services/spKeys';
+import { keysForIndices } from '@services/sweepChain';
 import { usePendingSends } from '@stores/pendingSends';
 import SeedInput from './SeedInput';
 import { colors } from '@/theme';
@@ -26,133 +27,111 @@ function groupThousands(n: number): string {
     .replace(/\B(?=(\d{3})+(?!\d))/g, ',');
 }
 
-type Mode = 'reveal' | 'sweep';
-type Stage = 'phrase' | 'review' | 'done';
+type Stage = 'review' | 'done';
 
 interface Props {
   visible: boolean;
-  mode: Mode;
   wallet: api.SilntWallet;
+  accountXprv: string;
+  // Chain indices holding confirmed coins, from the walk in services/sweepChain.
+  fundedIndices: number[];
   onClose: () => void;
-  // Fired after the address is derived (reveal) or the sweep is broadcast, so
-  // the card behind can refresh.
-  onChanged: () => void;
+  onSwept: () => void;
 }
 
 /**
- * Sweeps the wallet's plain BIP-84 address into its Silent Payment address —
- * the way coins get in from a service that can only pay bech32.
+ * Confirms and broadcasts a sweep: everything on the wallet's BIP-84 chain moves
+ * into its Silent Payment address in one transaction.
  *
- * Asks for the recovery phrase every time, by design. The BIP-84 branch is the
- * one key this wallet does NOT keep: not in the device keystore beside the scan
- * and spend keys, not on the server. Its address holds coins only in transit, so
- * a key at rest for it would be a standing risk in exchange for saving a few
- * seconds on a rare action. The phrase is used to derive, sign, and is then gone
- * with the component state.
- *
- * The phrase is checked by re-deriving the wallet's Silent Payment address from
- * it and comparing — a wrong phrase or a forgotten passphrase produces a
- * different wallet entirely, and would otherwise sweep to an address the user
- * cannot see.
+ * No recovery phrase. The account key lives in the device keystore beside the
+ * scan and spend keys, so the signing keys for the funded addresses are derived
+ * here and sent transiently, exactly as buildTx sends the spend key. Only the
+ * keys for addresses that actually hold coins leave the device.
  */
-export default function SweepModal({ visible, mode, wallet, onClose, onChanged }: Props) {
+export default function SweepModal({
+  visible,
+  wallet,
+  accountXprv,
+  fundedIndices,
+  onClose,
+  onSwept,
+}: Props) {
   const adminkey = useAuthStore((s) => s.adminkey);
   const inkey = useAuthStore((s) => s.inkey);
 
-  const [stage, setStage] = useState<Stage>('phrase');
-  const [mnemonic, setMnemonic] = useState('');
-  const [passphrase, setPassphrase] = useState('');
+  const [stage, setStage] = useState<Stage>('review');
   const [feeRate, setFeeRate] = useState('1');
   const [busy, setBusy] = useState(false);
+  const [building, setBuilding] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [built, setBuilt] = useState<api.BuiltSweep | null>(null);
   const [txid, setTxid] = useState<string | null>(null);
-  const [address, setAddress] = useState<string | null>(null);
+
+  const build = useCallback(
+    async (rate: number) => {
+      if (!adminkey) {
+        setError('Not logged in.');
+        setBuilding(false);
+        return;
+      }
+      setBuilding(true);
+      setError(null);
+      try {
+        setBuilt(
+          await api.buildSweepTx(
+            adminkey,
+            wallet.id,
+            keysForIndices(accountXprv, wallet.network, fundedIndices),
+            rate,
+          ),
+        );
+      } catch (e: any) {
+        setBuilt(null);
+        setError(e?.message || 'Could not build the sweep.');
+      } finally {
+        setBuilding(false);
+      }
+    },
+    [adminkey, wallet.id, wallet.network, accountXprv, fundedIndices],
+  );
 
   useEffect(() => {
     if (!visible) return;
-    setStage('phrase');
-    setMnemonic('');
-    setPassphrase('');
+    setStage('review');
     setBuilt(null);
     setTxid(null);
-    setAddress(null);
     setError(null);
-    // A sweep is never urgent — default to the half-hour rate rather than the
-    // top of the mempool, and let it be edited.
-    if (inkey) {
-      api
-        .getRecommendedFees(inkey)
-        .then((t) => {
-          const r = t.halfHourFee ?? t.hourFee ?? t.fastestFee ?? 1;
-          setFeeRate(String(r));
-        })
-        .catch(() => {
-          /* keep the default; the field is editable */
-        });
-    }
-  }, [visible, inkey]);
-
-  // Derive from the phrase and prove it belongs to THIS wallet.
-  const deriveVerified = useCallback(() => {
-    const words = mnemonic.trim().toLowerCase().split(/\s+/).filter(Boolean);
-    if (words.length !== 12) {
-      throw new Error('Recovery phrase must be exactly 12 words.');
-    }
-    const phrase = words.join(' ');
-    if (!isValidMnemonic(phrase)) {
-      throw new Error('Invalid recovery phrase — the checksum (last word) is incorrect.');
-    }
-    const sp = deriveSilentPayment(phrase, passphrase, wallet.network);
-    if (sp.spAddress.toLowerCase() !== (wallet.sp_address || '').toLowerCase()) {
-      throw new Error(
-        "That phrase doesn't match this wallet's address. Check the words and passphrase.",
-      );
-    }
-    return deriveSweepKey(phrase, passphrase, wallet.network);
-  }, [mnemonic, passphrase, wallet.network, wallet.sp_address]);
-
-  // The address is public, so caching it in the keystore entry means the card
-  // can show it without ever asking for the phrase again.
-  const rememberAddress = useCallback(
-    async (addr: string) => {
-      const keys = await getWalletKeys(wallet.id);
-      if (keys && keys.refundAddress !== addr) {
-        await storeWalletKeys(wallet.id, keys.scanSecret, keys.spendKey, addr);
+    let cancelled = false;
+    // A sweep is never urgent — start from the half-hour rate rather than the
+    // top of the mempool, then build so the user sees a real fee, not an
+    // estimate.
+    (async () => {
+      let rate = 1;
+      try {
+        if (inkey) {
+          const t = await api.getRecommendedFees(inkey);
+          rate = t.halfHourFee ?? t.hourFee ?? t.fastestFee ?? 1;
+        }
+      } catch {
+        /* keep 1 sat/vB; the field is editable */
       }
-    },
-    [wallet.id],
-  );
+      if (cancelled) return;
+      setFeeRate(String(rate));
+      await build(rate);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [visible, inkey, build]);
 
-  const onSubmitPhrase = useCallback(async () => {
-    setError(null);
-    setBusy(true);
-    try {
-      const sweep = deriveVerified();
-      await rememberAddress(sweep.address);
-
-      if (mode === 'reveal') {
-        setAddress(sweep.address);
-        setStage('done');
-        onChanged();
-        return;
-      }
-
-      const rate = Number(feeRate);
-      if (!Number.isFinite(rate) || rate <= 0) {
-        throw new Error('Enter a fee rate above zero.');
-      }
-      if (!adminkey) throw new Error('Not logged in.');
-      const res = await api.buildSweepTx(adminkey, wallet.id, sweep.privateKeyHex, rate);
-      setBuilt(res);
-      setAddress(sweep.address);
-      setStage('review');
-    } catch (e: any) {
-      setError(e?.message || 'Could not prepare the sweep.');
-    } finally {
-      setBusy(false);
+  const onRebuild = useCallback(() => {
+    const rate = Number(feeRate);
+    if (!Number.isFinite(rate) || rate <= 0) {
+      setError('Enter a fee rate above zero.');
+      return;
     }
-  }, [deriveVerified, rememberAddress, mode, feeRate, adminkey, wallet.id, onChanged]);
+    build(rate);
+  }, [feeRate, build]);
 
   const onConfirm = useCallback(async () => {
     if (!built || !adminkey) return;
@@ -174,153 +153,236 @@ export default function SweepModal({ visible, mode, wallet, onClose, onChanged }
         kind: 'sweep',
       });
       setStage('done');
-      onChanged();
+      onSwept();
     } catch (e: any) {
       setError(e?.message || 'Broadcast failed.');
     } finally {
       setBusy(false);
     }
-  }, [built, adminkey, wallet.id, onChanged]);
+  }, [built, adminkey, wallet.id, onSwept]);
 
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
       <View style={styles.backdrop}>
         <View style={styles.sheet}>
           <ScrollView keyboardShouldPersistTaps="handled">
-            {stage === 'phrase' ? (
+            {stage === 'review' ? (
               <>
-                <Text style={styles.heading}>
-                  {mode === 'reveal' ? 'Show sweep address' : 'Sweep into wallet'}
-                </Text>
+                <Text style={styles.heading}>Sweep into wallet</Text>
                 <Text style={styles.sub}>
-                  {mode === 'reveal'
-                    ? 'Your sweep address comes from the same recovery phrase as this wallet. Enter it once and this device will remember the address.'
-                    : "Enter this wallet's recovery phrase to sign the sweep. The key for the sweep address is never stored — on this device or the server — so it's derived here and discarded."}
-                </Text>
-
-                <Text style={styles.label}>Recovery phrase (12 words)</Text>
-                <SeedInput
-                  value={mnemonic}
-                  onChangeText={setMnemonic}
-                  placeholder="word1 word2 word3 …"
-                />
-
-                <Text style={styles.label}>Passphrase</Text>
-                <TextInput
-                  style={styles.input}
-                  value={passphrase}
-                  onChangeText={setPassphrase}
-                  placeholder="Leave blank if none"
-                  placeholderTextColor={colors.faint}
-                  autoCapitalize="none"
-                  autoCorrect={false}
-                  secureTextEntry
-                />
-
-                {mode === 'sweep' ? (
-                  <>
-                    <Text style={styles.label}>Fee rate (sat/vB)</Text>
-                    <TextInput
-                      style={styles.input}
-                      value={feeRate}
-                      onChangeText={setFeeRate}
-                      keyboardType="numeric"
-                      placeholderTextColor={colors.faint}
-                    />
-                  </>
-                ) : null}
-
-                {error ? <Text style={styles.error}>{error}</Text> : null}
-
-                <TouchableOpacity
-                  style={[styles.primaryBtn, busy && styles.btnDisabled]}
-                  onPress={onSubmitPhrase}
-                  disabled={busy}>
-                  {busy ? (
-                    <ActivityIndicator color={colors.onPrimary} />
-                  ) : (
-                    <Text style={styles.primaryBtnText}>
-                      {mode === 'reveal' ? 'Show address' : 'Continue'}
-                    </Text>
-                  )}
-                </TouchableOpacity>
-              </>
-            ) : null}
-
-            {stage === 'review' && built ? (
-              <>
-                <Text style={styles.heading}>Confirm sweep</Text>
-                <Text style={styles.sub}>
-                  Everything on your sweep address moves into this wallet in one
+                  Everything on your sweep addresses moves into this wallet in one
                   transaction. Nothing is left behind.
                 </Text>
 
-                <Row label="Moving in" value={`${groupThousands(built.amount)} sats`} />
-                <Row
-                  label="Network fee"
-                  value={`${groupThousands(built.fee)} sats @ ${built.fee_rate_used} sat/vB`}
-                />
-                <Row
-                  label="Coins"
-                  value={`${built.input_count} (${groupThousands(built.total_input)} sats)`}
-                />
-                {built.unconfirmed_sats > 0 ? (
-                  <Text style={styles.hint}>
-                    {groupThousands(built.unconfirmed_sats)} sats on this address
-                    aren't confirmed yet and are not included. Sweep again once
-                    they're mined.
-                  </Text>
+                {building ? (
+                  <ActivityIndicator color={PRIMARY} style={styles.spinner} />
                 ) : null}
+
+                {built ? (
+                  <>
+                    <Row
+                      label="Moving in"
+                      value={`${groupThousands(built.amount)} sats`}
+                    />
+                    <Row
+                      label="Network fee"
+                      value={`${groupThousands(built.fee)} sats`}
+                    />
+                    <Row
+                      label="Coins"
+                      value={`${built.input_count} (${groupThousands(
+                        built.total_input,
+                      )} sats)`}
+                    />
+                    {built.swept_addresses.length > 1 ? (
+                      <Row
+                        label="Addresses"
+                        value={String(built.swept_addresses.length)}
+                      />
+                    ) : null}
+                    {built.unconfirmed_sats > 0 ? (
+                      <Text style={styles.hint}>
+                        {groupThousands(built.unconfirmed_sats)} sats aren't
+                        confirmed yet and are not included. Sweep again once
+                        they're mined.
+                      </Text>
+                    ) : null}
+                  </>
+                ) : null}
+
+                <Text style={styles.label}>Fee rate (sat/vB)</Text>
+                <View style={styles.feeRow}>
+                  <TextInput
+                    style={[styles.input, styles.feeInput]}
+                    value={feeRate}
+                    onChangeText={setFeeRate}
+                    keyboardType="numeric"
+                    placeholderTextColor={colors.faint}
+                  />
+                  <TouchableOpacity
+                    style={styles.secondaryBtn}
+                    onPress={onRebuild}
+                    disabled={building}>
+                    <Text style={styles.secondaryBtnText}>Recalculate</Text>
+                  </TouchableOpacity>
+                </View>
 
                 {error ? <Text style={styles.error}>{error}</Text> : null}
 
                 <TouchableOpacity
-                  style={[styles.primaryBtn, busy && styles.btnDisabled]}
+                  style={[styles.primaryBtn, (busy || !built) && styles.btnDisabled]}
                   onPress={onConfirm}
-                  disabled={busy}>
+                  disabled={busy || !built}>
                   {busy ? (
                     <ActivityIndicator color={colors.onPrimary} />
                   ) : (
                     <Text style={styles.primaryBtnText}>Broadcast sweep</Text>
                   )}
                 </TouchableOpacity>
+                <TouchableOpacity
+                  style={styles.linkBtn}
+                  onPress={onClose}
+                  disabled={busy}>
+                  <Text style={styles.linkBtnText}>Cancel</Text>
+                </TouchableOpacity>
               </>
-            ) : null}
-
-            {stage === 'done' ? (
+            ) : (
               <>
-                <Text style={styles.heading}>
-                  {txid ? 'Sweep sent' : 'Sweep address'}
+                <Text style={styles.heading}>Sweep sent</Text>
+                <Text style={styles.sub}>
+                  Broadcast. The coins land in your balance once the transaction
+                  confirms and the block is scanned — you'll get a notice when
+                  that happens.
                 </Text>
-                {txid ? (
-                  <>
-                    <Text style={styles.sub}>
-                      Broadcast. The coins land in your balance once the
-                      transaction confirms and the block is scanned — you'll get a
-                      notice when that happens.
-                    </Text>
-                    <Text style={styles.mono}>{txid}</Text>
-                  </>
-                ) : (
-                  <>
-                    <Text style={styles.sub}>
-                      This device will remember it now, so you won't be asked for
-                      your phrase again just to see it.
-                    </Text>
-                    <Text style={styles.mono}>{address}</Text>
-                  </>
-                )}
+                <Text style={styles.mono}>{txid}</Text>
                 <TouchableOpacity style={styles.primaryBtn} onPress={onClose}>
                   <Text style={styles.primaryBtnText}>Done</Text>
                 </TouchableOpacity>
               </>
-            ) : null}
+            )}
+          </ScrollView>
+        </View>
+      </View>
+    </Modal>
+  );
+}
 
-            {stage !== 'done' ? (
-              <TouchableOpacity style={styles.linkBtn} onPress={onClose} disabled={busy}>
-                <Text style={styles.linkBtnText}>Cancel</Text>
-              </TouchableOpacity>
-            ) : null}
+/**
+ * One-off prompt for wallets stored before the sweep chain existed: their
+ * keystore entry has no account key, so it gets derived from the recovery phrase
+ * once and saved. After this the sweep never asks again.
+ *
+ * The phrase is checked by re-deriving the wallet's Silent Payment address from
+ * it — a wrong phrase or a forgotten passphrase is a different wallet entirely,
+ * and would otherwise install an account key for addresses the user can't see.
+ */
+export function SweepSetupModal({
+  visible,
+  wallet,
+  onClose,
+  onReady,
+}: {
+  visible: boolean;
+  wallet: api.SilntWallet;
+  onClose: () => void;
+  onReady: () => void;
+}) {
+  const [mnemonic, setMnemonic] = useState('');
+  const [passphrase, setPassphrase] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!visible) return;
+    setMnemonic('');
+    setPassphrase('');
+    setError(null);
+  }, [visible]);
+
+  const onSubmit = useCallback(async () => {
+    setError(null);
+    setBusy(true);
+    try {
+      const words = mnemonic.trim().toLowerCase().split(/\s+/).filter(Boolean);
+      if (words.length !== 12) {
+        throw new Error('Recovery phrase must be exactly 12 words.');
+      }
+      const phrase = words.join(' ');
+      if (!isValidMnemonic(phrase)) {
+        throw new Error(
+          'Invalid recovery phrase — the checksum (last word) is incorrect.',
+        );
+      }
+      const derived = deriveSilentPayment(phrase, passphrase, wallet.network);
+      if (
+        derived.spAddress.toLowerCase() !== (wallet.sp_address || '').toLowerCase()
+      ) {
+        throw new Error(
+          "That phrase doesn't match this wallet's address. Check the words and passphrase.",
+        );
+      }
+      const existing = await getWalletKeys(wallet.id);
+      await storeWalletKeys(wallet.id, {
+        scanSecret: existing?.scanSecret || derived.scanSecret,
+        spendKey: existing?.spendKey || derived.spendKey,
+        refundAddress: derived.refundAddress,
+        sweepAccount: derived.sweepAccount,
+      });
+      onReady();
+      onClose();
+    } catch (e: any) {
+      setError(e?.message || 'Could not set up sweeping.');
+    } finally {
+      setBusy(false);
+    }
+  }, [mnemonic, passphrase, wallet, onReady, onClose]);
+
+  return (
+    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
+      <View style={styles.backdrop}>
+        <View style={styles.sheet}>
+          <ScrollView keyboardShouldPersistTaps="handled">
+            <Text style={styles.heading}>Set up sweeping</Text>
+            <Text style={styles.sub}>
+              This wallet predates sweep addresses, so its key for them needs
+              deriving once. Enter your recovery phrase and this device will
+              handle sweeping from then on — you won't be asked again.
+            </Text>
+
+            <Text style={styles.label}>Recovery phrase (12 words)</Text>
+            <SeedInput
+              value={mnemonic}
+              onChangeText={setMnemonic}
+              placeholder="word1 word2 word3 …"
+            />
+
+            <Text style={styles.label}>Passphrase</Text>
+            <TextInput
+              style={styles.input}
+              value={passphrase}
+              onChangeText={setPassphrase}
+              placeholder="Leave blank if none"
+              placeholderTextColor={colors.faint}
+              autoCapitalize="none"
+              autoCorrect={false}
+              secureTextEntry
+            />
+
+            {error ? <Text style={styles.error}>{error}</Text> : null}
+
+            <TouchableOpacity
+              style={[styles.primaryBtn, busy && styles.btnDisabled]}
+              onPress={onSubmit}
+              disabled={busy}>
+              {busy ? (
+                <ActivityIndicator color={colors.onPrimary} />
+              ) : (
+                <Text style={styles.primaryBtnText}>Set up</Text>
+              )}
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.linkBtn} onPress={onClose} disabled={busy}>
+              <Text style={styles.linkBtnText}>Cancel</Text>
+            </TouchableOpacity>
           </ScrollView>
         </View>
       </View>
@@ -367,6 +429,18 @@ const styles = StyleSheet.create({
     color: colors.text,
     backgroundColor: colors.surfaceAlt,
   },
+  feeRow: { flexDirection: 'row', alignItems: 'center' },
+  feeInput: { flex: 1 },
+  secondaryBtn: {
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: 8,
+    paddingVertical: 11,
+    paddingHorizontal: 14,
+    marginLeft: 8,
+  },
+  secondaryBtnText: { fontSize: 14, fontWeight: '600', color: colors.text },
+  spinner: { marginTop: 18 },
   row: {
     flexDirection: 'row',
     justifyContent: 'space-between',

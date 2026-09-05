@@ -18,7 +18,12 @@ import { secp256k1 } from '@noble/curves/secp256k1';
 import { sha256 } from '@noble/hashes/sha256';
 import { ripemd160 } from '@noble/hashes/ripemd160';
 import { bech32, bech32m } from '@scure/base';
-import { coinType, refundDerivationPath } from './derivationPaths';
+import {
+  coinType,
+  refundDerivationPath,
+  sweepAccountPath,
+  SWEEP_CHAIN_PATH,
+} from './derivationPaths';
 
 // Re-exported so callers that already import this module don't need a second
 // import; views that only want the path string should import it directly from
@@ -30,6 +35,7 @@ export interface SilentPaymentKeys {
   scanSecret: string; // 32-byte scan private key, hex
   spendKey: string; // 32-byte spend private key, hex
   refundAddress: string; // bc1q…/tb1q… BIP-84 address, see deriveRefundAddress
+  sweepAccount: string; // BIP-84 account xprv, see "Sweeping" below
 }
 
 // Silent Payments addresses are long (two compressed pubkeys), so bech32m's
@@ -164,36 +170,61 @@ function refundAddressFromRoot(root: HDKey, network: string, index: number): str
 
 // ── Sweeping ─────────────────────────────────────────────────────────────────
 //
-// The refund address doubles as the wallet's sweep address: the place to send
-// coins from a service that can only pay a bech32 address. One address serves
-// both, and sweeping collects whatever is on it — a stalled swap refund and an
-// exchange withdrawal alike.
+// The BIP-84 chain doubles as the wallet's sweep chain: where to send coins from
+// a service that can only pay a bech32 address. Sweeping collects whatever is on
+// it — a stalled swap refund and an exchange withdrawal alike.
 //
-// The private key behind it is DELIBERATELY not kept anywhere. It is not in the
-// device keystore next to the scan and spend keys, and it is not on the server.
-// It exists only for the seconds between the user typing their recovery phrase
-// and the sweep being signed. That is the whole reason the sweep asks for the
-// phrase: the alternative is one more key at rest, for an address that holds
-// coins only in transit.
+// The device keeps the ACCOUNT key (m/84'/coin'/0'), not the seed, in the same
+// keystore entry as the scan and spend keys. That is what lets it hand out a
+// fresh address for every payment and still sign the sweep without asking for
+// the recovery phrase. The account key is a strictly smaller secret than the
+// spend key already stored beside it: it reaches one throwaway branch that holds
+// coins in transit, where the spend key reaches the whole wallet. The duress
+// wipe clears the entry, so it clears this too.
+//
+// An xpub would not do. It derives addresses but signs nothing, so a sweep with
+// only an xpub on the device would still need the seed.
 
 export interface SweepKey {
   address: string;
   privateKeyHex: string;
 }
 
-export function deriveSweepKey(
-  mnemonic: string,
-  passphrase: string,
-  network: string,
-  index = 0,
-): SweepKey {
-  const seed = mnemonicToSeedSync(mnemonic.trim().toLowerCase(), passphrase || '');
-  const { address, privateKey } = refundKeyFromRoot(
-    HDKey.fromMasterSeed(seed),
-    network,
-    index,
+function sweepChild(accountXprv: string, index: number) {
+  // Relative to the account key: <chain>/<index>, the standard external chain.
+  const child = HDKey.fromExtendedKey(accountXprv).derive(
+    `m/${SWEEP_CHAIN_PATH}/${index}`,
   );
-  return { address, privateKeyHex: toHex(privateKey) };
+  if (!child.privateKey) {
+    throw new Error('Sweep key derivation failed.');
+  }
+  return child.privateKey;
+}
+
+// One address on the sweep chain. Pure derivation — no network, no server.
+export function sweepAddressAt(
+  accountXprv: string,
+  network: string,
+  index: number,
+): string {
+  const pub = secp256k1.getPublicKey(sweepChild(accountXprv, index), true);
+  const words = [0, ...bech32.toWords(hash160(pub))];
+  return bech32.encode(bech32Hrp(network), words);
+}
+
+// Address plus the key that signs for it, for the addresses a sweep touches.
+export function sweepKeyAt(
+  accountXprv: string,
+  network: string,
+  index: number,
+): SweepKey {
+  const priv = sweepChild(accountXprv, index);
+  const pub = secp256k1.getPublicKey(priv, true);
+  const words = [0, ...bech32.toWords(hash160(pub))];
+  return {
+    address: bech32.encode(bech32Hrp(network), words),
+    privateKeyHex: toHex(priv),
+  };
 }
 
 // Standalone BIP-84 address derivation, for callers that hold a mnemonic but
@@ -246,5 +277,6 @@ export function deriveSilentPayment(
     scanSecret: toHex(scanPriv),
     spendKey: toHex(spendPriv),
     refundAddress: refundAddressFromRoot(root, network, 0),
+    sweepAccount: root.derive(sweepAccountPath(network)).privateExtendedKey,
   };
 }
