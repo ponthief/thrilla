@@ -48,6 +48,16 @@ interface Props {
 export default function SweepCard({ wallet }: Props) {
   const inkey = useAuthStore((s) => s.inkey);
   const confirmedTick = usePendingSends((s) => s.confirmedTick);
+  // A sweep this wallet has broadcast but that hasn't confirmed yet. Its inputs
+  // are spent, but the chain index can still be listing them as unspent for a
+  // little while — a mempool spend takes a moment to reach Fulcrum. Without
+  // this, the card reads that stale answer back as "there are funds to sweep"
+  // and offers to sweep coins that are already on their way, which would build
+  // a conflicting transaction. The watcher clears the entry on the first
+  // confirmation.
+  const pendingSweep = usePendingSends((s) =>
+    s.sends.find((x) => x.kind === 'sweep' && x.walletId === wallet.id),
+  );
 
   const [open, setOpen] = useState(false);
   const [accountXprv, setAccountXprv] = useState<string | null>(null);
@@ -110,7 +120,8 @@ export default function SweepCard({ wallet }: Props) {
   }
 
   const sats = chain?.confirmedSats ?? 0;
-  const canSweep = sats > 0 && !!accountXprv && !!chain?.fundedIndices.length;
+  const canSweep =
+    !pendingSweep && sats > 0 && !!accountXprv && !!chain?.fundedIndices.length;
 
   return (
     <View style={styles.card}>
@@ -161,21 +172,33 @@ export default function SweepCard({ wallet }: Props) {
 
           {error ? <Text style={styles.error}>{error}</Text> : null}
 
-          <View style={styles.balanceBox}>
-            <Text style={styles.balanceLabel}>Waiting to be swept</Text>
-            <Text style={styles.balanceValue}>{groupThousands(sats)} sats</Text>
-            {chain.unconfirmedSats > 0 ? (
-              <Text style={styles.balanceHint}>
-                + {groupThousands(chain.unconfirmedSats)} sats unconfirmed —
-                sweepable once mined
+          {pendingSweep ? (
+            <View style={styles.balanceBox}>
+              <Text style={styles.balanceLabel}>Sweep on its way</Text>
+              <Text style={styles.balanceValue}>
+                {groupThousands(pendingSweep.amountSats ?? 0)} sats
               </Text>
-            ) : null}
-            {chain.fundedIndices.length > 1 ? (
               <Text style={styles.balanceHint}>
-                across {chain.fundedIndices.length} addresses
+                Lands in your balance once it confirms
               </Text>
-            ) : null}
-          </View>
+            </View>
+          ) : (
+            <View style={styles.balanceBox}>
+              <Text style={styles.balanceLabel}>Waiting to be swept</Text>
+              <Text style={styles.balanceValue}>{groupThousands(sats)} sats</Text>
+              {chain.unconfirmedSats > 0 ? (
+                <Text style={styles.balanceHint}>
+                  + {groupThousands(chain.unconfirmedSats)} sats unconfirmed —
+                  sweepable once mined
+                </Text>
+              ) : null}
+              {chain.fundedIndices.length > 1 ? (
+                <Text style={styles.balanceHint}>
+                  across {chain.fundedIndices.length} addresses
+                </Text>
+              ) : null}
+            </View>
+          )}
 
           <TouchableOpacity
             style={[styles.primaryBtn, !canSweep && styles.btnDisabled]}
@@ -183,7 +206,7 @@ export default function SweepCard({ wallet }: Props) {
             disabled={!canSweep}>
             <Text style={styles.primaryBtnText}>Sweep into wallet</Text>
           </TouchableOpacity>
-          {!canSweep ? (
+          {!canSweep && !pendingSweep ? (
             <Text style={styles.hint}>
               Nothing to sweep yet. Send coins to the address above, then check
               back once they confirm.
@@ -205,8 +228,14 @@ export default function SweepCard({ wallet }: Props) {
           wallet={wallet}
           accountXprv={accountXprv}
           fundedIndices={chain.fundedIndices}
-          onClose={() => setSweepOpen(false)}
-          onSwept={refresh}
+          // Re-check on the way out, not the moment the sweep is broadcast:
+          // refreshing under an open modal churns the props it was opened with,
+          // and the chain index has not seen the spend that soon anyway. Until
+          // then the pending-sweep entry above is what the card goes on.
+          onClose={() => {
+            setSweepOpen(false);
+            refresh();
+          }}
         />
       ) : null}
 

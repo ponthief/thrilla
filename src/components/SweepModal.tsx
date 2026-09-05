@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Modal,
@@ -36,7 +36,6 @@ interface Props {
   // Chain indices holding confirmed coins, from the walk in services/sweepChain.
   fundedIndices: number[];
   onClose: () => void;
-  onSwept: () => void;
 }
 
 /**
@@ -54,7 +53,6 @@ export default function SweepModal({
   accountXprv,
   fundedIndices,
   onClose,
-  onSwept,
 }: Props) {
   const adminkey = useAuthStore((s) => s.adminkey);
   const inkey = useAuthStore((s) => s.inkey);
@@ -95,8 +93,25 @@ export default function SweepModal({
     [adminkey, wallet.id, wallet.network, accountXprv, fundedIndices],
   );
 
+  // Set up ONCE per opening. Deliberately not keyed on `build`: that callback's
+  // identity changes whenever fundedIndices does, and fundedIndices is a fresh
+  // array on every parent refresh — including the one a completed sweep triggers.
+  // Keying on it sent the modal back to 'review' the instant the sweep
+  // succeeded, wiping the "Sweep sent" screen and leaving a dimmed Broadcast
+  // behind. Read through a ref instead so the latest build is always used
+  // without the effect re-firing.
+  const buildRef = useRef(build);
+  buildRef.current = build;
+  const started = useRef(false);
+
   useEffect(() => {
-    if (!visible) return;
+    if (!visible) {
+      started.current = false;
+      return;
+    }
+    if (started.current) return;
+    started.current = true;
+
     setStage('review');
     setBuilt(null);
     setTxid(null);
@@ -117,12 +132,12 @@ export default function SweepModal({
       }
       if (cancelled) return;
       setFeeRate(String(rate));
-      await build(rate);
+      await buildRef.current(rate);
     })();
     return () => {
       cancelled = true;
     };
-  }, [visible, inkey, build]);
+  }, [visible, inkey]);
 
   const onRebuild = useCallback(() => {
     const rate = Number(feeRate);
@@ -153,13 +168,12 @@ export default function SweepModal({
         kind: 'sweep',
       });
       setStage('done');
-      onSwept();
     } catch (e: any) {
       setError(e?.message || 'Broadcast failed.');
     } finally {
       setBusy(false);
     }
-  }, [built, adminkey, wallet.id, onSwept]);
+  }, [built, adminkey, wallet.id]);
 
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
