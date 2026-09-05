@@ -709,24 +709,37 @@ export async function broadcastTx(
   });
 }
 
-// ── Sweep (plain bech32 address → this wallet) ──────────────────────────────
+// ── Sweep (plain bech32 addresses → this wallet) ────────────────────────────
 //
 // For paying-in from anything that can't send to a Silent Payments address —
-// an exchange withdrawal, mostly. The wallet has one BIP-84 address for this
-// (the same one a swap refund lands on); coins sit there until swept in.
+// an exchange withdrawal, mostly. Coins land on the wallet's BIP-84 chain (the
+// same chain a swap refund uses) and sit there until swept in.
 //
-// The server is told that ONE address, never an xpub, so it cannot derive or
-// watch any other address the seed could produce.
+// The device derives the addresses and asks about a window of them. The server
+// is never given the xpub, so it learns the addresses actually in play and
+// cannot derive the next one, let alone every address the seed could produce.
 
 export interface SweepUtxo {
+  address: string;
   txid: string;
   vout: number;
   amount: number;
   height: number;
 }
 
-export interface SweepPreview {
+export interface SweepAddressState {
   address: string;
+  // True if the address has ANY history, spent or not — what decides whether it
+  // can still be handed out. A used-and-emptied address has no UTXOs but must
+  // never be shown again.
+  used: boolean;
+  utxos: SweepUtxo[];
+  confirmed_sats: number;
+  unconfirmed_sats: number;
+}
+
+export interface SweepPreview {
+  addresses: SweepAddressState[];
   utxos: SweepUtxo[];
   confirmed_sats: number;
   // Coins seen but not yet mined. Never swept: an unconfirmed exchange
@@ -742,30 +755,32 @@ export interface BuiltSweep {
   vsize: number;
   fee_rate_used: number;
   input_count: number;
-  sweep_address: string;
+  swept_addresses: string[];
   unconfirmed_sats: number;
 }
 
-// What's currently sitting on the sweep address. Uses inkey.
+// Which of these addresses have been used, and what's unspent on them. Uses
+// inkey. The backend caps the batch at 50.
 export async function getSweepPreview(
   inkey: string,
   walletId: string,
-  address: string,
+  addresses: string[],
 ): Promise<SweepPreview> {
-  return req(
-    `${SILNT}/api/v1/sweep/${walletId}?address=${encodeURIComponent(address)}`,
-    { headers: apiKey(inkey) },
-  );
+  const qs = addresses
+    .map((a) => `address=${encodeURIComponent(a)}`)
+    .join('&');
+  return req(`${SILNT}/api/v1/sweep/${walletId}?${qs}`, { headers: apiKey(inkey) });
 }
 
-// Build and sign the sweep. The key is passed transiently for signing, the same
-// as the spend key in buildTx — it is never stored, here or on the device.
-// There's no destination parameter: the server always sweeps into this wallet's
-// own Silent Payment address.
+// Build and sign the sweep. Keys are passed transiently for signing, the same as
+// the spend key in buildTx, and are never stored server-side. Send keys only for
+// addresses the preview showed holding coins — normally one. There's no
+// destination parameter: the server always sweeps into this wallet's own Silent
+// Payment address.
 export async function buildSweepTx(
   adminkey: string,
   walletId: string,
-  sweepKeyHex: string,
+  sweepKeysHex: string[],
   feeRate: number,
 ): Promise<BuiltSweep> {
   return req(`${SILNT}/api/v1/sweep/build`, {
@@ -773,7 +788,7 @@ export async function buildSweepTx(
     headers: apiKey(adminkey),
     body: JSON.stringify({
       wallet_id: walletId,
-      sweep_key: sweepKeyHex,
+      sweep_keys: sweepKeysHex,
       fee_rate: feeRate,
     }),
   });

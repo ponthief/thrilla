@@ -10,9 +10,10 @@ import Clipboard from '@react-native-clipboard/clipboard';
 import * as api from '@services/api';
 import { useAuthStore } from '@stores/authStore';
 import { getWalletKeys } from '@services/secureKeys';
+import { loadSweepChain, SweepChainState } from '@services/sweepChain';
 import { usePendingSends } from '@stores/pendingSends';
 import QRCode from './QRCode';
-import SweepModal from './SweepModal';
+import SweepModal, { SweepSetupModal } from './SweepModal';
 import { colors } from '@/theme';
 
 const PRIMARY = colors.primary;
@@ -36,67 +37,63 @@ interface Props {
  * The wallet's plain bech32 address, for paying in from anything that can't
  * send to a Silent Payments address — an exchange withdrawal, most often.
  *
- * Collapsed by default. It is the lesser address in every way that matters:
- * it is reused, so anyone watching the chain can link everything ever sent to
- * it, and the server has to ask a chain index about it by name. The Silent
- * Payments address above has neither property, and should be used wherever the
- * sender will accept it.
+ * A fresh address every time. The device walks its own BIP-84 chain from the
+ * account key held in the keystore and shows the first address with no history,
+ * so two payments never share one. The server is asked about a window of derived
+ * addresses but never given the xpub, so it cannot derive the next.
+ *
+ * Collapsed by default: the Silent Payments address above needs none of this
+ * machinery and should be used wherever the sender will accept it.
  */
 export default function SweepCard({ wallet }: Props) {
   const inkey = useAuthStore((s) => s.inkey);
   const confirmedTick = usePendingSends((s) => s.confirmedTick);
 
   const [open, setOpen] = useState(false);
-  const [address, setAddress] = useState<string | null>(null);
-  const [preview, setPreview] = useState<api.SweepPreview | null>(null);
+  const [accountXprv, setAccountXprv] = useState<string | null>(null);
+  const [chain, setChain] = useState<SweepChainState | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
-  const [modal, setModal] = useState<'reveal' | 'sweep' | null>(null);
-
-  // Wallets created before the sweep address was derived have no cached copy;
-  // those need the recovery phrase once to reveal it.
-  const loadAddress = useCallback(async () => {
-    const keys = await getWalletKeys(wallet.id);
-    setAddress(keys?.refundAddress || null);
-    return keys?.refundAddress || null;
-  }, [wallet.id]);
-
-  const loadPreview = useCallback(
-    async (addr: string) => {
-      if (!inkey) return;
-      setLoading(true);
-      setError(null);
-      try {
-        setPreview(await api.getSweepPreview(inkey, wallet.id, addr));
-      } catch (e: any) {
-        setError(e?.message || 'Could not check this address.');
-      } finally {
-        setLoading(false);
-      }
-    },
-    [inkey, wallet.id],
-  );
+  const [sweepOpen, setSweepOpen] = useState(false);
+  const [setupOpen, setSetupOpen] = useState(false);
 
   const refresh = useCallback(async () => {
-    const addr = await loadAddress();
-    if (addr) await loadPreview(addr);
-  }, [loadAddress, loadPreview]);
+    if (!inkey) return;
+    // Wallets stored before the sweep chain existed have no account key; those
+    // need the recovery phrase once, via SweepSetupModal.
+    const keys = await getWalletKeys(wallet.id);
+    const xprv = keys?.sweepAccount || null;
+    setAccountXprv(xprv);
+    if (!xprv) {
+      setChain(null);
+      return;
+    }
+    setLoading(true);
+    setError(null);
+    try {
+      setChain(await loadSweepChain(inkey, wallet.id, xprv, wallet.network));
+    } catch (e: any) {
+      setError(e?.message || 'Could not check your sweep addresses.');
+    } finally {
+      setLoading(false);
+    }
+  }, [inkey, wallet.id, wallet.network]);
 
   useEffect(() => {
     // Only reach for the chain index once the user has actually opened this —
-    // it is a network round trip for a card most people will never use. The
-    // confirmedTick dependency re-checks after a sweep confirms, so the balance
-    // drops to zero without a manual refresh.
+    // it is a round trip for a card most people will never use. confirmedTick
+    // re-checks after a sweep confirms, so the balance clears and a new receive
+    // address appears without a manual refresh.
     if (open) refresh();
   }, [open, confirmedTick, refresh]);
 
   const onCopy = useCallback(() => {
-    if (!address) return;
-    Clipboard.setString(address);
+    if (!chain) return;
+    Clipboard.setString(chain.receiveAddress);
     setCopied(true);
     setTimeout(() => setCopied(false), 1500);
-  }, [address]);
+  }, [chain]);
 
   if (!open) {
     return (
@@ -112,8 +109,8 @@ export default function SweepCard({ wallet }: Props) {
     );
   }
 
-  const sats = preview?.confirmed_sats ?? 0;
-  const canSweep = sats > 0;
+  const sats = chain?.confirmedSats ?? 0;
+  const canSweep = sats > 0 && !!accountXprv && !!chain?.fundedIndices.length;
 
   return (
     <View style={styles.card}>
@@ -124,14 +121,26 @@ export default function SweepCard({ wallet }: Props) {
         </TouchableOpacity>
       </View>
 
-      {address ? (
+      {!accountXprv ? (
         <>
-          <QRCode value={address} size={200} />
-          <Text style={styles.mono}>{truncateMiddle(address, 16, 12)}</Text>
+          <Text style={styles.caption}>
+            This wallet predates sweep addresses. Enter your recovery phrase once
+            to set them up — after that it's handled on this device.
+          </Text>
+          <TouchableOpacity style={styles.primaryBtn} onPress={() => setSetupOpen(true)}>
+            <Text style={styles.primaryBtnText}>Set up sweeping</Text>
+          </TouchableOpacity>
+        </>
+      ) : loading && !chain ? (
+        <ActivityIndicator color={PRIMARY} style={styles.spinner} />
+      ) : chain ? (
+        <>
+          <QRCode value={chain.receiveAddress} size={200} />
+          <Text style={styles.mono}>{truncateMiddle(chain.receiveAddress, 16, 12)}</Text>
           <Text style={styles.caption}>
             A plain bitcoin address for senders that can't pay a Silent Payments
-            address. It's the same address every time, so anything sent here is
-            publicly linked together — use the address above wherever you can.
+            address. Unused — a new one appears once this is paid, so two
+            payments are never linked by sharing an address.
           </Text>
 
           <View style={styles.actionRow}>
@@ -150,29 +159,27 @@ export default function SweepCard({ wallet }: Props) {
             </TouchableOpacity>
           </View>
 
-          {loading && !preview ? (
-            <ActivityIndicator color={PRIMARY} style={styles.spinner} />
-          ) : null}
           {error ? <Text style={styles.error}>{error}</Text> : null}
 
-          {preview ? (
-            <View style={styles.balanceBox}>
-              <Text style={styles.balanceLabel}>Waiting here</Text>
-              <Text style={styles.balanceValue}>
-                {groupThousands(sats)} sats
+          <View style={styles.balanceBox}>
+            <Text style={styles.balanceLabel}>Waiting to be swept</Text>
+            <Text style={styles.balanceValue}>{groupThousands(sats)} sats</Text>
+            {chain.unconfirmedSats > 0 ? (
+              <Text style={styles.balanceHint}>
+                + {groupThousands(chain.unconfirmedSats)} sats unconfirmed —
+                sweepable once mined
               </Text>
-              {preview.unconfirmed_sats > 0 ? (
-                <Text style={styles.balanceHint}>
-                  + {groupThousands(preview.unconfirmed_sats)} sats unconfirmed —
-                  sweepable once mined
-                </Text>
-              ) : null}
-            </View>
-          ) : null}
+            ) : null}
+            {chain.fundedIndices.length > 1 ? (
+              <Text style={styles.balanceHint}>
+                across {chain.fundedIndices.length} addresses
+              </Text>
+            ) : null}
+          </View>
 
           <TouchableOpacity
             style={[styles.primaryBtn, !canSweep && styles.btnDisabled]}
-            onPress={() => setModal('sweep')}
+            onPress={() => setSweepOpen(true)}
             disabled={!canSweep}>
             <Text style={styles.primaryBtnText}>Sweep into wallet</Text>
           </TouchableOpacity>
@@ -185,23 +192,30 @@ export default function SweepCard({ wallet }: Props) {
         </>
       ) : (
         <>
-          <Text style={styles.caption}>
-            This wallet's sweep address comes from your recovery phrase. Enter it
-            once and this device will remember the address.
-          </Text>
-          <TouchableOpacity style={styles.primaryBtn} onPress={() => setModal('reveal')}>
-            <Text style={styles.primaryBtnText}>Show sweep address</Text>
+          {error ? <Text style={styles.error}>{error}</Text> : null}
+          <TouchableOpacity style={styles.primaryBtn} onPress={refresh}>
+            <Text style={styles.primaryBtnText}>Retry</Text>
           </TouchableOpacity>
         </>
       )}
 
-      {modal ? (
+      {sweepOpen && accountXprv && chain ? (
         <SweepModal
           visible
-          mode={modal}
           wallet={wallet}
-          onClose={() => setModal(null)}
-          onChanged={refresh}
+          accountXprv={accountXprv}
+          fundedIndices={chain.fundedIndices}
+          onClose={() => setSweepOpen(false)}
+          onSwept={refresh}
+        />
+      ) : null}
+
+      {setupOpen ? (
+        <SweepSetupModal
+          visible
+          wallet={wallet}
+          onClose={() => setSetupOpen(false)}
+          onReady={refresh}
         />
       ) : null}
     </View>
