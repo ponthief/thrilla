@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   RefreshControl,
@@ -22,6 +22,7 @@ import TransactionList, { TxItem } from '../components/TransactionList';
 import TxDetailModal from '../components/TxDetailModal';
 import BitcoinSign from '../components/BitcoinSign';
 import { usePendingSends } from '@stores/pendingSends';
+import { useTxLabelStore } from '@stores/txLabelStore';
 import { useCatchUpScan } from '../hooks/useCatchUpScan';
 
 function normalizeTime(t?: number | string | null): number | null {
@@ -31,12 +32,18 @@ function normalizeTime(t?: number | string | null): number | null {
   return Number.isNaN(parsed) ? null : Math.floor(parsed / 1000);
 }
 
-function spTxToItem(t: api.SpTransaction): TxItem {
+function spTxToItem(t: api.SpTransaction, labelMap: Record<string, string>): TxItem {
   return {
     id: t.txid,
     direction: t.amount_sats < 0 ? 'out' : 'in',
     amountSats: Math.abs(t.amount_sats),
-    label: t.labels?.[0] || (t.kind === 'send' ? 'Sent' : 'Received'),
+    // Server label first (it is the shared one), then the device-only label,
+    // then the generic fallback. A pending send has no server label to have —
+    // its change output does not exist yet — so this is what names it.
+    label:
+      t.labels?.[0] ||
+      labelMap[t.txid] ||
+      (t.kind === 'send' ? 'Sent' : 'Received'),
     timestamp: t.timestamp || null,
     // Only a send can be pending: a receive is recorded once it is already in a
     // block. `confirmed` is absent on older backends, hence the explicit false.
@@ -91,7 +98,15 @@ export default function WalletScreen() {
   const [lnName, setLnName] = useState('');
   const [lnError, setLnError] = useState<string | null>(null);
 
-  const [spTxs, setSpTxs] = useState<TxItem[]>([]);
+  // Server rows, kept raw: the display rows are derived from these plus the
+  // device-only labels, so editing a label re-renders the list without a
+  // refetch and without remounting it.
+  const [spRawTxs, setSpRawTxs] = useState<api.SpTransaction[]>([]);
+  const txLabelMap = useTxLabelStore((s) => s.labels);
+  const spTxs = useMemo(
+    () => spRawTxs.map((t) => spTxToItem(t, txLabelMap)),
+    [spRawTxs, txLabelMap],
+  );
   const [lnTxs, setLnTxs] = useState<TxItem[]>([]);
 
   const load = useCallback(async () => {
@@ -141,7 +156,7 @@ export default function WalletScreen() {
         // On-chain history needs the wallet id, so fetch it once we have it.
         try {
           const txs = await api.listWalletTransactions(inkey, w.id, 25);
-          setSpTxs(txs.map(spTxToItem));
+          setSpRawTxs(txs);
           // Hand the watcher whatever is still unconfirmed. This is what makes
           // a send survive an app restart, or arrive from the web app on
           // another device, rather than relying on local registration alone.
@@ -155,13 +170,13 @@ export default function WalletScreen() {
               })),
           );
         } catch {
-          setSpTxs([]);
+          setSpRawTxs([]);
         }
       } else {
         setSpWallet(null);
         setSpError(null);
         setSpMissing(true);
-        setSpTxs([]);
+        setSpRawTxs([]);
       }
     } else {
       setSpMissing(false);
