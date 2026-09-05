@@ -276,8 +276,8 @@ export default function WalletScreen() {
               ) : (
                 <>
                   <View style={styles.balanceRow}>
-                    <Text style={styles.balance}>{btc}</Text>
                     <BitcoinSign size={34} color={colors.primary} weight={2.6} />
+                    <Text style={styles.balance}>{btc}</Text>
                   </View>
                   <Text style={styles.sub}>{groupThousands(sats)} sats</Text>
                   {usd != null ? (
@@ -481,7 +481,11 @@ const styles = StyleSheet.create({
   // at a matching size its body would read noticeably shorter than the digits.
   // 34 puts the B's height level with them, with the strokes overshooting, as
   // they do in the real glyph.
-  balanceRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  //
+  // gap 2, not the 6 used when the sign trailed the amount: leading it reads as
+  // a currency prefix like $, and a prefix sits tight against its number —
+  // wider spacing makes it look like a separate word.
+  balanceRow: { flexDirection: 'row', alignItems: 'center', gap: 2 },
   balance: { fontSize: 30, fontWeight: 'bold', color: colors.primary },
   sub: { fontSize: 15, color: colors.muted, marginTop: 4 },
   error: { fontSize: 14, color: colors.danger, marginTop: 4 },
