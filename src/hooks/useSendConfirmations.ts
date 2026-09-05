@@ -2,6 +2,7 @@ import { useEffect, useRef } from 'react';
 import { AppState } from 'react-native';
 import * as api from '@services/api';
 import { useAuthStore } from '@stores/authStore';
+import { getWalletKeys } from '@services/secureKeys';
 import { usePendingSends, getPendingSends } from '@stores/pendingSends';
 import { usePushBanner } from '@stores/pushBanner';
 import { paymentAlertsOn } from '@stores/notifyStore';
@@ -27,8 +28,39 @@ function groupThousands(n: number): string {
     .replace(/\B(?=(\d{3})+(?!\d))/g, ',');
 }
 
+// After a send confirms, its change output becomes findable — but only by
+// scanning, and nothing was doing that. The balance therefore stayed stale, and
+// a server-side label had nothing to attach to (labels hang off an owned UTXO,
+// found by funding txid), until the user happened to run a scan by hand.
+//
+// So scan exactly the block that confirmed the send: one block, not a sweep.
+// Best-effort throughout — this must never disturb the confirmation flow.
+async function scanForChange(
+  inkey: string,
+  walletId: string,
+  blockHeight: number,
+): Promise<void> {
+  try {
+    // Scanning needs this device's keys. Without them (keys held elsewhere),
+    // skip quietly; the user can still scan manually.
+    const keys = await getWalletKeys(walletId);
+    if (!keys?.scanSecret) return;
+    // Don't collide with a scan already running.
+    try {
+      const progress = await api.getScanProgress(inkey, walletId);
+      if (progress?.active) return;
+    } catch {
+      return; // can't tell — safer not to start one
+    }
+    await api.startScan(inkey, walletId, keys.scanSecret, blockHeight, blockHeight);
+  } catch {
+    /* best-effort */
+  }
+}
+
 export function useSendConfirmations() {
   const adminkey = useAuthStore((s) => s.adminkey);
+  const inkey = useAuthStore((s) => s.inkey);
   const pending = usePendingSends((s) => s.sends);
   // Read inside the loop rather than closing over it, so a send registered
   // mid-cycle is picked up without restarting the timer.
@@ -52,6 +84,11 @@ export function useSendConfirmations() {
           if (cancelled) return;
           if (res?.confirmed) {
             usePendingSends.getState().remove(send.txid);
+            // Bring in the change output so the balance settles and the
+            // transaction becomes labellable, without the user scanning.
+            if (inkey && res.block_height) {
+              await scanForChange(inkey, send.walletId, res.block_height);
+            }
             // Same switch that governs incoming-payment alerts: someone who
             // turned those off does not want this either.
             if (paymentAlertsOn()) {
@@ -78,5 +115,5 @@ export function useSendConfirmations() {
       cancelled = true;
       if (timer.current) clearTimeout(timer.current);
     };
-  }, [adminkey, hasPending]);
+  }, [adminkey, inkey, hasPending]);
 }
