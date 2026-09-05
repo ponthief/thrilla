@@ -20,6 +20,12 @@ export interface PendingSend {
   walletId: string;
   amountSats: number | null;
   addedAt: number; // ms, for the grace period below
+  // 'sweep' is an incoming transaction, not an outgoing one: coins moving from
+  // the wallet's plain BIP-84 address into the wallet proper. It rides in this
+  // store because it needs exactly the same treatment — watch for the first
+  // confirmation, then scan that block so the output is found — but it spends
+  // coins the server never tracked, so `sync` below must not evict it.
+  kind?: 'send' | 'sweep';
 }
 
 // How long a locally-registered send is kept even though the server hasn't
@@ -65,15 +71,19 @@ export const usePendingSends = create<PendingSendsState>((set) => ({
     })),
 
   // The server's list is authoritative: anything it no longer calls pending has
-  // confirmed (or been replaced) and stops being watched. The one exception is
-  // a very recent local entry, per SYNC_GRACE_MS above.
+  // confirmed (or been replaced) and stops being watched. Two exceptions: a very
+  // recent local entry, per SYNC_GRACE_MS above, and a sweep — which the server
+  // never lists as pending at all, because the wallet did not own its inputs.
   sync: (pending) =>
     set((s) => {
       const now = Date.now();
       const fromServer = new Set(pending.map((p) => p.txid));
 
       const kept = s.sends.filter(
-        (x) => fromServer.has(x.txid) || now - x.addedAt < SYNC_GRACE_MS,
+        (x) =>
+          x.kind === 'sweep' ||
+          fromServer.has(x.txid) ||
+          now - x.addedAt < SYNC_GRACE_MS,
       );
       const known = new Set(kept.map((x) => x.txid));
       const added = pending
