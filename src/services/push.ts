@@ -25,6 +25,12 @@ function handleForegroundMessage(msg: any): void {
     // unregistered in that case, so this is just belt and braces for a message
     // that was already in flight (or a removal that failed while offline).
     if (!paymentAlertsOn()) return;
+    // A send confirming is announced locally by useSendConfirmations, which
+    // knows the amount — the push deliberately carries none, since FCM message
+    // bodies pass through Google in plaintext. Showing both would double-banner
+    // the same event, so with the app open the local one wins. This push exists
+    // for the case the app is closed, which Android displays itself.
+    if (msg?.data?.type === 'send_confirmed') return;
     const n = msg?.notification;
     const title = n?.title || 'Payment received';
     const body = n?.body || msg?.data?.body || 'You have a new payment.';
