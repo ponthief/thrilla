@@ -1,5 +1,6 @@
 import * as api from '@services/api';
 import { wipeAllWalletKeys } from '@services/secureKeys';
+import { useTxLabelStore } from '@stores/txLabelStore';
 import { resetCatchUp } from '@/hooks/useCatchUpScan';
 
 // The duress response, shared by every place that accepts a PIN (the lock
@@ -18,6 +19,13 @@ export async function runDuress(
   if (inkey) api.disableAllBackgroundScans(inkey).catch(() => {});
   try {
     await wipeAllWalletKeys();
+  } catch {
+    /* best-effort */
+  }
+  // Device-only transaction labels say who you paid — exactly what a coerced
+  // unlock must not reveal, so they go with the keys.
+  try {
+    await useTxLabelStore.getState().clearAll();
   } catch {
     /* best-effort */
   }

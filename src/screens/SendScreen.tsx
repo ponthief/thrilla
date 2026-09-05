@@ -19,6 +19,7 @@ import { useAppLockStore } from '@stores/appLockStore';
 import * as api from '@services/api';
 import { getWalletKeys } from '@services/secureKeys';
 import { usePendingSends } from '@stores/pendingSends';
+import { useTxLabelStore } from '@stores/txLabelStore';
 import { markScanStarted } from '@services/scanCooldown';
 import { colors } from '@/theme';
 import QRScanner from '../components/QRScanner';
@@ -394,6 +395,14 @@ export default function SendScreen() {
         walletId: wallet.id,
         amountSats: amountSats || null,
       });
+      // Remember a BitMail recipient locally, matching the web app: it is the
+      // one part of a send not derivable from the chain, and it names the
+      // transaction before any change output exists to label. Raw sp1…/bc1…
+      // are already on-chain, so there is nothing to remember.
+      const typed = recipient.trim();
+      if (typed.includes('@')) {
+        useTxLabelStore.getState().setLabel(res.txid, typed).catch(() => {});
+      }
       setStep('done');
     } catch (e: any) {
       setError(e?.message || 'Broadcast failed.');
