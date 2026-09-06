@@ -20,6 +20,12 @@ export interface PendingSend {
   walletId: string;
   amountSats: number | null;
   addedAt: number; // ms, for the grace period below
+  // 'plain' is a payment from the plain BIP-84 chain into this wallet's own
+  // Silent Payments address. It is watched here for exactly one reason: on
+  // confirmation the watcher scans that block, which is the only way the output
+  // is ever found. The wallet spent no coins it owned, so the server will never
+  // list it as pending and `sync` below must not evict it.
+  kind?: 'send' | 'plain';
 }
 
 // How long a locally-registered send is kept even though the server hasn't
@@ -65,15 +71,19 @@ export const usePendingSends = create<PendingSendsState>((set) => ({
     })),
 
   // The server's list is authoritative: anything it no longer calls pending has
-  // confirmed (or been replaced) and stops being watched. The one exception is
-  // a very recent local entry, per SYNC_GRACE_MS above.
+  // confirmed (or been replaced) and stops being watched. Two exceptions: a very
+  // recent local entry, per SYNC_GRACE_MS above, and a 'plain' entry — which the
+  // server never lists at all, because the wallet did not own its inputs.
   sync: (pending) =>
     set((s) => {
       const now = Date.now();
       const fromServer = new Set(pending.map((p) => p.txid));
 
       const kept = s.sends.filter(
-        (x) => fromServer.has(x.txid) || now - x.addedAt < SYNC_GRACE_MS,
+        (x) =>
+          x.kind === 'plain' ||
+          fromServer.has(x.txid) ||
+          now - x.addedAt < SYNC_GRACE_MS,
       );
       const known = new Set(kept.map((x) => x.txid));
       const added = pending

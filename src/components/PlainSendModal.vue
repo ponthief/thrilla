@@ -16,7 +16,13 @@
 import { computed, ref, watch } from 'vue'
 import { useAuthStore } from '@/stores/auth'
 import * as api from '@/api'
-import { keysForIndices, selectPlainCoins } from '@/services/plainChain'
+import {
+  destinationPlaceholder,
+  isOwnSpAddress,
+  keysForIndices,
+  selectPlainCoins,
+} from '@/services/plainChain'
+import { addPendingSend } from '@/stores/pendingsends'
 
 const props = defineProps({
   show:        { type: Boolean, default: false },
@@ -52,6 +58,13 @@ const destinationKind = computed(() => {
   if (s.startsWith('bc1') || s.startsWith('tb1') || s.startsWith('bcrt1')) return 'onchain'
   return ''
 })
+
+const placeholder = computed(() => destinationPlaceholder(props.wallet?.network))
+// Paying our own SP address puts coins INTO the wallet, which changes what
+// happens after broadcast — see confirm().
+const toSelf = computed(
+  () => !!props.wallet && isOwnSpAddress(destination.value, props.wallet.sp_address),
+)
 
 const amountSats = computed(() =>
   sendMax.value ? null : Math.floor(Number(amount.value) || 0),
@@ -113,6 +126,15 @@ async function confirm() {
     const res = await api.broadcastPlainTx(auth.adminkey, props.wallet.id, built.value.tx_hex)
     txid.value = res.txid
     emit('sent', res.txid, built.value.amount)
+    // The wallet cannot see a payment to its own SP address by itself: the
+    // output is found only by SCANNING, and nothing scans just because a
+    // transaction was broadcast. Handing it to the global send watcher is what
+    // makes it scan the confirming block — the only reason the payment ever
+    // shows up in Activity.
+    if (toSelf.value) {
+      addPendingSend(res.txid, props.wallet.id, built.value.amount)
+      try { window.__kickSendWatch && window.__kickSendWatch() } catch { /* ignore */ }
+    }
     stage.value = 'done'
   } catch (e) { error.value = e.message }
   finally { busy.value = false }
@@ -136,7 +158,7 @@ async function confirm() {
 
           <div class="field">
             <label>To</label>
-            <input class="input mono" v-model="destination" placeholder="bc1… or sp1…"
+            <input class="input mono" v-model="destination" :placeholder="placeholder"
                    autocomplete="off" spellcheck="false" />
             <span v-if="destination.trim() && !destinationKind" class="text-dim text-xs">
               Enter an on-chain address or a Silent Payments address. BitMail isn't
@@ -218,9 +240,15 @@ async function confirm() {
 
         <template v-else>
           <p class="text-dim text-xs" style="margin:0;line-height:1.6">
-            Broadcast. These coins went straight from your plain addresses to the
-            recipient — they never touched your Silent Payments wallet, so nothing
-            links them to the rest of your balance.
+            <template v-if="toSelf">
+              Broadcast. These coins land in your wallet balance once the transaction
+              confirms and the block is scanned — Activity will show it then.
+            </template>
+            <template v-else>
+              Broadcast. These coins went straight from your plain addresses to the
+              recipient — they never touched your Silent Payments wallet, so nothing
+              links them to the rest of your balance.
+            </template>
           </p>
           <div class="sp-readonly mono">{{ txid }}</div>
           <div class="flex justify-between">
