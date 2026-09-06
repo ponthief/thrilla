@@ -720,49 +720,18 @@ export async function broadcastTx(
 // The device derives the addresses and asks about a window of them. The server
 // is never given the xpub, so it learns the addresses actually in play and
 // cannot derive the next one, let alone every address the seed could produce.
+//
+// The wire shapes live in services/plainChain, which owns the chain walk and is
+// shared with the web app; they are re-exported here so callers on this side
+// have one import.
 
-export interface PlainUtxo {
-  address: string;
-  txid: string;
-  vout: number;
-  amount: number;
-  height: number;
-}
-
-export interface PlainAddressState {
-  address: string;
-  // True if the address has ANY history, spent or not — what decides whether it
-  // can still be handed out. A used-and-emptied address has no UTXOs but must
-  // never be shown again.
-  used: boolean;
-  utxos: PlainUtxo[];
-  confirmed_sats: number;
-  unconfirmed_sats: number;
-}
-
-export interface PlainPreview {
-  addresses: PlainAddressState[];
-  utxos: PlainUtxo[];
-  confirmed_sats: number;
-  // Coins seen but not yet mined. Never spent: an unconfirmed payment can still
-  // be replaced, which would orphan anything built on top of it.
-  unconfirmed_sats: number;
-}
-
-export interface BuiltPlainTx {
-  tx_hex: string;
-  amount: number;
-  // Zero when sending everything, which empties the addresses outright.
-  change: number;
-  fee: number;
-  total_input: number;
-  vsize: number;
-  fee_rate_used: number;
-  input_count: number;
-  swept_addresses: string[]; // the addresses this spends from
-  unconfirmed_sats: number;
-  destination?: string;
-}
+export type {
+  PlainUtxo,
+  PlainAddressState,
+  PlainPreview,
+  BuiltPlainTx,
+} from './plainChain';
+import type { PlainPreview, BuiltPlainTx } from './plainChain';
 
 // Which of these addresses have been used, and what's unspent on them. Uses
 // inkey. The backend caps the batch at 50.

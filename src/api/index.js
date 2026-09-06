@@ -411,6 +411,56 @@ export async function getUsdRate(inkey) {
   return req(`${SILNT}/api/v1/rate/usd`, { headers: keyHeaders(inkey) })
 }
 
+// ── Plain addresses ─────────────────────────────────────────────────────────
+// A bech32 pocket beside the Silent Payments wallet, for being paid by and
+// paying anything that can't handle an sp1… address. Coins land on the wallet's
+// BIP-84 chain and are spent straight out of it — they never enter the SP
+// wallet, which is what keeps them unlinked from the rest of the balance.
+//
+// The client derives the addresses and asks about a window of them; the server
+// is never given the xpub, so it cannot derive the next one. See
+// services/plainChain, which owns the walk and is shared with the mobile app.
+
+export async function getPlainPreview(inkey, walletId, addresses) {
+  const qs = addresses.map((a) => `address=${encodeURIComponent(a)}`).join('&')
+  return req(`${SILNT}/api/v1/plain/${walletId}?${qs}`, { headers: keyHeaders(inkey) })
+}
+
+// Pay out of the plain chain. The destination can be an ordinary address or a
+// Silent Payments one — paying your own SP address is how these coins move into
+// that wallet, if you want them there.
+//
+// `amount` null means send everything. `changeAddress` must be the chain's next
+// unused address; the backend refuses anything off that chain, so the remainder
+// cannot be routed elsewhere. Keys are sent transiently for signing and are
+// never stored server-side, exactly as buildTx sends the spend key.
+export async function buildPlainSpend(
+  adminkey, walletId, keysHex, destination, amount, changeAddress, feeRate,
+) {
+  return req(`${SILNT}/api/v1/plain/spend`, {
+    method: 'POST',
+    headers: keyHeaders(adminkey),
+    body: JSON.stringify({
+      wallet_id: walletId,
+      keys: keysHex,
+      destination,
+      amount,
+      change_address: changeAddress,
+      fee_rate: feeRate,
+    }),
+  })
+}
+
+// Separate from broadcastTx: these coins were never tracked in the wallet, so
+// there are no input UTXOs to mark spent.
+export async function broadcastPlainTx(adminkey, walletId, txHex) {
+  return req(`${SILNT}/api/v1/plain/broadcast`, {
+    method: 'POST',
+    headers: keyHeaders(adminkey),
+    body: JSON.stringify({ wallet_id: walletId, tx_hex: txHex }),
+  })
+}
+
 export async function getRecommendedFees(inkey) {
   return req(`${SILNT}/api/v1/fees/recommended`, { headers: keyHeaders(inkey) })
 }

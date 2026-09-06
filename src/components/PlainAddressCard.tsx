@@ -91,7 +91,11 @@ export default function PlainAddressCard({ wallet }: Props) {
     setLoading(true);
     setError(null);
     try {
-      const next = await loadPlainChain(inkey, wallet.id, xprv, wallet.network);
+      const next = await loadPlainChain(
+        (addresses) => api.getPlainPreview(inkey, wallet.id, addresses),
+        xprv,
+        wallet.network,
+      );
       setChain(next);
       // Drop the in-flight marker once the index reflects the payment (or once
       // waiting for it stops being worth blocking on).
