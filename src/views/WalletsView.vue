@@ -10,6 +10,7 @@ import { scanWatchWallets } from '@/stores/scanwatch'
 import QrModal from '@/components/QrModal.vue'
 import EditWalletModal from '@/components/EditWalletModal.vue'
 import SeedInput from '@/components/SeedInput.vue'
+import PlainAddressPanel from '@/components/PlainAddressPanel.vue'
 // Client-side Silent Payments derivation — the same module the mobile app uses,
 // verified byte-for-byte against the backend. Keeps the seed on this device.
 import { deriveSilentPayment, generateMnemonic, isValidMnemonic, validateNewWalletPassphrase } from '@/services/spKeys'
@@ -330,7 +331,7 @@ async function createWallet() {
     // Persist the locally-derived keys (NOT from the response — the server never
     // had them).
     if (result && result.wallet_id) {
-      await auth.storeWalletKeys(result.wallet_id, keys.scanSecret, keys.spendKey, keys.refundAddress)
+      await auth.storeWalletKeys(result.wallet_id, keys.scanSecret, keys.spendKey, keys.refundAddress, keys.sweepAccount)
     }
 
     // Only reveal the seed on a fresh generate so the user can back it up. On
@@ -501,7 +502,7 @@ async function submitRecoverKeys() {
     if (keys.spAddress.toLowerCase() !== (recoverTarget.value.sp_address || '').toLowerCase()) {
       throw new Error("That phrase doesn't match this wallet's address. Check the words and passphrase.")
     }
-    await auth.storeWalletKeys(recoverTarget.value.id, keys.scanSecret, keys.spendKey, keys.refundAddress)
+    await auth.storeWalletKeys(recoverTarget.value.id, keys.scanSecret, keys.spendKey, keys.refundAddress, keys.sweepAccount)
     showRecover.value = false
   } catch (e) { recoverError.value = e.message }
   finally { recoverLoading.value = false }
@@ -786,6 +787,11 @@ watch(swapCompletedAt, () => {
           <p class="text-dim text-xs" style="margin-top:8px">
             ↓ Receive scans the blockchain for Silent Payments sent to this wallet — payments only appear in your balance after a scan.
           </p>
+
+          <!-- Plain bech32 pocket: for senders that can't pay an sp1… address.
+               Held separately from the balance above and spent from there, so
+               those coins are never linked to the wallet's own. -->
+          <PlainAddressPanel :wallet="w" />
         </div>
       </div>
     </div>
