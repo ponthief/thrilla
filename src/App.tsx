@@ -35,11 +35,13 @@ import PushBanner from './components/PushBanner';
 import BitcoinSign from './components/BitcoinSign';
 import { useSendConfirmations } from './hooks/useSendConfirmations';
 import { useSweepAlerts } from './hooks/useSweepAlerts';
+import { useNavStore, TabKey as NavTabKey } from '@stores/navStore';
 import { useTxLabelStore } from '@stores/txLabelStore';
 import { colors, DEVICE_TRUST_ENABLED } from '@/theme';
 
 // Scan lives inside Receive now (Address / Scan toggle), so it's no longer a tab.
-type TabKey = 'wallet' | 'send' | 'receive' | 'settings';
+// Defined in the nav store so screens can navigate without importing App.
+type TabKey = NavTabKey;
 
 // `icon` is a character; `Icon` a drawn one. The wallet tab uses the drawn sign
 // because U+20BF is missing from Roboto before Android 8.0 (API 26) and this
@@ -106,7 +108,10 @@ function TabBar({
 }
 
 function Shell() {
-  const [active, setActive] = useState<TabKey>('wallet');
+  // The active tab lives in a store rather than local state, so a prompt on one
+  // screen can send the user to another (see stores/navStore).
+  const active = useNavStore((s) => s.tab);
+  const setActive = useNavStore((s) => s.setTab);
   // App-wide, so a send confirming while the user is on Receive or Settings
   // still surfaces.
   useSendConfirmations();
