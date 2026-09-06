@@ -1,6 +1,7 @@
 import * as api from '@services/api';
 import { wipeAllWalletKeys } from '@services/secureKeys';
 import { useTxLabelStore } from '@stores/txLabelStore';
+import { usePlainHistory } from '@stores/plainHistoryStore';
 import { resetCatchUp } from '@/hooks/useCatchUpScan';
 
 // The duress response, shared by every place that accepts a PIN (the lock
@@ -23,9 +24,15 @@ export async function runDuress(
     /* best-effort */
   }
   // Device-only transaction labels say who you paid — exactly what a coerced
-  // unlock must not reveal, so they go with the keys.
+  // unlock must not reveal, so they go with the keys. The plain chain's send
+  // history is the same kind of thing, and the only copy of it anywhere.
   try {
     await useTxLabelStore.getState().clearAll();
+  } catch {
+    /* best-effort */
+  }
+  try {
+    await usePlainHistory.getState().clearAll();
   } catch {
     /* best-effort */
   }

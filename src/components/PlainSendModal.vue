@@ -24,6 +24,7 @@ import {
   plainAddressTotals,
 } from '@/services/plainChain'
 import { addPendingSend } from '@/stores/pendingsends'
+import { recordPlainSend } from '@/stores/plainhistory'
 import { parseScannedAddress } from '@/services/addressUri'
 
 const props = defineProps({
@@ -45,6 +46,7 @@ const busy        = ref(false)
 const error       = ref(null)
 const built       = ref(null)
 const txid        = ref('')
+const txidCopied  = ref(false)
 // Which addresses to spend. Explicit, because it decides whether this
 // transaction publicly links two of them — not something to infer from whatever
 // happens to be typed in the amount field.
@@ -108,6 +110,7 @@ watch(() => props.show, async (show) => {
   sendMax.value = false
   built.value = null
   txid.value = ''
+  txidCopied.value = false
   error.value = null
   // Never urgent — start from the half-hour rate rather than the top of the
   // mempool, and leave it editable.
@@ -116,6 +119,12 @@ watch(() => props.show, async (show) => {
     feeRate.value = String(t.halfHourFee ?? t.hourFee ?? t.fastestFee ?? 1)
   } catch { /* keep the default */ }
 })
+
+function copyTxid() {
+  navigator.clipboard?.writeText(txid.value)
+  txidCopied.value = true
+  setTimeout(() => { txidCopied.value = false }, 1500)
+}
 
 async function pasteDestination() {
   try {
@@ -156,6 +165,18 @@ async function confirm() {
     )
     txid.value = res.txid
     emit('sent', res.txid, built.value.amount)
+    // The only record this payment gets. The server keeps none for coins
+    // leaving the plain chain, so without this the balance would just drop with
+    // nothing to say where it went. Browser-only, on purpose — see
+    // stores/plainhistory.js.
+    recordPlainSend(props.wallet.id, {
+      txid: res.txid,
+      amount: built.value.amount,
+      fee: built.value.fee,
+      destination: destination.value.trim(),
+      at: Date.now(),
+      toSelf: toSelf.value,
+    })
     // The wallet cannot see a payment to its own SP address by itself: the
     // output is found only by SCANNING, and nothing scans just because a
     // transaction was broadcast. Handing it to the global send watcher is what
@@ -313,7 +334,9 @@ async function confirm() {
           </p>
           <div class="sp-readonly mono">{{ txid }}</div>
           <div class="flex justify-between">
-            <span></span>
+            <button class="btn btn-ghost btn-sm" @click="copyTxid">
+              {{ txidCopied ? '✓ Copied' : '⎘ Copy transaction ID' }}
+            </button>
             <button class="btn btn-primary" @click="emit('close')">Done</button>
           </div>
         </template>

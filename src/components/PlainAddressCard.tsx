@@ -13,6 +13,7 @@ import { getWalletKeys } from '@services/secureKeys';
 import { loadPlainChain, PlainChainState } from '@services/plainChain';
 import { useNavStore } from '@stores/navStore';
 import { usePlainStatus, plainSpendSettled } from '@stores/plainStatus';
+import { usePlainHistory } from '@stores/plainHistoryStore';
 import QRCode from './QRCode';
 import PlainSendModal from './PlainSendModal';
 import PlainSetupModal from './PlainSetupModal';
@@ -29,6 +30,18 @@ function groupThousands(n: number): string {
 function truncateMiddle(s: string, head = 14, tail = 10): string {
   if (s.length <= head + tail + 1) return s;
   return `${s.slice(0, head)}…${s.slice(-tail)}`;
+}
+
+function shortAddress(s: string): string {
+  return truncateMiddle(s, 10, 8);
+}
+
+// Hermes has no full Intl, so build the date by hand rather than getting a
+// locale-free fallback that reads like a machine timestamp.
+const MONTHS = 'Jan Feb Mar Apr May Jun Jul Aug Sep Oct Nov Dec'.split(' ');
+function shortDate(ms: number): string {
+  const d = new Date(ms);
+  return `${d.getDate()} ${MONTHS[d.getMonth()]}`;
 }
 
 interface Props {
@@ -68,6 +81,10 @@ export default function PlainAddressCard({ wallet }: Props) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  // Payments made out of these addresses. Device-only: no server keeps a record
+  // of coins leaving the plain chain (see services/plainHistory.ts).
+  const history = usePlainHistory((s) => s.byWallet[wallet.id] || []);
+  const [copiedTxid, setCopiedTxid] = useState<string | null>(null);
   const [spendOpen, setSpendOpen] = useState(false);
   const [setupOpen, setSetupOpen] = useState(false);
   // Bumped by the prompt on the wallet screen, which is how most people will
@@ -244,6 +261,39 @@ export default function PlainAddressCard({ wallet }: Props) {
               once they confirm.
             </Text>
           ) : null}
+
+          {history.length ? (
+            <>
+              <Text style={styles.sectionLabel}>Sent from here</Text>
+              {history.map((h) => (
+                <TouchableOpacity
+                  key={h.txid}
+                  style={styles.histRow}
+                  onPress={() => {
+                    Clipboard.setString(h.txid);
+                    setCopiedTxid(h.txid);
+                  }}>
+                  <View style={styles.histMeta}>
+                    <Text style={styles.histAmount}>
+                      −{groupThousands(h.amount)} sats
+                      {h.toSelf ? ' · to your wallet' : ''}
+                    </Text>
+                    <Text style={styles.histDest} numberOfLines={1}>
+                      {shortAddress(h.destination)} · {shortDate(h.at)}
+                    </Text>
+                  </View>
+                  <Text style={styles.histCopy}>
+                    {copiedTxid === h.txid ? '✓' : '⎘'}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+              <Text style={styles.hint}>
+                Kept on this device only — no server holds a record of coins
+                leaving these addresses, so a payment made on another device
+                won't be listed here. Tap a row to copy its transaction ID.
+              </Text>
+            </>
+          ) : null}
         </>
       ) : (
         <>
@@ -367,5 +417,23 @@ const styles = StyleSheet.create({
   primaryBtnText: { color: colors.onPrimary, fontSize: 16, fontWeight: '600' },
   btnDisabled: { opacity: 0.4 },
   hint: { fontSize: 12, color: colors.faint, marginTop: 10, textAlign: 'center' },
+  sectionLabel: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: colors.muted,
+    marginTop: 20,
+    marginBottom: 8,
+  },
+  histRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderTopWidth: 1,
+    borderTopColor: colors.border,
+    paddingVertical: 10,
+  },
+  histMeta: { flex: 1 },
+  histAmount: { fontSize: 13, color: colors.text },
+  histDest: { fontSize: 11, color: colors.faint, marginTop: 2 },
+  histCopy: { fontSize: 15, color: colors.muted, paddingLeft: 10 },
   error: { color: colors.danger, fontSize: 13, marginTop: 14, textAlign: 'center' },
 });
