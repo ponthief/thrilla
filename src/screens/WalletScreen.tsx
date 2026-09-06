@@ -103,10 +103,31 @@ export default function WalletScreen() {
   // refetch and without remounting it.
   const [spRawTxs, setSpRawTxs] = useState<api.SpTransaction[]>([]);
   const txLabelMap = useTxLabelStore((s) => s.labels);
-  const spTxs = useMemo(
-    () => spRawTxs.map((t) => spTxToItem(t, txLabelMap)),
-    [spRawTxs, txLabelMap],
-  );
+  const pendingLocal = usePendingSends((s) => s.sends);
+  const spTxs = useMemo(() => {
+    const rows = spRawTxs.map((t) => spTxToItem(t, txLabelMap));
+    // A broadcast sweep is invisible to the server until it confirms and its
+    // output is scanned in: the wallet spent no coins it owned, so there is
+    // nothing for the transaction list to report. Show the local record instead,
+    // so an in-flight sweep is visible here rather than only on the sweep card.
+    // It drops out on confirmation, when the server row takes over.
+    const known = new Set(spRawTxs.map((t) => t.txid));
+    const sweeps = pendingLocal
+      .filter(
+        (s) => s.kind === 'sweep' && s.walletId === spWallet?.id && !known.has(s.txid),
+      )
+      .map<TxItem>((s) => ({
+        id: s.txid,
+        direction: 'in',
+        amountSats: s.amountSats ?? 0,
+        label: txLabelMap[s.txid] || 'Swept in',
+        timestamp: Math.floor(s.addedAt / 1000),
+        pending: true,
+      }));
+    // Newest first, matching the server's ordering — a pending sweep is always
+    // the most recent thing that happened.
+    return [...sweeps, ...rows];
+  }, [spRawTxs, txLabelMap, pendingLocal, spWallet?.id]);
   const [lnTxs, setLnTxs] = useState<TxItem[]>([]);
 
   const load = useCallback(async () => {

@@ -15,6 +15,7 @@ import { getWalletKeys, storeWalletKeys } from '@services/secureKeys';
 import { deriveSilentPayment, isValidMnemonic } from '@services/spKeys';
 import { keysForIndices } from '@services/sweepChain';
 import { usePendingSends } from '@stores/pendingSends';
+import { useTxLabelStore } from '@stores/txLabelStore';
 import SeedInput from './SeedInput';
 import { colors } from '@/theme';
 
@@ -167,6 +168,11 @@ export default function SweepModal({
         amountSats: built.amount,
         kind: 'sweep',
       });
+      // Name it on the device now, so the row reads "Swept in" while pending and
+      // keeps that name once the server row takes over — otherwise it would
+      // confirm into an anonymous "Received". Device-only, like every other
+      // transaction label (see services/txLabels).
+      useTxLabelStore.getState().setLabel(res.txid, 'Swept in');
       setStage('done');
     } catch (e: any) {
       setError(e?.message || 'Broadcast failed.');
