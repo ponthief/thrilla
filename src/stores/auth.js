@@ -203,7 +203,15 @@ export const useAuthStore = defineStore('auth', () => {
   // native bridge below takes three arguments and can't carry it, so wallets
   // stored through that path simply have no prefill and fall back to entering a
   // refund address by hand.
-  async function storeWalletKeys(walletId, scanSecret, spendKey, refundAddress) {
+  //
+  // `sweepAccount` is the BIP-84 ACCOUNT extended private key (m/84'/coin'/0')
+  // for the plain address chain — what lets the wallet hand out a fresh plain
+  // address per payment and sign from it without re-entering the recovery
+  // phrase. A smaller secret than the spendKey stored beside it: it reaches one
+  // branch holding coins in transit, where the spend key reaches the whole
+  // wallet. The name matches the mobile keystore field, which is a key in blobs
+  // already on devices and so cannot be renamed.
+  async function storeWalletKeys(walletId, scanSecret, spendKey, refundAddress, sweepAccount) {
     if (typeof window.ThrillaBridge !== 'undefined') {
       try {
         window.ThrillaBridge.storeWalletKeys(walletId, scanSecret, spendKey)
@@ -213,7 +221,7 @@ export const useAuthStore = defineStore('auth', () => {
       return true
     }
     try {
-      await vaultStore(walletId, { scanSecret, spendKey, refundAddress }, _keyMaterial())
+      await vaultStore(walletId, { scanSecret, spendKey, refundAddress, sweepAccount }, _keyMaterial())
       markVault(walletId, true)
       _keyIndex.value = vaultIndexList()
       // verify round-trip

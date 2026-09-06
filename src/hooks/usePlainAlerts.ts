@@ -88,8 +88,7 @@ export function usePlainAlerts() {
       if (!keys?.sweepAccount) return null;
 
       const chain = await loadPlainChain(
-        inkey,
-        wallet.id,
+        (addresses) => api.getPlainPreview(inkey, wallet.id, addresses),
         keys.sweepAccount,
         wallet.network,
       );

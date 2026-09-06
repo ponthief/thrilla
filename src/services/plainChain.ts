@@ -1,4 +1,3 @@
-import * as api from './api';
 import { plainAddressAt, plainKeyAt } from './spKeys';
 
 // Walks the wallet's plain BIP-84 chain to find the next unused address and
@@ -8,6 +7,59 @@ import { plainAddressAt, plainKeyAt } from './spKeys';
 // ever sees the batch of addresses it is asked about — it is never given the
 // xpub, so it cannot derive the next address, and every address it learns is one
 // the user actually used. That is the whole point of doing this client-side.
+
+// ── Wire shapes ─────────────────────────────────────────────────────────────
+// Owned here rather than in a client, because both the React Native app and the
+// Vue web app walk this chain and each has its own HTTP layer. `preview` below
+// is injected for the same reason: the walk and the coin selection are the
+// fiddly parts and are worth having in exactly one place.
+
+export interface PlainUtxo {
+  address: string;
+  txid: string;
+  vout: number;
+  amount: number;
+  height: number;
+}
+
+export interface PlainAddressState {
+  address: string;
+  // True if the address has ANY history, spent or not — what decides whether it
+  // can still be handed out. A used-and-emptied address has no UTXOs but must
+  // never be shown again.
+  used: boolean;
+  utxos: PlainUtxo[];
+  confirmed_sats: number;
+  unconfirmed_sats: number;
+}
+
+export interface PlainPreview {
+  addresses: PlainAddressState[];
+  utxos: PlainUtxo[];
+  confirmed_sats: number;
+  // Coins seen but not yet mined. Never spent: an unconfirmed payment can still
+  // be replaced, which would orphan anything built on top of it.
+  unconfirmed_sats: number;
+}
+
+export interface BuiltPlainTx {
+  tx_hex: string;
+  amount: number;
+  // Zero when sending everything, which empties the addresses outright.
+  change: number;
+  fee: number;
+  total_input: number;
+  vsize: number;
+  fee_rate_used: number;
+  input_count: number;
+  swept_addresses: string[]; // the addresses this spends from
+  unconfirmed_sats: number;
+  destination?: string;
+}
+
+// Asks the backend about a batch of addresses. Supplied by the caller's own API
+// client.
+export type PreviewFn = (addresses: string[]) => Promise<PlainPreview>;
 
 // Standard BIP-84 gap limit: stop after this many consecutive unused addresses.
 // Same figure the PayJoin watch-only wallet uses (siLNt/helpers/payjoin_wallet).
@@ -27,7 +79,7 @@ export interface PlainChainState {
   // to keep an eye on: a service with a saved withdrawal address will pay an old
   // one again long after it was emptied.
   usedIndices: number[];
-  utxos: api.PlainUtxo[];
+  utxos: PlainUtxo[];
   confirmedSats: number;
   unconfirmedSats: number;
   // index → address for everything walked, so callers can group UTXOs back to
@@ -36,12 +88,11 @@ export interface PlainChainState {
 }
 
 export async function loadPlainChain(
-  inkey: string,
-  walletId: string,
+  preview: PreviewFn,
   accountXprv: string,
   network: string,
 ): Promise<PlainChainState> {
-  const state: Record<number, api.PlainAddressState> = {};
+  const state: Record<number, PlainAddressState> = {};
   let scanned = 0;
 
   // Ask in batches rather than one address at a time: each batch is a single
@@ -53,11 +104,7 @@ export async function loadPlainChain(
     }
     if (!batch.length) break;
 
-    const res = await api.getPlainPreview(
-      inkey,
-      walletId,
-      batch.map((i) => plainAddressAt(accountXprv, network, i)),
-    );
+    const res = await preview(batch.map((i) => plainAddressAt(accountXprv, network, i)));
     // The backend answers in the order it was asked, but pair by address rather
     // than by position so a reordering can never mis-attribute coins to the
     // wrong derivation index — that would sign with the wrong key.
