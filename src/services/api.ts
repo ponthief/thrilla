@@ -711,9 +711,10 @@ export async function broadcastTx(
 
 // ── Sweep (plain bech32 addresses → this wallet) ────────────────────────────
 //
-// For paying-in from anything that can't send to a Silent Payments address —
-// an exchange withdrawal, mostly. Coins land on the wallet's BIP-84 chain (the
-// same chain a swap refund uses) and sit there until swept in.
+// For being paid by anything that can't send to a Silent Payments address — an
+// exchange, a payroll provider, any service that only knows bech32. Coins land
+// on the wallet's BIP-84 chain (the same chain a swap refund uses) and sit there
+// until swept in.
 //
 // The device derives the addresses and asks about a window of them. The server
 // is never given the xpub, so it learns the addresses actually in play and

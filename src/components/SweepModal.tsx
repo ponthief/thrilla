@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Modal,
@@ -63,8 +63,8 @@ export default function SweepModal({
   const [busy, setBusy] = useState(false);
   const [building, setBuilding] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [built, setBuilt] = useState<api.BuiltSweep | null>(null);
-  const [txid, setTxid] = useState<string | null>(null);
+  const [built, setBuilt] = useState<api.BuiltSweep[]>([]);
+  const [sent, setSent] = useState<string[]>([]);
 
   const build = useCallback(
     async (rate: number) => {
@@ -76,16 +76,49 @@ export default function SweepModal({
       setBuilding(true);
       setError(null);
       try {
-        setBuilt(
-          await api.buildSweepTx(
-            adminkey,
-            wallet.id,
-            keysForIndices(accountXprv, wallet.network, fundedIndices),
-            rate,
-          ),
+        // ONE TRANSACTION PER ADDRESS, deliberately.
+        //
+        // Sweeping several funded addresses together would spend them as inputs
+        // to the same transaction, and common-input-ownership then links them
+        // publicly and permanently — undoing exactly the separation that
+        // rotating the receive address bought. Two payments that arrived on two
+        // fresh addresses stay unlinked only if they leave separately.
+        //
+        // The cost is one fee per address instead of one in total. Worth it: the
+        // linkage is forever, the fee is once. The common case is a single
+        // funded address, where this is identical to what it replaced.
+        //
+        // Sequential rather than parallel — each build re-scans through the
+        // chain index, and hammering it with N at once is rude for no gain.
+        const results: api.BuiltSweep[] = [];
+        const failures: string[] = [];
+        for (const index of fundedIndices) {
+          try {
+            results.push(
+              await api.buildSweepTx(
+                adminkey,
+                wallet.id,
+                keysForIndices(accountXprv, wallet.network, [index]),
+                rate,
+              ),
+            );
+          } catch (e: any) {
+            // Most likely this address alone is below dust once it pays its own
+            // fee. Keep the others: a partial sweep is still a sweep, and each
+            // transaction stands alone.
+            failures.push(e?.message || 'could not be built');
+          }
+        }
+        setBuilt(results);
+        setError(
+          failures.length && results.length
+            ? `${failures.length} address(es) skipped: ${failures[0]}`
+            : failures.length
+            ? failures[0]
+            : null,
         );
       } catch (e: any) {
-        setBuilt(null);
+        setBuilt([]);
         setError(e?.message || 'Could not build the sweep.');
       } finally {
         setBuilding(false);
@@ -114,8 +147,8 @@ export default function SweepModal({
     started.current = true;
 
     setStage('review');
-    setBuilt(null);
-    setTxid(null);
+    setBuilt([]);
+    setSent([]);
     setError(null);
     let cancelled = false;
     // A sweep is never urgent — start from the half-hour rate rather than the
@@ -140,6 +173,19 @@ export default function SweepModal({
     };
   }, [visible, inkey]);
 
+  // The review shows the sweep as a whole; the split into one transaction per
+  // address is a privacy mechanism, not something to make the user add up.
+  const totals = useMemo(
+    () => ({
+      amount: built.reduce((n, b) => n + b.amount, 0),
+      fee: built.reduce((n, b) => n + b.fee, 0),
+      total: built.reduce((n, b) => n + b.total_input, 0),
+      inputs: built.reduce((n, b) => n + b.input_count, 0),
+      unconfirmed: built.reduce((n, b) => n + b.unconfirmed_sats, 0),
+    }),
+    [built],
+  );
+
   const onRebuild = useCallback(() => {
     const rate = Number(feeRate);
     if (!Number.isFinite(rate) || rate <= 0) {
@@ -150,34 +196,48 @@ export default function SweepModal({
   }, [feeRate, build]);
 
   const onConfirm = useCallback(async () => {
-    if (!built || !adminkey) return;
+    if (!built.length || !adminkey) return;
     setError(null);
     setBusy(true);
-    try {
-      const res = await api.broadcastSweepTx(adminkey, wallet.id, built.tx_hex);
-      setTxid(res.txid);
-      // Watched like a pending send: the shared watcher notices the first
-      // confirmation and scans that block, which is what actually brings the
-      // swept coins into the wallet. Only an optimisation — the watch list is
-      // in memory, so closing the app loses it, and the catch-up scan on the
-      // next wallet open finds the output anyway (a bounded scan never advances
-      // last_height, so the gap it covers still includes this block).
-      usePendingSends.getState().add({
-        txid: res.txid,
-        walletId: wallet.id,
-        amountSats: built.amount,
-        kind: 'sweep',
-      });
-      // Name it on the device now, so the row reads "Swept in" while pending and
-      // keeps that name once the server row takes over — otherwise it would
-      // confirm into an anonymous "Received". Device-only, like every other
-      // transaction label (see services/txLabels).
-      useTxLabelStore.getState().setLabel(res.txid, 'Swept in');
+    const broadcast: string[] = [];
+    let failure: string | null = null;
+    // Each transaction spends different coins, so one failing leaves the others
+    // valid — send what can be sent and report the rest, rather than abandoning
+    // a sweep that mostly worked.
+    for (const tx of built) {
+      try {
+        const res = await api.broadcastSweepTx(adminkey, wallet.id, tx.tx_hex);
+        broadcast.push(res.txid);
+        // Watched like a pending send: the shared watcher notices the first
+        // confirmation and scans that block, which is what actually brings the
+        // swept coins into the wallet. Only an optimisation — the watch list is
+        // in memory, so closing the app loses it, and the catch-up scan on the
+        // next wallet open finds the output anyway (a bounded scan never
+        // advances last_height, so the gap it covers still includes this block).
+        usePendingSends.getState().add({
+          txid: res.txid,
+          walletId: wallet.id,
+          amountSats: tx.amount,
+          kind: 'sweep',
+        });
+        // Name it on the device now, so the row reads "Swept in" while pending
+        // and keeps that name once the server row takes over — otherwise it
+        // would confirm into an anonymous "Received". Device-only, like every
+        // other transaction label (see services/txLabels).
+        useTxLabelStore.getState().setLabel(res.txid, 'Swept in');
+      } catch (e: any) {
+        failure = e?.message || 'Broadcast failed.';
+      }
+    }
+    setSent(broadcast);
+    setBusy(false);
+    if (broadcast.length) {
+      setError(
+        failure ? `${built.length - broadcast.length} of ${built.length} failed.` : null,
+      );
       setStage('done');
-    } catch (e: any) {
-      setError(e?.message || 'Broadcast failed.');
-    } finally {
-      setBusy(false);
+    } else {
+      setError(failure);
     }
   }, [built, adminkey, wallet.id]);
 
@@ -190,41 +250,36 @@ export default function SweepModal({
               <>
                 <Text style={styles.heading}>Sweep into wallet</Text>
                 <Text style={styles.sub}>
-                  Everything on your sweep addresses moves into this wallet in one
-                  transaction. Nothing is left behind.
+                  {built.length > 1
+                    ? `Everything on your sweep addresses moves into this wallet, one transaction per address so they stay unlinked on-chain.`
+                    : 'Everything on your sweep address moves into this wallet. Nothing is left behind.'}
                 </Text>
 
                 {building ? (
                   <ActivityIndicator color={PRIMARY} style={styles.spinner} />
                 ) : null}
 
-                {built ? (
+                {built.length ? (
                   <>
-                    <Row
-                      label="Moving in"
-                      value={`${groupThousands(built.amount)} sats`}
-                    />
+                    <Row label="Moving in" value={`${groupThousands(totals.amount)} sats`} />
                     <Row
                       label="Network fee"
-                      value={`${groupThousands(built.fee)} sats`}
+                      value={`${groupThousands(totals.fee)} sats`}
                     />
                     <Row
                       label="Coins"
-                      value={`${built.input_count} (${groupThousands(
-                        built.total_input,
-                      )} sats)`}
+                      value={`${totals.inputs} (${groupThousands(totals.total)} sats)`}
                     />
-                    {built.swept_addresses.length > 1 ? (
+                    {built.length > 1 ? (
                       <Row
-                        label="Addresses"
-                        value={String(built.swept_addresses.length)}
+                        label="Transactions"
+                        value={`${built.length}, one per address`}
                       />
                     ) : null}
-                    {built.unconfirmed_sats > 0 ? (
+                    {totals.unconfirmed > 0 ? (
                       <Text style={styles.hint}>
-                        {groupThousands(built.unconfirmed_sats)} sats aren't
-                        confirmed yet and are not included. Sweep again once
-                        they're mined.
+                        {groupThousands(totals.unconfirmed)} sats aren't confirmed
+                        yet and are not included. Sweep again once they're mined.
                       </Text>
                     ) : null}
                   </>
@@ -250,13 +305,20 @@ export default function SweepModal({
                 {error ? <Text style={styles.error}>{error}</Text> : null}
 
                 <TouchableOpacity
-                  style={[styles.primaryBtn, (busy || !built) && styles.btnDisabled]}
+                  style={[
+                    styles.primaryBtn,
+                    (busy || !built.length) && styles.btnDisabled,
+                  ]}
                   onPress={onConfirm}
-                  disabled={busy || !built}>
+                  disabled={busy || !built.length}>
                   {busy ? (
                     <ActivityIndicator color={colors.onPrimary} />
                   ) : (
-                    <Text style={styles.primaryBtnText}>Broadcast sweep</Text>
+                    <Text style={styles.primaryBtnText}>
+                      {built.length > 1
+                        ? `Broadcast ${built.length} transactions`
+                        : 'Broadcast sweep'}
+                    </Text>
                   )}
                 </TouchableOpacity>
                 <TouchableOpacity
@@ -268,13 +330,20 @@ export default function SweepModal({
               </>
             ) : (
               <>
-                <Text style={styles.heading}>Sweep sent</Text>
+                <Text style={styles.heading}>
+                  {sent.length > 1 ? `${sent.length} sweeps sent` : 'Sweep sent'}
+                </Text>
                 <Text style={styles.sub}>
-                  Broadcast. The coins land in your balance once the transaction
-                  confirms and the block is scanned — you'll get a notice when
+                  Broadcast. The coins land in your balance once each transaction
+                  confirms and its block is scanned — you'll get a notice when
                   that happens.
                 </Text>
-                <Text style={styles.mono}>{txid}</Text>
+                {error ? <Text style={styles.error}>{error}</Text> : null}
+                {sent.map((id) => (
+                  <Text key={id} style={styles.mono}>
+                    {id}
+                  </Text>
+                ))}
                 <TouchableOpacity style={styles.primaryBtn} onPress={onClose}>
                   <Text style={styles.primaryBtnText}>Done</Text>
                 </TouchableOpacity>
