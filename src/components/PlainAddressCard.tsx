@@ -10,12 +10,12 @@ import Clipboard from '@react-native-clipboard/clipboard';
 import * as api from '@services/api';
 import { useAuthStore } from '@stores/authStore';
 import { getWalletKeys } from '@services/secureKeys';
-import { loadSweepChain, SweepChainState } from '@services/sweepChain';
-import { usePendingSends } from '@stores/pendingSends';
+import { loadPlainChain, PlainChainState } from '@services/plainChain';
 import { useNavStore } from '@stores/navStore';
-import { useSweepStatus } from '@stores/sweepStatus';
+import { usePlainStatus, plainSpendSettled } from '@stores/plainStatus';
 import QRCode from './QRCode';
-import SweepModal, { SweepSetupModal } from './SweepModal';
+import PlainSendModal from './PlainSendModal';
+import PlainSetupModal from './PlainSetupModal';
 import { colors } from '@/theme';
 
 const PRIMARY = colors.primary;
@@ -36,50 +36,51 @@ interface Props {
 }
 
 /**
- * The wallet's plain bech32 address, for being paid by anything that can't send
- * to a Silent Payments address.
+ * A plain bech32 pocket beside the Silent Payments wallet: receive to it, and
+ * pay straight out of it, for anyone who can't handle an sp1… address.
  *
- * A fresh address every time. The device walks its own BIP-84 chain from the
- * account key held in the keystore and shows the first address with no history,
- * so two payments never share one. The server is asked about a window of derived
- * addresses but never given the xpub, so it cannot derive the next.
+ * The coins never enter the SP wallet, and there is deliberately no "move them
+ * in" button. Doing so would be a second transaction and a second fee for coins
+ * that are only passing through, and it would tie them to an output sitting
+ * alongside the wallet's own. Anyone who does want them there can send to their
+ * own SP address — it's a destination like any other.
+ *
+ * A fresh receive address every time. The device walks its own BIP-84 chain from
+ * the account key held in the keystore and shows the first address with no
+ * history, so two payments never share one. The server is asked about a window
+ * of derived addresses but never given the xpub, so it cannot derive the next.
  *
  * Collapsed by default: the Silent Payments address above needs none of this
  * machinery and should be used wherever the sender will accept it.
  */
-export default function SweepCard({ wallet }: Props) {
+export default function PlainAddressCard({ wallet }: Props) {
   const inkey = useAuthStore((s) => s.inkey);
-  const confirmedTick = usePendingSends((s) => s.confirmedTick);
-  // A sweep this wallet has broadcast but that hasn't confirmed yet. Its inputs
-  // are spent, but the chain index can still be listing them as unspent for a
-  // little while — a mempool spend takes a moment to reach Fulcrum. Without
-  // this, the card reads that stale answer back as "there are funds to sweep"
-  // and offers to sweep coins that are already on their way, which would build
-  // a conflicting transaction. The watcher clears the entry on the first
-  // confirmation.
-  const pendingSweep = usePendingSends((s) =>
-    s.sends.find((x) => x.kind === 'sweep' && x.walletId === wallet.id),
-  );
+  // A payment broadcast from here that the chain index hasn't caught up with.
+  // Its inputs are spent, but a mempool spend takes a moment to reach Fulcrum,
+  // and without this the card reads that stale answer back as spendable and
+  // offers coins that are already on their way — building a conflicting
+  // transaction. Cleared once a walk disagrees with the balance at broadcast.
+  const pendingSpend = usePlainStatus((s) => s.pendingSpend);
 
   const [open, setOpen] = useState(false);
   const [accountXprv, setAccountXprv] = useState<string | null>(null);
-  const [chain, setChain] = useState<SweepChainState | null>(null);
+  const [chain, setChain] = useState<PlainChainState | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
-  const [sweepOpen, setSweepOpen] = useState(false);
+  const [spendOpen, setSpendOpen] = useState(false);
   const [setupOpen, setSetupOpen] = useState(false);
   // Bumped by the prompt on the wallet screen, which is how most people will
   // arrive here — the card is otherwise collapsed and easily missed.
-  const sweepRequest = useNavStore((s) => s.sweepRequest);
+  const plainRequest = useNavStore((s) => s.plainRequest);
   useEffect(() => {
-    if (sweepRequest > 0) setOpen(true);
-  }, [sweepRequest]);
+    if (plainRequest > 0) setOpen(true);
+  }, [plainRequest]);
 
   const refresh = useCallback(async () => {
     if (!inkey) return;
-    // Wallets stored before the sweep chain existed have no account key; those
-    // need the recovery phrase once, via SweepSetupModal.
+    // Wallets stored before the plain chain existed have no account key; those
+    // need the recovery phrase once, via PlainSetupModal.
     const keys = await getWalletKeys(wallet.id);
     const xprv = keys?.sweepAccount || null;
     setAccountXprv(xprv);
@@ -90,17 +91,22 @@ export default function SweepCard({ wallet }: Props) {
     setLoading(true);
     setError(null);
     try {
-      const next = await loadSweepChain(inkey, wallet.id, xprv, wallet.network);
+      const next = await loadPlainChain(inkey, wallet.id, xprv, wallet.network);
       setChain(next);
+      // Drop the in-flight marker once the index reflects the payment (or once
+      // waiting for it stops being worth blocking on).
+      if (plainSpendSettled(usePlainStatus.getState().pendingSpend, next.confirmedSats)) {
+        usePlainStatus.getState().clearSpent();
+      }
       // Share what we just learned, so the wallet screen's prompt reflects a
       // manual refresh instead of waiting for the background watcher's poll.
-      useSweepStatus.getState().set({
+      usePlainStatus.getState().set({
         walletId: wallet.id,
-        sweepableSats: next.confirmedSats,
+        spendableSats: next.confirmedSats,
         unconfirmedSats: next.unconfirmedSats,
       });
     } catch (e: any) {
-      setError(e?.message || 'Could not check your sweep addresses.');
+      setError(e?.message || 'Could not check your plain addresses.');
     } finally {
       setLoading(false);
     }
@@ -108,11 +114,9 @@ export default function SweepCard({ wallet }: Props) {
 
   useEffect(() => {
     // Only reach for the chain index once the user has actually opened this —
-    // it is a round trip for a card most people will never use. confirmedTick
-    // re-checks after a sweep confirms, so the balance clears and a new receive
-    // address appears without a manual refresh.
+    // it is a round trip for a card most people will never use.
     if (open) refresh();
-  }, [open, confirmedTick, refresh]);
+  }, [open, refresh]);
 
   const onCopy = useCallback(() => {
     if (!chain) return;
@@ -136,13 +140,14 @@ export default function SweepCard({ wallet }: Props) {
   }
 
   const sats = chain?.confirmedSats ?? 0;
-  const canSweep =
-    !pendingSweep && sats > 0 && !!accountXprv && !!chain?.fundedIndices.length;
+  const inFlight = !!pendingSpend;
+  const hasCoins = sats > 0 && !!accountXprv && !!chain?.fundedIndices.length;
+  const canSend = !inFlight && hasCoins;
 
   return (
     <View style={styles.card}>
       <View style={styles.titleRow}>
-        <Text style={styles.title}>Sweep address</Text>
+        <Text style={styles.title}>Plain address</Text>
         <TouchableOpacity onPress={() => setOpen(false)}>
           <Text style={styles.hideBtn}>Hide</Text>
         </TouchableOpacity>
@@ -151,11 +156,11 @@ export default function SweepCard({ wallet }: Props) {
       {!accountXprv ? (
         <>
           <Text style={styles.caption}>
-            This wallet predates sweep addresses. Enter your recovery phrase once
+            This wallet predates plain addresses. Enter your recovery phrase once
             to set them up — after that it's handled on this device.
           </Text>
           <TouchableOpacity style={styles.primaryBtn} onPress={() => setSetupOpen(true)}>
-            <Text style={styles.primaryBtnText}>Set up sweeping</Text>
+            <Text style={styles.primaryBtnText}>Set up</Text>
           </TouchableOpacity>
         </>
       ) : loading && !chain ? (
@@ -188,24 +193,21 @@ export default function SweepCard({ wallet }: Props) {
 
           {error ? <Text style={styles.error}>{error}</Text> : null}
 
-          {pendingSweep ? (
+          {pendingSpend ? (
             <View style={styles.balanceBox}>
-              <Text style={styles.balanceLabel}>Sweep on its way</Text>
-              <Text style={styles.balanceValue}>
-                {groupThousands(pendingSweep.amountSats ?? 0)} sats
-              </Text>
+              <Text style={styles.balanceLabel}>Payment on its way</Text>
               <Text style={styles.balanceHint}>
-                Lands in your balance once it confirms
+                Waiting for the chain index to catch up
               </Text>
             </View>
           ) : (
             <View style={styles.balanceBox}>
-              <Text style={styles.balanceLabel}>Waiting to be swept</Text>
+              <Text style={styles.balanceLabel}>Available here</Text>
               <Text style={styles.balanceValue}>{groupThousands(sats)} sats</Text>
               {chain.unconfirmedSats > 0 ? (
                 <Text style={styles.balanceHint}>
                   + {groupThousands(chain.unconfirmedSats)} sats unconfirmed —
-                  sweepable once mined
+                  spendable once mined
                 </Text>
               ) : null}
               {chain.fundedIndices.length > 1 ? (
@@ -217,15 +219,22 @@ export default function SweepCard({ wallet }: Props) {
           )}
 
           <TouchableOpacity
-            style={[styles.primaryBtn, !canSweep && styles.btnDisabled]}
-            onPress={() => setSweepOpen(true)}
-            disabled={!canSweep}>
-            <Text style={styles.primaryBtnText}>Sweep into wallet</Text>
+            style={[styles.primaryBtn, !canSend && styles.btnDisabled]}
+            onPress={() => setSpendOpen(true)}
+            disabled={!canSend}>
+            <Text style={styles.primaryBtnText}>Send these coins</Text>
           </TouchableOpacity>
-          {!canSweep && !pendingSweep ? (
+          {hasCoins && !inFlight ? (
             <Text style={styles.hint}>
-              Nothing to sweep yet. Send coins to the address above, then check
-              back once they confirm.
+              Paid straight from here, so these coins are never linked to the rest
+              of your balance. To hold them in the wallet instead, send them to
+              your own Silent Payments address.
+            </Text>
+          ) : null}
+          {!hasCoins && !inFlight ? (
+            <Text style={styles.hint}>
+              Nothing here yet. Send coins to the address above, then check back
+              once they confirm.
             </Text>
           ) : null}
         </>
@@ -238,25 +247,32 @@ export default function SweepCard({ wallet }: Props) {
         </>
       )}
 
-      {sweepOpen && accountXprv && chain ? (
-        <SweepModal
+      {spendOpen && accountXprv && chain ? (
+        <PlainSendModal
           visible
           wallet={wallet}
           accountXprv={accountXprv}
-          fundedIndices={chain.fundedIndices}
-          // Re-check on the way out, not the moment the sweep is broadcast:
-          // refreshing under an open modal churns the props it was opened with,
-          // and the chain index has not seen the spend that soon anyway. Until
-          // then the pending-sweep entry above is what the card goes on.
+          chain={chain}
+          // Re-check on the way out, not the moment it is broadcast: refreshing
+          // under an open modal churns the props it was opened with, and the
+          // chain index has not seen the spend that soon anyway. Until then the
+          // in-flight marker above is what the card goes on.
           onClose={() => {
-            setSweepOpen(false);
+            setSpendOpen(false);
             refresh();
           }}
+          onSpent={(txid) =>
+            usePlainStatus.getState().markSpent({
+              txid,
+              balanceAtSpend: chain.confirmedSats,
+              at: Date.now(),
+            })
+          }
         />
       ) : null}
 
       {setupOpen ? (
-        <SweepSetupModal
+        <PlainSetupModal
           visible
           wallet={wallet}
           onClose={() => setSetupOpen(false)}

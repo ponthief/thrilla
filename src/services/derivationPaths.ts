@@ -11,20 +11,20 @@ export function coinType(network: string): number {
   return network === 'mainnet' ? 0 : 1;
 }
 
-// BIP-84 account, the level an xprv/xpub is normally exported at. The sweep
-// chain hangs off this, so the device can derive any receive address from the
+// BIP-84 account, the level an xprv/xpub is normally exported at. The plain
+// address chain hangs off this, so the device can derive any address from the
 // account key alone without going back to the seed.
-export function sweepAccountPath(network: string): string {
+export function plainAccountPath(network: string): string {
   return `m/84'/${coinType(network)}'/0'`;
 }
 
 // BIP-84 external chain — where a failed swap's refund lands, and where coins
-// paid in from a service that can't send to a Silent Payments address arrive.
+// paid by anything that can't send to a Silent Payments address arrive.
 // Standard on purpose: the same seed reaches it in Sparrow, Electrum or any
 // other wallet, which is what makes the funds recoverable without Thrilla.
 export function refundDerivationPath(network: string, index = 0): string {
-  return `${sweepAccountPath(network)}/0/${index}`;
+  return `${plainAccountPath(network)}/0/${index}`;
 }
 
 // The same address relative to the account key rather than the seed.
-export const SWEEP_CHAIN_PATH = '0';
+export const PLAIN_CHAIN_PATH = '0';

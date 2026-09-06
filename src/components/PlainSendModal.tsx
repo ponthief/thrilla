@@ -1,0 +1,438 @@
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import {
+  ActivityIndicator,
+  Modal,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
+} from 'react-native';
+import * as api from '@services/api';
+import { useAuthStore } from '@stores/authStore';
+import {
+  keysForIndices,
+  selectPlainCoins,
+  PlainChainState,
+} from '@services/plainChain';
+import { colors } from '@/theme';
+
+const PRIMARY = colors.primary;
+
+function groupThousands(n: number): string {
+  return Math.floor(n)
+    .toString()
+    .replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+}
+
+// Plain on-chain, or a Silent Payments address. NOT BitMail: resolving one here
+// would skip the tamper check that /tx/build performs against the DNS record
+// siLNt issued, and a send path without that guard is not one to add quietly.
+function destinationKind(v: string): 'onchain' | 'sp' | '' {
+  const s = v.trim().toLowerCase();
+  if (!s) return '';
+  if (s.startsWith('sp1') || s.startsWith('tsp1')) return 'sp';
+  if (s.startsWith('bc1') || s.startsWith('tb1') || s.startsWith('bcrt1')) {
+    return 'onchain';
+  }
+  return '';
+}
+
+type Stage = 'compose' | 'review' | 'done';
+
+interface Props {
+  visible: boolean;
+  wallet: api.SilntWallet;
+  accountXprv: string;
+  chain: PlainChainState;
+  onClose: () => void;
+  onSpent: (txid: string, amountSats: number) => void;
+}
+
+/**
+ * Pays straight out of the plain BIP-84 chain, without the coins passing through
+ * the Silent Payments wallet — one transaction rather than two, and nothing ties
+ * them to the rest of the balance.
+ *
+ * The destination can be an ordinary address or a Silent Payments one. Paying
+ * your own SP address is how you move these coins into the wallet, if that is
+ * what you want; it is a destination, not a special mode.
+ *
+ * Coin selection pays from ONE address wherever one covers the amount — spending
+ * two together publishes that they share an owner, which is what rotating the
+ * receive address exists to avoid. When no single address is enough, it says so
+ * before signing rather than after.
+ */
+export default function PlainSendModal({
+  visible,
+  wallet,
+  accountXprv,
+  chain,
+  onClose,
+  onSpent,
+}: Props) {
+  const adminkey = useAuthStore((s) => s.adminkey);
+  const inkey = useAuthStore((s) => s.inkey);
+
+  const [stage, setStage] = useState<Stage>('compose');
+  const [destination, setDestination] = useState('');
+  const [amount, setAmount] = useState('');
+  const [sendMax, setSendMax] = useState(false);
+  const [feeRate, setFeeRate] = useState('1');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [built, setBuilt] = useState<api.BuiltPlainTx | null>(null);
+  const [txid, setTxid] = useState<string | null>(null);
+
+  const started = useRef(false);
+  useEffect(() => {
+    if (!visible) {
+      started.current = false;
+      return;
+    }
+    if (started.current) return;
+    started.current = true;
+    setStage('compose');
+    setDestination('');
+    setAmount('');
+    setSendMax(false);
+    setBuilt(null);
+    setTxid(null);
+    setError(null);
+    if (inkey) {
+      api
+        .getRecommendedFees(inkey)
+        .then((t) => setFeeRate(String(t.halfHourFee ?? t.hourFee ?? t.fastestFee ?? 1)))
+        .catch(() => {
+          /* keep the default; the field is editable */
+        });
+    }
+  }, [visible, inkey]);
+
+  const amountSats = sendMax ? null : Math.floor(Number(amount) || 0);
+  const selection = useMemo(
+    () => selectPlainCoins(chain, amountSats),
+    [chain, amountSats],
+  );
+  const kind = destinationKind(destination);
+
+  const canReview =
+    !!kind &&
+    selection.indices.length > 0 &&
+    (sendMax || (amountSats != null && amountSats > 0)) &&
+    !selection.shortBy &&
+    Number(feeRate) > 0;
+
+  const onBuild = useCallback(async () => {
+    if (!adminkey) {
+      setError('Not logged in.');
+      return;
+    }
+    setError(null);
+    setBusy(true);
+    try {
+      const res = await api.buildPlainSpend(
+        adminkey,
+        wallet.id,
+        keysForIndices(accountXprv, wallet.network, selection.indices),
+        destination.trim(),
+        amountSats,
+        // Change comes back to the pool's next unused address, so a pay-out
+        // does not put the remainder back on an address that has now been seen
+        // spending.
+        sendMax ? null : chain.receiveAddress,
+        Number(feeRate),
+      );
+      setBuilt(res);
+      setStage('review');
+    } catch (e: any) {
+      setError(e?.message || 'Could not build the payment.');
+    } finally {
+      setBusy(false);
+    }
+  }, [
+    adminkey,
+    wallet.id,
+    wallet.network,
+    accountXprv,
+    selection.indices,
+    destination,
+    amountSats,
+    sendMax,
+    chain.receiveAddress,
+    feeRate,
+  ]);
+
+  const onConfirm = useCallback(async () => {
+    if (!built || !adminkey) return;
+    setError(null);
+    setBusy(true);
+    try {
+      const res = await api.broadcastPlainTx(adminkey, wallet.id, built.tx_hex);
+      setTxid(res.txid);
+      onSpent(res.txid, built.amount);
+      setStage('done');
+    } catch (e: any) {
+      setError(e?.message || 'Broadcast failed.');
+    } finally {
+      setBusy(false);
+    }
+  }, [built, adminkey, wallet.id, onSpent]);
+
+  return (
+    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
+      <View style={styles.backdrop}>
+        <View style={styles.sheet}>
+          <ScrollView keyboardShouldPersistTaps="handled">
+            {stage === 'compose' ? (
+              <>
+                <Text style={styles.heading}>Send</Text>
+                <Text style={styles.sub}>
+                  Pays straight out of your plain addresses. These coins never
+                  enter your Silent Payments wallet, so nothing links them to the
+                  rest of your balance.
+                </Text>
+
+                <Text style={styles.label}>To</Text>
+                <TextInput
+                  style={styles.input}
+                  value={destination}
+                  onChangeText={setDestination}
+                  placeholder="bc1… or sp1…"
+                  placeholderTextColor={colors.faint}
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                  multiline
+                />
+                {destination.trim() && !kind ? (
+                  <Text style={styles.hint}>
+                    Enter an on-chain address or a Silent Payments address. BitMail
+                    isn't supported here — send those from the wallet.
+                  </Text>
+                ) : null}
+
+                <Text style={styles.label}>Amount (sats)</Text>
+                <View style={styles.amountRow}>
+                  <TextInput
+                    style={[styles.input, styles.amountInput]}
+                    value={sendMax ? String(selection.availableSats) : amount}
+                    onChangeText={setAmount}
+                    editable={!sendMax}
+                    keyboardType="numeric"
+                    placeholder="0"
+                    placeholderTextColor={colors.faint}
+                  />
+                  <TouchableOpacity
+                    style={[styles.maxBtn, sendMax && styles.maxBtnOn]}
+                    onPress={() => setSendMax((v) => !v)}>
+                    <Text style={[styles.maxBtnText, sendMax && styles.maxBtnTextOn]}>
+                      Max
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+                <Text style={styles.hint}>
+                  {groupThousands(selection.availableSats)} sats available
+                  {selection.indices.length > 1
+                    ? ` across ${selection.indices.length} addresses`
+                    : ' on one address'}
+                  {sendMax ? ', minus the fee' : ''}.
+                </Text>
+
+                {selection.shortBy ? (
+                  <Text style={styles.error}>
+                    {groupThousands(selection.shortBy)} sats short, even using every
+                    address.
+                  </Text>
+                ) : null}
+
+                {selection.linksAddresses ? (
+                  <View style={styles.warnBox}>
+                    <Text style={styles.warnText}>
+                      No single address holds this much, so{' '}
+                      {selection.indices.length} will be spent together — which
+                      publishes that they're the same owner. Send a smaller amount
+                      to keep them separate.
+                    </Text>
+                  </View>
+                ) : null}
+
+                <Text style={styles.label}>Fee rate (sat/vB)</Text>
+                <TextInput
+                  style={styles.input}
+                  value={feeRate}
+                  onChangeText={setFeeRate}
+                  keyboardType="numeric"
+                  placeholderTextColor={colors.faint}
+                />
+
+                {error ? <Text style={styles.error}>{error}</Text> : null}
+
+                <TouchableOpacity
+                  style={[styles.primaryBtn, (busy || !canReview) && styles.btnDisabled]}
+                  onPress={onBuild}
+                  disabled={busy || !canReview}>
+                  {busy ? (
+                    <ActivityIndicator color={colors.onPrimary} />
+                  ) : (
+                    <Text style={styles.primaryBtnText}>Review</Text>
+                  )}
+                </TouchableOpacity>
+                <TouchableOpacity style={styles.linkBtn} onPress={onClose} disabled={busy}>
+                  <Text style={styles.linkBtnText}>Cancel</Text>
+                </TouchableOpacity>
+              </>
+            ) : null}
+
+            {stage === 'review' && built ? (
+              <>
+                <Text style={styles.heading}>Confirm payment</Text>
+                <Text style={styles.mono}>{destination.trim()}</Text>
+
+                <Row label="Sending" value={`${groupThousands(built.amount)} sats`} />
+                <Row label="Network fee" value={`${groupThousands(built.fee)} sats`} />
+                {built.change > 0 ? (
+                  <Row
+                    label="Change back here"
+                    value={`${groupThousands(built.change)} sats`}
+                  />
+                ) : null}
+                <Row
+                  label="From"
+                  value={`${built.input_count} coin${
+                    built.input_count === 1 ? '' : 's'
+                  } on ${built.swept_addresses.length} address${
+                    built.swept_addresses.length === 1 ? '' : 'es'
+                  }`}
+                />
+
+                {error ? <Text style={styles.error}>{error}</Text> : null}
+
+                <TouchableOpacity
+                  style={[styles.primaryBtn, busy && styles.btnDisabled]}
+                  onPress={onConfirm}
+                  disabled={busy}>
+                  {busy ? (
+                    <ActivityIndicator color={colors.onPrimary} />
+                  ) : (
+                    <Text style={styles.primaryBtnText}>Send</Text>
+                  )}
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={styles.linkBtn}
+                  onPress={() => setStage('compose')}
+                  disabled={busy}>
+                  <Text style={styles.linkBtnText}>Back</Text>
+                </TouchableOpacity>
+              </>
+            ) : null}
+
+            {stage === 'done' ? (
+              <>
+                <Text style={styles.heading}>Sent</Text>
+                <Text style={styles.sub}>
+                  Broadcast. These coins went straight from your plain addresses
+                  to the recipient — they never touched your Silent Payments
+                  wallet, so nothing links them to the rest of your balance.
+                </Text>
+                <Text style={styles.mono}>{txid}</Text>
+                <TouchableOpacity style={styles.primaryBtn} onPress={onClose}>
+                  <Text style={styles.primaryBtnText}>Done</Text>
+                </TouchableOpacity>
+              </>
+            ) : null}
+          </ScrollView>
+        </View>
+      </View>
+    </Modal>
+  );
+}
+
+function Row({ label, value }: { label: string; value: string }) {
+  return (
+    <View style={styles.row}>
+      <Text style={styles.rowLabel}>{label}</Text>
+      <Text style={styles.rowValue}>{value}</Text>
+    </View>
+  );
+}
+
+const styles = StyleSheet.create({
+  backdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.45)', justifyContent: 'flex-end' },
+  sheet: {
+    backgroundColor: colors.surface,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.border,
+    borderTopLeftRadius: 16,
+    borderTopRightRadius: 16,
+    padding: 20,
+    maxHeight: '90%',
+  },
+  heading: { fontSize: 20, fontWeight: 'bold', color: colors.text },
+  sub: { fontSize: 13, color: colors.muted, marginTop: 8, lineHeight: 19 },
+  label: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: colors.label,
+    marginTop: 16,
+    marginBottom: 6,
+  },
+  input: {
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    fontSize: 16,
+    color: colors.text,
+    backgroundColor: colors.surfaceAlt,
+  },
+  amountRow: { flexDirection: 'row', alignItems: 'center' },
+  amountInput: { flex: 1 },
+  maxBtn: {
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: 8,
+    paddingVertical: 11,
+    paddingHorizontal: 16,
+    marginLeft: 8,
+  },
+  maxBtnOn: { backgroundColor: PRIMARY, borderColor: PRIMARY },
+  maxBtnText: { fontSize: 14, fontWeight: '600', color: colors.text },
+  maxBtnTextOn: { color: colors.onPrimary },
+  warnBox: {
+    backgroundColor: 'rgba(249,115,22,0.12)',
+    borderRadius: 8,
+    padding: 12,
+    marginTop: 14,
+  },
+  warnText: { fontSize: 12, color: colors.text, lineHeight: 17 },
+  row: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginTop: 14,
+  },
+  rowLabel: { fontSize: 13, color: colors.muted },
+  rowValue: { fontSize: 15, fontWeight: '600', color: colors.text },
+  mono: {
+    fontFamily: 'monospace',
+    fontSize: 12,
+    color: colors.text,
+    marginTop: 14,
+    lineHeight: 18,
+  },
+  hint: { fontSize: 12, color: colors.faint, marginTop: 8, lineHeight: 17 },
+  error: { color: colors.danger, fontSize: 13, marginTop: 14 },
+  primaryBtn: {
+    backgroundColor: PRIMARY,
+    borderRadius: 8,
+    paddingVertical: 14,
+    alignItems: 'center',
+    marginTop: 22,
+  },
+  primaryBtnText: { color: colors.onPrimary, fontSize: 16, fontWeight: '600' },
+  btnDisabled: { opacity: 0.5 },
+  linkBtn: { marginTop: 12, paddingVertical: 8, alignItems: 'center' },
+  linkBtnText: { color: colors.muted, fontSize: 14, fontWeight: '600' },
+});
