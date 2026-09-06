@@ -37,6 +37,7 @@ import { useSendConfirmations } from './hooks/useSendConfirmations';
 import { usePlainWatch } from './hooks/usePlainWatch';
 import { useNavStore, TabKey as NavTabKey } from '@stores/navStore';
 import { useTxLabelStore } from '@stores/txLabelStore';
+import { usePlainHistory } from '@stores/plainHistoryStore';
 import { colors, DEVICE_TRUST_ENABLED } from '@/theme';
 
 // Scan lives inside Receive now (Address / Scan toggle), so it's no longer a tab.
@@ -121,9 +122,12 @@ function Shell() {
   // Device-only transaction labels: read once from the keystore so the wallet
   // list can render them synchronously.
   const loadTxLabels = useTxLabelStore((s) => s.load);
+  // Same for the plain chain's own send history, which no server holds.
+  const loadPlainHistory = usePlainHistory((s) => s.load);
   useEffect(() => {
     loadTxLabels();
-  }, [loadTxLabels]);
+    loadPlainHistory();
+  }, [loadTxLabels, loadPlainHistory]);
   const ActiveScreen =
     TABS.find((t) => t.key === active)?.Screen ?? WalletScreen;
 

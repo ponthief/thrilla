@@ -22,6 +22,7 @@ import {
 } from '@services/plainChain';
 import { usePendingSends } from '@stores/pendingSends';
 import { useTxLabelStore } from '@stores/txLabelStore';
+import { usePlainHistory } from '@stores/plainHistoryStore';
 import { parseScannedAddress } from '@services/addressUri';
 import QRScanner from './QRScanner';
 import { colors } from '@/theme';
@@ -97,6 +98,7 @@ export default function PlainSendModal({
   // transaction publicly links two of them — not something to infer from
   // whatever happens to be typed in the amount field.
   const [selected, setSelected] = useState<number[]>([]);
+  const [copied, setCopied] = useState(false);
 
   const started = useRef(false);
   useEffect(() => {
@@ -108,6 +110,7 @@ export default function PlainSendModal({
     started.current = true;
     setStage('compose');
     setScanning(false);
+    setCopied(false);
     setSelected(defaultPlainSelection(plainAddressTotals(chain)));
     setDestination('');
     setAmount('');
@@ -197,6 +200,18 @@ export default function PlainSendModal({
       );
       setTxid(res.txid);
       onSpent(res.txid, built.amount);
+      // The only record this payment gets. The server keeps none for coins
+      // leaving the plain chain, so without this the balance would just drop
+      // with nothing to say where it went. Device-only, on purpose — see
+      // services/plainHistory.ts.
+      usePlainHistory.getState().record(wallet.id, {
+        txid: res.txid,
+        amount: built.amount,
+        fee: built.fee,
+        destination: destination.trim(),
+        at: Date.now(),
+        toSelf: isSelf,
+      });
       // Paying our own Silent Payments address puts coins INTO the wallet, and
       // the wallet cannot see that by itself: the output is found only by
       // scanning, and nothing scans just because a transaction was broadcast.
@@ -217,7 +232,7 @@ export default function PlainSendModal({
     } finally {
       setBusy(false);
     }
-  }, [built, adminkey, wallet.id, onSpent]);
+  }, [built, adminkey, wallet.id, onSpent, destination, isSelf]);
 
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
@@ -420,6 +435,16 @@ export default function PlainSendModal({
                     : 'Broadcast. These coins went straight from your plain addresses to the recipient — they never touched your Silent Payments wallet, so nothing links them to the rest of your balance.'}
                 </Text>
                 <Text style={styles.mono}>{txid}</Text>
+                <TouchableOpacity
+                  style={styles.ghostBtn}
+                  onPress={() => {
+                    if (txid) Clipboard.setString(txid);
+                    setCopied(true);
+                  }}>
+                  <Text style={styles.ghostBtnText}>
+                    {copied ? '✓ Copied' : '⎘ Copy transaction ID'}
+                  </Text>
+                </TouchableOpacity>
                 <TouchableOpacity style={styles.primaryBtn} onPress={onClose}>
                   <Text style={styles.primaryBtnText}>Done</Text>
                 </TouchableOpacity>
@@ -548,6 +573,15 @@ const styles = StyleSheet.create({
   },
   primaryBtnText: { color: colors.onPrimary, fontSize: 16, fontWeight: '600' },
   btnDisabled: { opacity: 0.5 },
+  ghostBtn: {
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: 8,
+    paddingVertical: 11,
+    alignItems: 'center',
+    marginTop: 12,
+  },
+  ghostBtnText: { color: colors.text, fontSize: 14, fontWeight: '600' },
   linkBtn: { marginTop: 12, paddingVertical: 8, alignItems: 'center' },
   linkBtnText: { color: colors.muted, fontSize: 14, fontWeight: '600' },
 });
