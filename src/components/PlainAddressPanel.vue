@@ -59,7 +59,8 @@ function groupThousands(n) {
   return Math.floor(n).toString().replace(/\B(?=(\d{3})+(?!\d))/g, ',')
 }
 
-const sats     = computed(() => chain.value?.confirmedSats ?? 0)
+const sats      = computed(() => chain.value?.confirmedSats ?? 0)
+const arriving  = computed(() => chain.value?.unconfirmedSats ?? 0)
 const inFlight = computed(() => !!pendingSpend.value)
 const hasCoins = computed(
   () => sats.value > 0 && !!accountXprv.value && !!chain.value?.fundedIndices.length,
@@ -157,11 +158,12 @@ async function runSetup() {
     <button v-if="!open" class="collapsed" @click="open = true">
       <span class="collapsed-text">
         <b v-if="sats > 0">{{ groupThousands(sats) }} sats on a plain address</b>
+        <b v-else-if="arriving > 0">{{ groupThousands(arriving) }} sats arriving</b>
         <b v-else>Need a plain bitcoin address?</b>
         <span class="text-dim text-xs">
-          {{ sats > 0
-            ? 'Held separately from this balance, ready to send.'
-            : "For senders that can't pay a Silent Payments address." }}
+          <template v-if="sats > 0">Held separately from this balance, ready to send.</template>
+          <template v-else-if="arriving > 0">Waiting to be mined — held separately from this balance.</template>
+          <template v-else>For senders that can't pay a Silent Payments address.</template>
         </span>
       </span>
       <span class="chevron">›</span>
@@ -232,7 +234,9 @@ async function runSetup() {
             <span class="text-dim text-xs">Available here</span>
             <b class="amount">{{ groupThousands(sats) }} sats</b>
             <span v-if="chain.unconfirmedSats > 0" class="text-dim text-xs">
-              + {{ groupThousands(chain.unconfirmedSats) }} sats unconfirmed — spendable once mined
+              + {{ groupThousands(chain.unconfirmedSats) }} sats from
+              {{ chain.unconfirmedCount > 1 ? `${chain.unconfirmedCount} payments` : '1 payment' }}
+              waiting to be mined
             </span>
             <span v-if="chain.fundedIndices.length > 1" class="text-dim text-xs">
               across {{ chain.fundedIndices.length }} addresses
