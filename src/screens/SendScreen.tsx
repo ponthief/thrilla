@@ -21,6 +21,7 @@ import { getWalletKeys } from '@services/secureKeys';
 import { usePendingSends } from '@stores/pendingSends';
 import { useTxLabelStore } from '@stores/txLabelStore';
 import { markScanStarted } from '@services/scanCooldown';
+import { parseScannedAddress } from '@services/addressUri';
 import { colors } from '@/theme';
 import QRScanner from '../components/QRScanner';
 import ContactsModal from '../components/ContactsModal';
@@ -45,15 +46,6 @@ const KIND_LABEL: Record<RecipientKind, string> = {
   bitmail: 'BitMail',
   '': '',
 };
-
-// Extract an SP address from a scanned value: a bare address, a bitcoin: URI, or
-// a URI carrying an `sp=` parameter.
-function parseScannedAddress(raw: string): string {
-  const s = raw.trim();
-  const m = s.match(/[?&]sp=([^&]+)/i);
-  if (m) return decodeURIComponent(m[1]);
-  return s.replace(/^bitcoin:/i, '').trim();
-}
 
 const PRIMARY = colors.primary;
 

@@ -23,6 +23,8 @@ import {
   selectPlainCoins,
 } from '@/services/plainChain'
 import { addPendingSend } from '@/stores/pendingsends'
+import { parseScannedAddress } from '@/services/addressUri'
+import QrScanModal from './QrScanModal.vue'
 
 const props = defineProps({
   show:        { type: Boolean, default: false },
@@ -43,6 +45,7 @@ const busy        = ref(false)
 const error       = ref(null)
 const built       = ref(null)
 const txid        = ref('')
+const showScan    = ref(false)
 
 function groupThousands(n) {
   return Math.floor(n).toString().replace(/\B(?=(\d{3})+(?!\d))/g, ',')
@@ -84,6 +87,7 @@ const canReview = computed(() =>
 watch(() => props.show, async (show) => {
   if (!show) return
   stage.value = 'compose'
+  showScan.value = false
   destination.value = ''
   amount.value = ''
   sendMax.value = false
@@ -97,6 +101,17 @@ watch(() => props.show, async (show) => {
     feeRate.value = String(t.halfHourFee ?? t.hourFee ?? t.fastestFee ?? 1)
   } catch { /* keep the default */ }
 })
+
+function onScanned(value) {
+  destination.value = parseScannedAddress(value)
+  showScan.value = false
+}
+
+async function pasteDestination() {
+  try {
+    destination.value = parseScannedAddress(await navigator.clipboard.readText())
+  } catch { /* clipboard blocked or empty — the field is typeable */ }
+}
 
 async function build() {
   error.value = null
@@ -152,14 +167,27 @@ async function confirm() {
       <div class="card-body" style="display:flex;flex-direction:column;gap:14px">
         <template v-if="stage === 'compose'">
           <p class="text-dim text-xs" style="margin:0;line-height:1.6">
-            Pays straight out of your plain addresses. These coins never enter your
-            Silent Payments wallet, so nothing links them to the rest of your balance.
+            <template v-if="toSelf">
+              Moves these coins into your wallet balance. They become ordinary wallet
+              coins, linked to this transaction like any other.
+            </template>
+            <template v-else>
+              Pays straight out of your plain addresses. These coins go to the
+              recipient without entering your Silent Payments wallet, so nothing links
+              them to the rest of your balance.
+            </template>
           </p>
 
           <div class="field">
             <label>To</label>
             <input class="input mono" v-model="destination" :placeholder="placeholder"
                    autocomplete="off" spellcheck="false" />
+            <div class="flex gap-2" style="margin-top:8px">
+              <button type="button" class="btn btn-ghost btn-sm" @click="showScan = true">▦ Scan</button>
+              <button type="button" class="btn btn-ghost btn-sm" @click="pasteDestination">⎘ Paste</button>
+              <button type="button" class="btn btn-ghost btn-sm"
+                      @click="destination = wallet.sp_address">My wallet</button>
+            </div>
             <span v-if="destination.trim() && !destinationKind" class="text-dim text-xs">
               Enter an on-chain address or a Silent Payments address. BitMail isn't
               supported here — send those from the wallet.
@@ -258,6 +286,8 @@ async function confirm() {
         </template>
       </div>
     </div>
+
+    <QrScanModal :show="showScan" @close="showScan = false" @scanned="onScanned" />
   </div>
 </template>
 
