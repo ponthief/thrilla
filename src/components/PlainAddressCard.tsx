@@ -230,9 +230,9 @@ export default function PlainAddressCard({ wallet }: Props) {
           </TouchableOpacity>
           {hasCoins && !inFlight ? (
             <Text style={styles.hint}>
-              Paid straight from here, so these coins are never linked to the rest
-              of your balance. To hold them in the wallet instead, send them to
-              your own Silent Payments address.
+              Paid straight from here, these reach the recipient without being
+              linked to the rest of your balance — or send them to your own Silent
+              Payments address to hold them in the wallet.
             </Text>
           ) : null}
           {!hasCoins && !inFlight ? (

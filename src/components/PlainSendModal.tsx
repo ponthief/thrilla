@@ -9,6 +9,7 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
+import Clipboard from '@react-native-clipboard/clipboard';
 import * as api from '@services/api';
 import { useAuthStore } from '@stores/authStore';
 import {
@@ -20,6 +21,8 @@ import {
 } from '@services/plainChain';
 import { usePendingSends } from '@stores/pendingSends';
 import { useTxLabelStore } from '@stores/txLabelStore';
+import { parseScannedAddress } from '@services/addressUri';
+import QRScanner from './QRScanner';
 import { colors } from '@/theme';
 
 const PRIMARY = colors.primary;
@@ -88,6 +91,7 @@ export default function PlainSendModal({
   const [error, setError] = useState<string | null>(null);
   const [built, setBuilt] = useState<api.BuiltPlainTx | null>(null);
   const [txid, setTxid] = useState<string | null>(null);
+  const [scanning, setScanning] = useState(false);
 
   const started = useRef(false);
   useEffect(() => {
@@ -98,6 +102,7 @@ export default function PlainSendModal({
     if (started.current) return;
     started.current = true;
     setStage('compose');
+    setScanning(false);
     setDestination('');
     setAmount('');
     setSendMax(false);
@@ -120,6 +125,9 @@ export default function PlainSendModal({
     [chain, amountSats],
   );
   const kind = destinationKind(destination);
+  // Paying our own address is allowed and is how coins move into the wallet, so
+  // the copy has to stop promising they never go there.
+  const isSelf = isOwnSpAddress(destination, wallet.sp_address);
 
   const canReview =
     !!kind &&
@@ -181,7 +189,7 @@ export default function PlainSendModal({
       // scanning, and nothing scans just because a transaction was broadcast.
       // Registering it here is what makes the watcher scan the confirming block,
       // which is the only reason the payment ever shows up.
-      if (isOwnSpAddress(destination, wallet.sp_address)) {
+      if (isSelf) {
         usePendingSends.getState().add({
           txid: res.txid,
           walletId: wallet.id,
@@ -207,9 +215,9 @@ export default function PlainSendModal({
               <>
                 <Text style={styles.heading}>Send</Text>
                 <Text style={styles.sub}>
-                  Pays straight out of your plain addresses. These coins never
-                  enter your Silent Payments wallet, so nothing links them to the
-                  rest of your balance.
+                  {isSelf
+                    ? 'Moves these coins into your wallet balance. They become ordinary wallet coins, linked to this transaction like any other.'
+                    : 'Pays straight out of your plain addresses. These coins go to the recipient without entering your Silent Payments wallet, so nothing links them to the rest of your balance.'}
                 </Text>
 
                 <Text style={styles.label}>To</Text>
@@ -223,6 +231,26 @@ export default function PlainSendModal({
                   autoCorrect={false}
                   multiline
                 />
+                <View style={styles.destActions}>
+                  <TouchableOpacity
+                    style={styles.destBtn}
+                    onPress={() => setScanning(true)}>
+                    <Text style={styles.destBtnText}>Scan</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={styles.destBtn}
+                    onPress={async () =>
+                      setDestination(parseScannedAddress(await Clipboard.getString()))
+                    }>
+                    <Text style={styles.destBtnText}>Paste</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={styles.destBtn}
+                    onPress={() => setDestination(wallet.sp_address)}>
+                    <Text style={styles.destBtnText}>My wallet</Text>
+                  </TouchableOpacity>
+                </View>
+
                 {destination.trim() && !kind ? (
                   <Text style={styles.hint}>
                     Enter an on-chain address or a Silent Payments address. BitMail
@@ -349,7 +377,7 @@ export default function PlainSendModal({
               <>
                 <Text style={styles.heading}>Sent</Text>
                 <Text style={styles.sub}>
-                  {isOwnSpAddress(destination, wallet.sp_address)
+                  {isSelf
                     ? 'Broadcast. These coins land in your wallet balance once the transaction confirms and the block is scanned — you\'ll get a notice when that happens.'
                     : 'Broadcast. These coins went straight from your plain addresses to the recipient — they never touched your Silent Payments wallet, so nothing links them to the rest of your balance.'}
                 </Text>
@@ -362,6 +390,12 @@ export default function PlainSendModal({
           </ScrollView>
         </View>
       </View>
+
+      <QRScanner
+        visible={scanning}
+        onClose={() => setScanning(false)}
+        onScanned={(v) => setDestination(parseScannedAddress(v))}
+      />
     </Modal>
   );
 }
@@ -405,6 +439,16 @@ const styles = StyleSheet.create({
     color: colors.text,
     backgroundColor: colors.surfaceAlt,
   },
+  destActions: { flexDirection: 'row', marginTop: 8 },
+  destBtn: {
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: 8,
+    paddingVertical: 8,
+    paddingHorizontal: 14,
+    marginRight: 8,
+  },
+  destBtnText: { fontSize: 13, fontWeight: '600', color: colors.text },
   amountRow: { flexDirection: 'row', alignItems: 'center' },
   amountInput: { flex: 1 },
   maxBtn: {
