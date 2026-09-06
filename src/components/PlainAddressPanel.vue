@@ -21,6 +21,7 @@ import { computed, onMounted, ref } from 'vue'
 import { useAuthStore } from '@/stores/auth'
 import * as api from '@/api'
 import { loadPlainChain } from '@/services/plainChain'
+import { listPlainSends } from '@/stores/plainhistory'
 import { deriveSilentPayment, isValidMnemonic } from '@/services/spKeys'
 import PlainSendModal from './PlainSendModal.vue'
 import QrModal from './QrModal.vue'
@@ -61,6 +62,30 @@ function groupThousands(n) {
   return Math.floor(n).toString().replace(/\B(?=(\d{3})+(?!\d))/g, ',')
 }
 
+function shortAddress(s) {
+  const a = String(s || '')
+  return a.length > 20 ? `${a.slice(0, 10)}…${a.slice(-8)}` : a
+}
+
+function shortDate(ms) {
+  const d = new Date(ms)
+  return d.toLocaleDateString(undefined, { day: 'numeric', month: 'short' })
+}
+
+// Payments made out of these addresses, from this browser. Re-read rather than
+// held reactive: it only changes when a send completes here, and the panel
+// refreshes on the way out of the send modal anyway.
+const history = ref([])
+const copiedTxid = ref(null)
+function reloadHistory() {
+  history.value = listPlainSends(props.wallet.id)
+}
+function copyTxid(txid) {
+  navigator.clipboard?.writeText(txid)
+  copiedTxid.value = txid
+  setTimeout(() => { copiedTxid.value = null }, 1500)
+}
+
 const sats      = computed(() => chain.value?.confirmedSats ?? 0)
 const arriving  = computed(() => chain.value?.unconfirmedSats ?? 0)
 const inFlight = computed(() => !!pendingSpend.value)
@@ -70,6 +95,7 @@ const hasCoins = computed(
 const canSend = computed(() => !inFlight.value && hasCoins.value)
 
 async function refresh() {
+  reloadHistory()
   const keys = await auth.getWalletKeys(props.wallet.id)
   accountXprv.value = keys?.sweepAccount || ''
   if (!accountXprv.value) { chain.value = null; return }
@@ -111,6 +137,7 @@ function copyAddress() {
 }
 
 function onSent(txid) {
+  reloadHistory()
   pendingSpend.value = {
     txid,
     balanceAtSpend: chain.value?.confirmedSats ?? 0,
@@ -261,6 +288,27 @@ async function runSetup() {
           Nothing here yet. Send coins to the address above, then check back once
           they confirm.
         </p>
+
+        <template v-if="history.length">
+          <div class="hist-label">Sent from here</div>
+          <button v-for="h in history" :key="h.txid" type="button" class="hist-row"
+                  :title="h.txid" @click="copyTxid(h.txid)">
+            <span class="hist-meta">
+              <span class="hist-amount">
+                −{{ groupThousands(h.amount) }} sats<template v-if="h.toSelf"> · to your wallet</template>
+              </span>
+              <span class="mono text-dim text-xs">
+                {{ shortAddress(h.destination) }} · {{ shortDate(h.at) }}
+              </span>
+            </span>
+            <span class="hist-copy">{{ copiedTxid === h.txid ? '✓' : '⎘' }}</span>
+          </button>
+          <p class="text-dim text-xs" style="margin:8px 0 0;line-height:1.6">
+            Kept in this browser only — no server holds a record of coins leaving
+            these addresses, so a payment made on another device won't be listed
+            here. Click a row to copy its transaction ID.
+          </p>
+        </template>
       </template>
 
       <template v-else>
@@ -331,4 +379,27 @@ async function runSetup() {
   margin: 12px 0;
 }
 .amount { font-size: 18px; }
+.hist-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--dim, #888);
+  margin: 20px 0 4px;
+}
+.hist-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  text-align: left;
+  background: none;
+  border: none;
+  border-top: 1px solid var(--border);
+  padding: 10px 0;
+  cursor: pointer;
+  color: inherit;
+}
+.hist-meta { display: flex; flex-direction: column; gap: 2px; flex: 1; min-width: 0; }
+.hist-amount { font-size: 13px; }
+.hist-meta .mono { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hist-copy { font-size: 14px; opacity: .6; }
 </style>
