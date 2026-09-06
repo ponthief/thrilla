@@ -181,7 +181,12 @@ export default function PlainSendModal({
     setError(null);
     setBusy(true);
     try {
-      const res = await api.broadcastPlainTx(adminkey, wallet.id, built.tx_hex);
+      const res = await api.broadcastPlainTx(
+        adminkey,
+        wallet.id,
+        built.tx_hex,
+        isSelf ? built.amount : null,
+      );
       setTxid(res.txid);
       onSpent(res.txid, built.amount);
       // Paying our own Silent Payments address puts coins INTO the wallet, and
