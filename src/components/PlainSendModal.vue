@@ -17,10 +17,11 @@ import { computed, ref, watch } from 'vue'
 import { useAuthStore } from '@/stores/auth'
 import * as api from '@/api'
 import {
+  defaultPlainSelection,
   destinationPlaceholder,
   isOwnSpAddress,
   keysForIndices,
-  selectPlainCoins,
+  plainAddressTotals,
 } from '@/services/plainChain'
 import { addPendingSend } from '@/stores/pendingsends'
 import { parseScannedAddress } from '@/services/addressUri'
@@ -46,6 +47,10 @@ const error       = ref(null)
 const built       = ref(null)
 const txid        = ref('')
 const showScan    = ref(false)
+// Which addresses to spend. Explicit, because it decides whether this
+// transaction publicly links two of them — not something to infer from whatever
+// happens to be typed in the amount field.
+const selected    = ref([])
 
 function groupThousands(n) {
   return Math.floor(n).toString().replace(/\B(?=(\d{3})+(?!\d))/g, ',')
@@ -69,18 +74,30 @@ const toSelf = computed(
   () => !!props.wallet && isOwnSpAddress(destination.value, props.wallet.sp_address),
 )
 
+const totals = computed(() => (props.chain ? plainAddressTotals(props.chain) : []))
+const availableSats = computed(() =>
+  totals.value
+    .filter((t) => selected.value.includes(t.index))
+    .reduce((n, t) => n + t.sats, 0),
+)
 const amountSats = computed(() =>
   sendMax.value ? null : Math.floor(Number(amount.value) || 0),
 )
-const selection = computed(() =>
-  props.chain ? selectPlainCoins(props.chain, amountSats.value) : null,
+const overAvailable = computed(
+  () => !sendMax.value && amountSats.value > availableSats.value,
 )
+
+function toggleCoin(index) {
+  selected.value = selected.value.includes(index)
+    ? selected.value.filter((i) => i !== index)
+    : [...selected.value, index]
+}
 
 const canReview = computed(() =>
   !!destinationKind.value &&
-  !!selection.value?.indices.length &&
+  selected.value.length > 0 &&
   (sendMax.value || amountSats.value > 0) &&
-  !selection.value.shortBy &&
+  !overAvailable.value &&
   Number(feeRate.value) > 0,
 )
 
@@ -88,6 +105,7 @@ watch(() => props.show, async (show) => {
   if (!show) return
   stage.value = 'compose'
   showScan.value = false
+  selected.value = defaultPlainSelection(totals.value)
   destination.value = ''
   amount.value = ''
   sendMax.value = false
@@ -120,7 +138,7 @@ async function build() {
     built.value = await api.buildPlainSpend(
       auth.adminkey,
       props.wallet.id,
-      keysForIndices(props.accountXprv, props.wallet.network, selection.value.indices),
+      keysForIndices(props.accountXprv, props.wallet.network, selected.value),
       destination.value.trim(),
       amountSats.value,
       // Change comes back to the chain's next unused address, so a payment does
@@ -200,10 +218,33 @@ async function confirm() {
           </div>
 
           <div class="field">
+            <label>Coins<template v-if="totals.length > 1"> ({{ totals.length }})</template></label>
+            <div class="coin-list">
+              <button v-for="t in totals" :key="t.index" type="button"
+                      :class="['coin-row', { on: selected.includes(t.index) }]"
+                      @click="toggleCoin(t.index)">
+                <span class="coin-tick">{{ selected.includes(t.index) ? '☑' : '☐' }}</span>
+                <span class="coin-meta">
+                  <b>{{ groupThousands(t.sats) }} sats</b>
+                  <span class="mono text-dim text-xs">
+                    {{ t.address.slice(0, 12) }}…{{ t.address.slice(-8) }}<template
+                      v-if="t.utxoCount > 1"> · {{ t.utxoCount }} payments</template>
+                  </span>
+                </span>
+              </button>
+            </div>
+          </div>
+
+          <div v-if="selected.length > 1" class="alert alert-warn">
+            Spending {{ selected.length }} addresses together publishes that they
+            belong to the same owner. Pick one to keep them separate.
+          </div>
+
+          <div class="field">
             <label>Amount (sats)</label>
             <div class="flex gap-2">
               <input class="input" style="flex:1"
-                     :value="sendMax ? String(selection?.availableSats ?? 0) : amount"
+                     :value="sendMax ? String(availableSats) : amount"
                      @input="amount = $event.target.value"
                      :disabled="sendMax" type="number" min="0" placeholder="0" />
               <button type="button"
@@ -211,21 +252,14 @@ async function confirm() {
                       @click="sendMax = !sendMax">Max</button>
             </div>
             <span class="text-dim text-xs">
-              {{ groupThousands(selection?.availableSats ?? 0) }} sats available
-              {{ (selection?.indices.length ?? 0) > 1
-                  ? `across ${selection.indices.length} addresses`
-                  : 'on one address' }}{{ sendMax ? ', minus the fee' : '' }}.
+              {{ groupThousands(availableSats) }} sats selected{{
+                sendMax ? ', all of it going out minus the fee' : '' }}.
             </span>
           </div>
 
-          <div v-if="selection?.shortBy" class="alert alert-error">
-            ⚠ {{ groupThousands(selection.shortBy) }} sats short, even using every address.
-          </div>
-
-          <div v-if="selection?.linksAddresses" class="alert alert-warn">
-            No single address holds this much, so {{ selection.indices.length }} will be
-            spent together — which publishes that they're the same owner. Send a smaller
-            amount to keep them separate.
+          <div v-if="overAvailable" class="alert alert-error">
+            ⚠ More than the {{ groupThousands(availableSats) }} sats selected. Tick
+            another address or send less.
           </div>
 
           <div class="field">
@@ -307,6 +341,23 @@ async function confirm() {
   word-break: break-all;
   line-height: 1.6;
 }
+.coin-list { display: flex; flex-direction: column; gap: 8px; }
+.coin-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  text-align: left;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 10px 12px;
+  cursor: pointer;
+  color: inherit;
+}
+.coin-row.on { border-color: var(--orange, #f7931a); }
+.coin-tick { font-size: 15px; }
+.coin-meta { display: flex; flex-direction: column; gap: 2px; flex: 1; }
 .rows { display: flex; flex-direction: column; gap: 8px; }
 .row { display: flex; justify-content: space-between; align-items: center; font-size: 13px; }
 .row span { color: var(--dim, #888); }

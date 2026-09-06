@@ -13,10 +13,11 @@ import Clipboard from '@react-native-clipboard/clipboard';
 import * as api from '@services/api';
 import { useAuthStore } from '@stores/authStore';
 import {
+  defaultPlainSelection,
   destinationPlaceholder,
   isOwnSpAddress,
   keysForIndices,
-  selectPlainCoins,
+  plainAddressTotals,
   PlainChainState,
 } from '@services/plainChain';
 import { usePendingSends } from '@stores/pendingSends';
@@ -92,6 +93,10 @@ export default function PlainSendModal({
   const [built, setBuilt] = useState<api.BuiltPlainTx | null>(null);
   const [txid, setTxid] = useState<string | null>(null);
   const [scanning, setScanning] = useState(false);
+  // Which addresses to spend. Explicit, because it decides whether this
+  // transaction publicly links two of them — not something to infer from
+  // whatever happens to be typed in the amount field.
+  const [selected, setSelected] = useState<number[]>([]);
 
   const started = useRef(false);
   useEffect(() => {
@@ -103,6 +108,7 @@ export default function PlainSendModal({
     started.current = true;
     setStage('compose');
     setScanning(false);
+    setSelected(defaultPlainSelection(plainAddressTotals(chain)));
     setDestination('');
     setAmount('');
     setSendMax(false);
@@ -117,13 +123,15 @@ export default function PlainSendModal({
           /* keep the default; the field is editable */
         });
     }
-  }, [visible, inkey]);
+  }, [visible, inkey, chain]);
 
-  const amountSats = sendMax ? null : Math.floor(Number(amount) || 0);
-  const selection = useMemo(
-    () => selectPlainCoins(chain, amountSats),
-    [chain, amountSats],
+  const totals = useMemo(() => plainAddressTotals(chain), [chain]);
+  const availableSats = useMemo(
+    () => totals.filter((t) => selected.includes(t.index)).reduce((n, t) => n + t.sats, 0),
+    [totals, selected],
   );
+  const amountSats = sendMax ? null : Math.floor(Number(amount) || 0);
+  const overAvailable = !sendMax && amountSats != null && amountSats > availableSats;
   const kind = destinationKind(destination);
   // Paying our own address is allowed and is how coins move into the wallet, so
   // the copy has to stop promising they never go there.
@@ -131,9 +139,9 @@ export default function PlainSendModal({
 
   const canReview =
     !!kind &&
-    selection.indices.length > 0 &&
+    selected.length > 0 &&
     (sendMax || (amountSats != null && amountSats > 0)) &&
-    !selection.shortBy &&
+    !overAvailable &&
     Number(feeRate) > 0;
 
   const onBuild = useCallback(async () => {
@@ -147,7 +155,7 @@ export default function PlainSendModal({
       const res = await api.buildPlainSpend(
         adminkey,
         wallet.id,
-        keysForIndices(accountXprv, wallet.network, selection.indices),
+        keysForIndices(accountXprv, wallet.network, selected),
         destination.trim(),
         amountSats,
         // Change comes back to the pool's next unused address, so a pay-out
@@ -168,7 +176,7 @@ export default function PlainSendModal({
     wallet.id,
     wallet.network,
     accountXprv,
-    selection.indices,
+    selected,
     destination,
     amountSats,
     sendMax,
@@ -263,11 +271,50 @@ export default function PlainSendModal({
                   </Text>
                 ) : null}
 
+                <Text style={styles.label}>
+                  Coins{totals.length > 1 ? ` (${totals.length})` : ''}
+                </Text>
+                {totals.map((t) => {
+                  const on = selected.includes(t.index);
+                  return (
+                    <TouchableOpacity
+                      key={t.index}
+                      style={[styles.coinRow, on && styles.coinRowOn]}
+                      onPress={() =>
+                        setSelected((cur) =>
+                          cur.includes(t.index)
+                            ? cur.filter((i) => i !== t.index)
+                            : [...cur, t.index],
+                        )
+                      }>
+                      <Text style={styles.coinTick}>{on ? '☑' : '☐'}</Text>
+                      <View style={styles.coinMeta}>
+                        <Text style={styles.coinAmount}>
+                          {groupThousands(t.sats)} sats
+                        </Text>
+                        <Text style={styles.coinAddr}>
+                          {t.address.slice(0, 12)}…{t.address.slice(-8)}
+                          {t.utxoCount > 1 ? ` · ${t.utxoCount} payments` : ''}
+                        </Text>
+                      </View>
+                    </TouchableOpacity>
+                  );
+                })}
+
+                {selected.length > 1 ? (
+                  <View style={styles.warnBox}>
+                    <Text style={styles.warnText}>
+                      Spending {selected.length} addresses together publishes that
+                      they belong to the same owner. Pick one to keep them separate.
+                    </Text>
+                  </View>
+                ) : null}
+
                 <Text style={styles.label}>Amount (sats)</Text>
                 <View style={styles.amountRow}>
                   <TextInput
                     style={[styles.input, styles.amountInput]}
-                    value={sendMax ? String(selection.availableSats) : amount}
+                    value={sendMax ? String(availableSats) : amount}
                     onChangeText={setAmount}
                     editable={!sendMax}
                     keyboardType="numeric"
@@ -283,29 +330,15 @@ export default function PlainSendModal({
                   </TouchableOpacity>
                 </View>
                 <Text style={styles.hint}>
-                  {groupThousands(selection.availableSats)} sats available
-                  {selection.indices.length > 1
-                    ? ` across ${selection.indices.length} addresses`
-                    : ' on one address'}
-                  {sendMax ? ', minus the fee' : ''}.
+                  {groupThousands(availableSats)} sats selected
+                  {sendMax ? ', all of it going out minus the fee' : ''}.
                 </Text>
 
-                {selection.shortBy ? (
+                {overAvailable ? (
                   <Text style={styles.error}>
-                    {groupThousands(selection.shortBy)} sats short, even using every
-                    address.
+                    More than the {groupThousands(availableSats)} sats selected.
+                    Tick another address or send less.
                   </Text>
-                ) : null}
-
-                {selection.linksAddresses ? (
-                  <View style={styles.warnBox}>
-                    <Text style={styles.warnText}>
-                      No single address holds this much, so{' '}
-                      {selection.indices.length} will be spent together — which
-                      publishes that they're the same owner. Send a smaller amount
-                      to keep them separate.
-                    </Text>
-                  </View>
                 ) : null}
 
                 <Text style={styles.label}>Fee rate (sat/vB)</Text>
@@ -444,6 +477,21 @@ const styles = StyleSheet.create({
     color: colors.text,
     backgroundColor: colors.surfaceAlt,
   },
+  coinRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: 8,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    marginBottom: 8,
+  },
+  coinRowOn: { borderColor: PRIMARY },
+  coinTick: { fontSize: 16, color: colors.text, marginRight: 10 },
+  coinMeta: { flex: 1 },
+  coinAmount: { fontSize: 14, fontWeight: '600', color: colors.text },
+  coinAddr: { fontSize: 11, color: colors.faint, fontFamily: 'monospace', marginTop: 2 },
   destActions: { flexDirection: 'row', marginTop: 8 },
   destBtn: {
     borderWidth: 1,
