@@ -60,7 +60,7 @@ async function save() {
         <form @submit.prevent="save" style="display:flex;flex-direction:column;gap:14px">
           <div class="field">
             <label>Title</label>
-            <input class="input" v-model="form.title" placeholder="My SP Wallet" required />
+            <input class="input" v-model="form.title" placeholder="My Wallet" required />
           </div>
           <div class="field">
             <label>Born at Height</label>

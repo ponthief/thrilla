@@ -107,7 +107,7 @@ export default function WalletScreen() {
   const txLabelMap = useTxLabelStore((s) => s.labels);
   const pendingLocal = usePendingSends((s) => s.sends);
   // Coins sitting on the plain bech32 chain, found by the background watcher
-  // (hooks/usePlainAlerts). They are NOT part of the balance above and are not
+  // (hooks/usePlainWatch). They are NOT part of the balance above and are not
   // meant to be — they are spent from their own card on the Receive tab, which
   // is collapsed and easy to miss, so say so here where people actually look.
   const plainWalletId = usePlainStatus((s) => s.walletId);
@@ -269,6 +269,9 @@ export default function WalletScreen() {
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
+    // The plain chain is walked on its own schedule, so without this a pull
+    // would leave the prompt below reading a figure up to five minutes old.
+    usePlainStatus.getState().requestRefresh();
     await load();
     setRefreshing(false);
   }, [load]);
