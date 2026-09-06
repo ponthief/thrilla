@@ -34,6 +34,7 @@ import {
 import PushBanner from './components/PushBanner';
 import BitcoinSign from './components/BitcoinSign';
 import { useSendConfirmations } from './hooks/useSendConfirmations';
+import { useSweepAlerts } from './hooks/useSweepAlerts';
 import { useTxLabelStore } from '@stores/txLabelStore';
 import { colors, DEVICE_TRUST_ENABLED } from '@/theme';
 
@@ -109,6 +110,9 @@ function Shell() {
   // App-wide, so a send confirming while the user is on Receive or Settings
   // still surfaces.
   useSendConfirmations();
+  // Coins arriving on the plain bech32 sweep chain: nothing else would notice
+  // them, since they are not Silent Payments outputs the scanner finds.
+  useSweepAlerts();
   // Device-only transaction labels: read once from the keystore so the wallet
   // list can render them synchronously.
   const loadTxLabels = useTxLabelStore((s) => s.load);

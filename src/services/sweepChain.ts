@@ -23,6 +23,10 @@ export interface SweepChainState {
   receiveIndex: number;
   // Indices holding confirmed coins, and what's on them.
   fundedIndices: number[];
+  // Every index with history, funded or already emptied. What a watcher needs
+  // to keep an eye on: an exchange with a saved withdrawal address will pay an
+  // old one again long after it was swept.
+  usedIndices: number[];
   utxos: api.SweepUtxo[];
   confirmedSats: number;
   unconfirmedSats: number;
@@ -88,6 +92,7 @@ export async function loadSweepChain(
     receiveAddress: sweepAddressAt(accountXprv, network, receiveIndex),
     receiveIndex,
     fundedIndices,
+    usedIndices: indices.filter((i) => state[i].used),
     utxos: indices.flatMap((i) => state[i].utxos),
     confirmedSats: indices.reduce((n, i) => n + state[i].confirmed_sats, 0),
     unconfirmedSats: indices.reduce((n, i) => n + state[i].unconfirmed_sats, 0),
