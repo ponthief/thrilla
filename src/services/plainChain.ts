@@ -61,6 +61,33 @@ export interface BuiltPlainTx {
 // client.
 export type PreviewFn = (addresses: string[]) => Promise<PlainPreview>;
 
+// Placeholder text for a destination field. Network-aware, because telling a
+// signet user to paste a bc1… address is telling them to lose their coins.
+export function destinationPlaceholder(network: string): string {
+  const n = (network || '').toLowerCase();
+  if (n === 'mainnet') return 'bc1… or sp1…';
+  if (n === 'regtest') return 'bcrt1… or tsp1…';
+  return 'tb1… or tsp1…'; // signet shares testnet's prefixes
+}
+
+// Is this destination the wallet paying itself?
+//
+// It matters because the wallet cannot see such a payment on its own. The output
+// is a Silent Payments output, found only by SCANNING, and nothing scans just
+// because a transaction was broadcast — so the money arrives and the wallet
+// shows no record of it until something triggers a scan of that block. Callers
+// use this to register the transaction for confirmation-watching, which is what
+// starts that scan.
+//
+// Only the wallet's main address: a labeled address is also owned, but the
+// caller does not necessarily have the list, and getting a false NEGATIVE here
+// costs a delay (the catch-up scan finds it on the next wallet open) where a
+// false positive would announce a payment that never arrives.
+export function isOwnSpAddress(destination: string, spAddress: string): boolean {
+  const d = (destination || '').trim().toLowerCase();
+  return !!d && d === (spAddress || '').trim().toLowerCase();
+}
+
 // Standard BIP-84 gap limit: stop after this many consecutive unused addresses.
 // Same figure the PayJoin watch-only wallet uses (siLNt/helpers/payjoin_wallet).
 const GAP_LIMIT = 20;

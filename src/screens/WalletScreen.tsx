@@ -118,10 +118,30 @@ export default function WalletScreen() {
   // mempool spend, so the figure it reports is coins already on their way.
   const plainSpendable =
     spWallet && plainWalletId === spWallet.id && !plainSpendPending ? plainSats : 0;
-  const spTxs = useMemo(
-    () => spRawTxs.map((t) => spTxToItem(t, txLabelMap)),
-    [spRawTxs, txLabelMap],
-  );
+  const spTxs = useMemo(() => {
+    const rows = spRawTxs.map((t) => spTxToItem(t, txLabelMap));
+    // A payment from the plain chain into this wallet's own SP address is
+    // invisible to the server until it confirms AND its output is scanned in:
+    // the wallet spent no coins it owned, so there is no send to report and no
+    // receive yet either. Show the local record until the server row takes over.
+    const known = new Set(spRawTxs.map((t) => t.txid));
+    const incoming = pendingLocal
+      .filter(
+        (x) =>
+          x.kind === 'plain' && x.walletId === spWallet?.id && !known.has(x.txid),
+      )
+      .map<TxItem>((x) => ({
+        id: x.txid,
+        direction: 'in',
+        amountSats: x.amountSats ?? 0,
+        label: txLabelMap[x.txid] || 'From plain address',
+        timestamp: Math.floor(x.addedAt / 1000),
+        pending: true,
+      }));
+    // Newest first, matching the server's ordering — one of these is always the
+    // most recent thing that happened.
+    return [...incoming, ...rows];
+  }, [spRawTxs, txLabelMap, pendingLocal, spWallet?.id]);
   const [lnTxs, setLnTxs] = useState<TxItem[]>([]);
 
   const load = useCallback(async () => {

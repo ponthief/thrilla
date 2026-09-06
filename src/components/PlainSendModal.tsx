@@ -12,10 +12,14 @@ import {
 import * as api from '@services/api';
 import { useAuthStore } from '@stores/authStore';
 import {
+  destinationPlaceholder,
+  isOwnSpAddress,
   keysForIndices,
   selectPlainCoins,
   PlainChainState,
 } from '@services/plainChain';
+import { usePendingSends } from '@stores/pendingSends';
+import { useTxLabelStore } from '@stores/txLabelStore';
 import { colors } from '@/theme';
 
 const PRIMARY = colors.primary;
@@ -172,6 +176,20 @@ export default function PlainSendModal({
       const res = await api.broadcastPlainTx(adminkey, wallet.id, built.tx_hex);
       setTxid(res.txid);
       onSpent(res.txid, built.amount);
+      // Paying our own Silent Payments address puts coins INTO the wallet, and
+      // the wallet cannot see that by itself: the output is found only by
+      // scanning, and nothing scans just because a transaction was broadcast.
+      // Registering it here is what makes the watcher scan the confirming block,
+      // which is the only reason the payment ever shows up.
+      if (isOwnSpAddress(destination, wallet.sp_address)) {
+        usePendingSends.getState().add({
+          txid: res.txid,
+          walletId: wallet.id,
+          amountSats: built.amount,
+          kind: 'plain',
+        });
+        useTxLabelStore.getState().setLabel(res.txid, 'From plain address');
+      }
       setStage('done');
     } catch (e: any) {
       setError(e?.message || 'Broadcast failed.');
@@ -199,7 +217,7 @@ export default function PlainSendModal({
                   style={styles.input}
                   value={destination}
                   onChangeText={setDestination}
-                  placeholder="bc1… or sp1…"
+                  placeholder={destinationPlaceholder(wallet.network)}
                   placeholderTextColor={colors.faint}
                   autoCapitalize="none"
                   autoCorrect={false}
@@ -331,9 +349,9 @@ export default function PlainSendModal({
               <>
                 <Text style={styles.heading}>Sent</Text>
                 <Text style={styles.sub}>
-                  Broadcast. These coins went straight from your plain addresses
-                  to the recipient — they never touched your Silent Payments
-                  wallet, so nothing links them to the rest of your balance.
+                  {isOwnSpAddress(destination, wallet.sp_address)
+                    ? 'Broadcast. These coins land in your wallet balance once the transaction confirms and the block is scanned — you\'ll get a notice when that happens.'
+                    : 'Broadcast. These coins went straight from your plain addresses to the recipient — they never touched your Silent Payments wallet, so nothing links them to the rest of your balance.'}
                 </Text>
                 <Text style={styles.mono}>{txid}</Text>
                 <TouchableOpacity style={styles.primaryBtn} onPress={onClose}>
