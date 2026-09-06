@@ -8,7 +8,7 @@ import { create } from 'zustand';
 // to say "there are coins here that aren't in your balance". This is how it
 // finds out, without every screen running its own chain walk.
 //
-// Written by whoever last looked: the background watcher (hooks/usePlainAlerts)
+// Written by whoever last looked: the background watcher (hooks/usePlainWatch)
 // on its poll, and the card itself on a manual refresh.
 
 // A payment broadcast from the plain chain that the chain index has not caught
@@ -34,9 +34,14 @@ interface PlainStatusState {
   spendableSats: number;
   unconfirmedSats: number;
   pendingSpend: PendingPlainSpend | null;
+  // Bumped to ask the watcher to walk the chain now rather than at its next
+  // poll — pulling to refresh on the wallet screen should refresh this too,
+  // not leave it up to five minutes stale.
+  refreshTick: number;
   set: (s: { walletId: string; spendableSats: number; unconfirmedSats: number }) => void;
   markSpent: (spend: PendingPlainSpend) => void;
   clearSpent: () => void;
+  requestRefresh: () => void;
 }
 
 export const usePlainStatus = create<PlainStatusState>((set) => ({
@@ -44,9 +49,11 @@ export const usePlainStatus = create<PlainStatusState>((set) => ({
   spendableSats: 0,
   unconfirmedSats: 0,
   pendingSpend: null,
+  refreshTick: 0,
   set: (s) => set(s),
   markSpent: (pendingSpend) => set({ pendingSpend }),
   clearSpent: () => set({ pendingSpend: null }),
+  requestRefresh: () => set((s) => ({ refreshTick: s.refreshTick + 1 })),
 }));
 
 // True once the chain index has caught up with a payment, or once waiting for it

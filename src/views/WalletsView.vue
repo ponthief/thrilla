@@ -636,8 +636,10 @@ watch(swapCompletedAt, () => {
     <!-- Header -->
     <div class="flex items-center justify-between" style="margin-bottom:24px">
       <div>
-        <h1>SP Wallet</h1>
-        <p class="text-dim text-sm" style="margin-top:2px">Your Silent Payment wallet</p>
+        <h1>Wallet</h1>
+        <p class="text-dim text-sm" style="margin-top:2px">
+          Silent Payments, plus a plain address for senders that need one
+        </p>
       </div>
       <div class="flex gap-2" style="align-items:center">
         <button v-if="!atWalletLimit" class="btn btn-primary" @click="showCreate = true; loadTipHeight()">＋ New Wallet</button>
@@ -838,7 +840,7 @@ watch(swapCompletedAt, () => {
 
             <div class="field">
               <label>Title</label>
-              <input class="input" v-model="createForm.title" placeholder="My SP Wallet" />
+              <input class="input" v-model="createForm.title" placeholder="My Wallet" />
             </div>
 
             <!-- Mnemonic input — only in import mode -->
