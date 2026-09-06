@@ -197,69 +197,44 @@ export function keysForIndices(
   return indices.map((i) => plainKeyAt(accountXprv, network, i).privateKeyHex);
 }
 
-export interface CoinSelection {
-  indices: number[];
-  availableSats: number;
-  // True when the payment cannot be made from one address alone. Spending two
-  // addresses together publishes that they belong to the same owner, so this is
-  // surfaced rather than done quietly.
-  linksAddresses: boolean;
-  // Set when even every funded address together falls short.
-  shortBy?: number;
+export interface PlainAddressTotal {
+  index: number;
+  address: string;
+  sats: number;
+  // How many separate payments landed here. Several arrivals on one address are
+  // one balance, and spending it spends all of them.
+  utxoCount: number;
 }
 
-// Pick which plain addresses to pay from.
+// What is on each funded address, largest first — the rows a coin picker shows.
 //
-// One address if one will do — that is the whole point of rotating them. Only
-// when no single address covers the amount does this combine, fewest first, and
-// it says so through `linksAddresses` so the user can decide rather than
-// discover it on-chain later.
-export function selectPlainCoins(
-  chain: PlainChainState,
-  amountSats: number | null,
-): CoinSelection {
-  const indexForAddress = new Map<string, number>();
+// ADDRESS is the finest useful granularity, not UTXO. The backend derives one
+// key per address and spends every UTXO under it, and two payments to the same
+// address are already publicly linked to each other, so choosing between them
+// would buy nothing. Choosing between ADDRESSES is what matters: spending two
+// together is what publishes that they share an owner.
+export function plainAddressTotals(chain: PlainChainState): PlainAddressTotal[] {
+  const byIndex = new Map<number, PlainAddressTotal>();
   for (const i of chain.fundedIndices) {
-    const a = chain.addressForIndex.get(i);
-    if (a) indexForAddress.set(a, i);
+    const address = chain.addressForIndex.get(i);
+    if (address) byIndex.set(i, { index: i, address, sats: 0, utxoCount: 0 });
   }
-  const totals = new Map<number, number>();
-  for (const i of chain.fundedIndices) totals.set(i, 0);
+  const indexForAddress = new Map<string, number>();
+  for (const t of byIndex.values()) indexForAddress.set(t.address, t.index);
+
   for (const u of chain.utxos) {
     const i = indexForAddress.get(u.address);
-    if (i != null) totals.set(i, (totals.get(i) ?? 0) + u.amount);
+    const t = i != null ? byIndex.get(i) : undefined;
+    if (t) {
+      t.sats += u.amount;
+      t.utxoCount += 1;
+    }
   }
+  return [...byIndex.values()].sort((a, b) => b.sats - a.sats);
+}
 
-  // Largest first: the fewest addresses that can cover the amount.
-  const ranked = [...totals.entries()].sort((a, b) => b[1] - a[1]);
-
-  if (amountSats == null) {
-    // "Everything" means everything on ONE address — emptying every address in
-    // a single transaction would publish that they share an owner.
-    const first = ranked[0];
-    return {
-      indices: first ? [first[0]] : [],
-      availableSats: first ? first[1] : 0,
-      linksAddresses: false,
-    };
-  }
-
-  const single = [...ranked].reverse().find(([, v]) => v >= amountSats);
-  if (single) {
-    return { indices: [single[0]], availableSats: single[1], linksAddresses: false };
-  }
-
-  const chosen: number[] = [];
-  let running = 0;
-  for (const [i, v] of ranked) {
-    chosen.push(i);
-    running += v;
-    if (running >= amountSats) break;
-  }
-  return {
-    indices: chosen,
-    availableSats: running,
-    linksAddresses: chosen.length > 1,
-    shortBy: running < amountSats ? amountSats - running : undefined,
-  };
+// What to tick when the picker first opens: the largest single address, which
+// covers most payments without linking anything.
+export function defaultPlainSelection(totals: PlainAddressTotal[]): number[] {
+  return totals.length ? [totals[0].index] : [];
 }
