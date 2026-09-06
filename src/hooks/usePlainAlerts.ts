@@ -3,20 +3,20 @@ import { AppState } from 'react-native';
 import * as api from '@services/api';
 import { useAuthStore } from '@stores/authStore';
 import { getWalletKeys } from '@services/secureKeys';
-import { loadSweepChain } from '@services/sweepChain';
-import { sweepAddressAt } from '@services/spKeys';
-import { lastAnnounced, setLastAnnounced } from '@services/sweepAlerts';
+import { loadPlainChain } from '@services/plainChain';
+import { plainAddressAt } from '@services/spKeys';
+import { lastAnnounced, setLastAnnounced } from '@services/plainAlerts';
 import { usePendingSends } from '@stores/pendingSends';
 import { usePushBanner } from '@stores/pushBanner';
-import { useSweepStatus } from '@stores/sweepStatus';
+import { usePlainStatus } from '@stores/plainStatus';
 import { useNotifyStore } from '@stores/notifyStore';
 
-// Watches the wallet's BIP-84 sweep chain and says when coins land on it.
+// Watches the wallet's plain BIP-84 chain and says when coins land on it.
 //
 // Nothing else would tell the user. A Silent Payments payment is found by the
-// scanner and announced; a bech32 payment to the sweep chain is invisible until
-// somebody opens the (collapsed) sweep card and looks. So an exchange
-// withdrawal could sit there for weeks unnoticed.
+// scanner and announced; a bech32 payment to this chain is invisible until
+// somebody opens the collapsed card on Receive and looks, so it could sit there
+// for weeks unnoticed.
 //
 // Mounted at the app shell, so the notice arrives whichever tab the user is on,
 // and only while the app is in the FOREGROUND. Reaching the user with the app
@@ -26,12 +26,12 @@ import { useNotifyStore } from '@stores/notifyStore';
 
 const POLL_MS = 5 * 60 * 1000;
 // Back off when there is nothing to watch — no wallet on this network, or a
-// wallet predating the sweep chain and so without an account key. Still checked
+// wallet predating the plain chain and so without an account key. Still checked
 // occasionally, since either can change while the app runs.
 const IDLE_POLL_MS = 30 * 60 * 1000;
 // Cap what a routine poll asks about. The chain walk can legitimately return
-// more used indices than this over a wallet's life; the newest are the ones an
-// exchange is likely to pay again.
+// more used indices than this over a wallet's life; the newest are the ones a
+// sender is likely to pay again.
 const MAX_WATCHED = 10;
 
 // Hermes ships without full Intl, so Number.toLocaleString does not group.
@@ -52,7 +52,7 @@ interface Watch {
   used: Set<number>;
 }
 
-export function useSweepAlerts() {
+export function usePlainAlerts() {
   const inkey = useAuthStore((s) => s.inkey);
   const confirmedTick = usePendingSends((s) => s.confirmedTick);
   // Subscribed rather than read once, so turning alerts on starts the watch
@@ -69,10 +69,10 @@ export function useSweepAlerts() {
 
     // The wallet screen prompts from this, so it does not have to walk the
     // chain itself just to know whether there is anything to prompt about.
-    const publish = (walletId: string, sweepable: number, unconfirmed: number) =>
-      useSweepStatus.getState().set({
+    const publish = (walletId: string, spendable: number, unconfirmed: number) =>
+      usePlainStatus.getState().set({
         walletId,
-        sweepableSats: sweepable,
+        spendableSats: spendable,
         unconfirmedSats: unconfirmed,
       });
 
@@ -83,11 +83,11 @@ export function useSweepAlerts() {
       const wallet = api.pickSilntWallet(wallets);
       if (!wallet) return null;
       const keys = await getWalletKeys(wallet.id);
-      // Wallets predating the sweep chain have no account key; the card offers
+      // Wallets predating the plain chain have no account key; the card offers
       // to derive one, and until then there is nothing to watch.
       if (!keys?.sweepAccount) return null;
 
-      const chain = await loadSweepChain(
+      const chain = await loadPlainChain(
         inkey,
         wallet.id,
         keys.sweepAccount,
@@ -110,14 +110,14 @@ export function useSweepAlerts() {
     const announce = async (walletId: string, sats: number) => {
       const before = await lastAnnounced(walletId);
       if (sats <= before) {
-        // Includes the drop to zero after a sweep, which re-arms the alert.
+        // Includes the drop after spending, which re-arms the alert.
         if (sats !== before) await setLastAnnounced(walletId, sats);
         return;
       }
       await setLastAnnounced(walletId, sats);
       usePushBanner.getState().show({
-        title: 'Funds ready to sweep',
-        body: `${groupThousands(sats)} sats arrived on your sweep address.`,
+        title: 'Coins arrived',
+        body: `${groupThousands(sats)} sats on your plain address, ready to send.`,
       });
     };
 
@@ -136,9 +136,9 @@ export function useSweepAlerts() {
           // than walking the whole chain every five minutes.
           const asked = watch.indices.map((i) => ({
             index: i,
-            address: sweepAddressAt(watch!.accountXprv, watch!.network, i),
+            address: plainAddressAt(watch!.accountXprv, watch!.network, i),
           }));
-          const res = await api.getSweepPreview(
+          const res = await api.getPlainPreview(
             inkey,
             watch.walletId,
             asked.map((a) => a.address),
@@ -174,7 +174,7 @@ export function useSweepAlerts() {
       cancelled = true;
       if (timer.current) clearTimeout(timer.current);
     };
-    // confirmedTick restarts the watch after a sweep confirms, so the balance
-    // it reads (and the announced mark) reset without waiting out a poll.
+    // confirmedTick restarts the watch when wallet activity confirms, so the
+    // balance it reads (and the announced mark) reset without waiting a poll.
   }, [inkey, alertsOn, confirmedTick]);
 }
