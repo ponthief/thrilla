@@ -6,6 +6,7 @@ import * as api from '@/api'
 import { useAmount } from '@/composables/useAmount'
 import { useCsvExport } from '@/composables/useCsvExport'
 import { getTxRecipientLabel, getSwapTxLabel } from '@/stores/txlabels'
+import { pendingSends } from '@/stores/pendingsends'
 
 const auth   = useAuthStore()
 const { fmt } = useAmount()
@@ -65,6 +66,29 @@ async function loadTxs() {
     loading.value = false
   }
 }
+
+// A payment from the plain BIP-84 chain into this wallet's own SP address is
+// invisible to the server until it confirms AND its output is scanned in: the
+// wallet spent no coins it owned, so there is no send to report and no receive
+// yet either. Show the local record meanwhile, on the first page only — it is
+// always the newest thing — and drop it once the real row arrives.
+const rowsWithPending = computed(() => {
+  const rows = transactions.value
+  if (page.value !== 0 || !selectedWallet.value) return rows
+  const known = new Set(rows.map((t) => t.txid))
+  const local = (pendingSends.value || [])
+    .filter((p) => p.walletId === selectedWallet.value && !known.has(p.txid))
+    .map((p) => ({
+      txid: p.txid,
+      kind: 'receive',
+      amount_sats: p.amount || 0,
+      timestamp: Math.floor(p.since / 1000),
+      labels: [],
+      confirmed: false,
+      _local: true,
+    }))
+  return [...local, ...rows]
+})
 
 function nextPage() {
   if (!hasNext.value) return
@@ -208,13 +232,13 @@ onMounted(() => {
         <span class="spinner"></span> Loading transactions…
       </div>
 
-      <div v-else-if="!transactions.length" class="text-center text-dim" style="padding:30px">
+      <div v-else-if="!rowsWithPending.length" class="text-center text-dim" style="padding:30px">
         No transactions yet.
       </div>
 
       <div v-else class="tx-list">
-        <div v-for="tx in transactions" :key="tx.txid" class="tx-row" :class="{ expanded: expandedTxid === tx.txid }">
-          <div class="tx-row-main" @click="toggleExpand(tx)">
+        <div v-for="tx in rowsWithPending" :key="tx.txid" class="tx-row" :class="{ expanded: expandedTxid === tx.txid }">
+          <div class="tx-row-main" @click="!tx._local && toggleExpand(tx)">
             <span class="tx-dir" :class="directionColor(tx.kind)">{{ directionIcon(tx.kind) }}</span>
             <div class="tx-meta">
               <div class="tx-line1">
@@ -229,7 +253,7 @@ onMounted(() => {
                 <span v-for="(lbl, i) in tx.labels" :key="i" class="tx-label-badge">🏷 {{ lbl }}</span>
               </div>
             </div>
-            <span class="tx-chevron">{{ expandedTxid === tx.txid ? '▾' : '▸' }}</span>
+            <span v-if="!tx._local" class="tx-chevron">{{ expandedTxid === tx.txid ? '▾' : '▸' }}</span>
           </div>
 
           <div v-if="expandedTxid === tx.txid" class="tx-detail">

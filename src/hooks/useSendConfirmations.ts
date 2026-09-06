@@ -139,10 +139,17 @@ export function useSendConfirmations() {
                 send.amountSats != null
                   ? `${groupThousands(send.amountSats)} sats`
                   : 'Your payment';
-              usePushBanner.getState().show({
-                title: 'Payment confirmed',
-                body: `${amount} confirmed on-chain.`,
-              });
+              usePushBanner.getState().show(
+                send.kind === 'plain'
+                  ? {
+                      title: 'Coins moved in',
+                      body: `${amount} arrived from your plain address.`,
+                    }
+                  : {
+                      title: 'Payment confirmed',
+                      body: `${amount} confirmed on-chain.`,
+                    },
+              );
             }
           }
         } catch {
