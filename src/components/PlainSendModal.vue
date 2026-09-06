@@ -138,7 +138,12 @@ async function confirm() {
   error.value = null
   busy.value = true
   try {
-    const res = await api.broadcastPlainTx(auth.adminkey, props.wallet.id, built.value.tx_hex)
+    const res = await api.broadcastPlainTx(
+      auth.adminkey,
+      props.wallet.id,
+      built.value.tx_hex,
+      toSelf.value ? built.value.amount : null,
+    )
     txid.value = res.txid
     emit('sent', res.txid, built.value.amount)
     // The wallet cannot see a payment to its own SP address by itself: the
