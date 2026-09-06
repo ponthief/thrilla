@@ -25,7 +25,6 @@ import {
 } from '@/services/plainChain'
 import { addPendingSend } from '@/stores/pendingsends'
 import { parseScannedAddress } from '@/services/addressUri'
-import QrScanModal from './QrScanModal.vue'
 
 const props = defineProps({
   show:        { type: Boolean, default: false },
@@ -46,7 +45,6 @@ const busy        = ref(false)
 const error       = ref(null)
 const built       = ref(null)
 const txid        = ref('')
-const showScan    = ref(false)
 // Which addresses to spend. Explicit, because it decides whether this
 // transaction publicly links two of them — not something to infer from whatever
 // happens to be typed in the amount field.
@@ -104,7 +102,6 @@ const canReview = computed(() =>
 watch(() => props.show, async (show) => {
   if (!show) return
   stage.value = 'compose'
-  showScan.value = false
   selected.value = defaultPlainSelection(totals.value)
   destination.value = ''
   amount.value = ''
@@ -119,11 +116,6 @@ watch(() => props.show, async (show) => {
     feeRate.value = String(t.halfHourFee ?? t.hourFee ?? t.fastestFee ?? 1)
   } catch { /* keep the default */ }
 })
-
-function onScanned(value) {
-  destination.value = parseScannedAddress(value)
-  showScan.value = false
-}
 
 async function pasteDestination() {
   try {
@@ -205,8 +197,10 @@ async function confirm() {
             <label>To</label>
             <input class="input mono" v-model="destination" :placeholder="placeholder"
                    autocomplete="off" spellcheck="false" />
+            <!-- No Scan here. On a desktop browser the camera is the wrong
+                 instrument for an address that is already on the clipboard,
+                 and the Scan view exists for the phone case. -->
             <div class="flex gap-2" style="margin-top:8px">
-              <button type="button" class="btn btn-ghost btn-sm" @click="showScan = true">▦ Scan</button>
               <button type="button" class="btn btn-ghost btn-sm" @click="pasteDestination">⎘ Paste</button>
               <button type="button" class="btn btn-ghost btn-sm"
                       @click="destination = wallet.sp_address">My wallet</button>
@@ -325,8 +319,6 @@ async function confirm() {
         </template>
       </div>
     </div>
-
-    <QrScanModal :show="showScan" @close="showScan = false" @scanned="onScanned" />
   </div>
 </template>
 
