@@ -112,12 +112,16 @@ export default function WalletScreen() {
   // is collapsed and easy to miss, so say so here where people actually look.
   const plainWalletId = usePlainStatus((s) => s.walletId);
   const plainSats = usePlainStatus((s) => s.spendableSats);
+  const plainArriving = usePlainStatus((s) => s.unconfirmedSats);
   const plainSpendPending = usePlainStatus((s) => !!s.pendingSpend);
   const goToPlain = useNavStore((s) => s.goToPlain);
   // Hidden while a payment from there is in flight: the chain index lags a
   // mempool spend, so the figure it reports is coins already on their way.
-  const plainSpendable =
-    spWallet && plainWalletId === spWallet.id && !plainSpendPending ? plainSats : 0;
+  const plainOwn = !!spWallet && plainWalletId === spWallet.id && !plainSpendPending;
+  const plainSpendable = plainOwn ? plainSats : 0;
+  // Nothing else says a payment is on its way to the plain chain while it is
+  // unconfirmed — the card is on another tab and collapsed.
+  const plainIncoming = plainOwn ? plainArriving : 0;
   const spTxs = useMemo(() => {
     const rows = spRawTxs.map((t) => spTxToItem(t, txLabelMap));
     // A payment from the plain chain into this wallet's own SP address is
@@ -423,14 +427,17 @@ export default function WalletScreen() {
               </View>
             ) : null}
 
-            {isSp && !keysMissing && plainSpendable > 0 ? (
+            {isSp && !keysMissing && (plainSpendable > 0 || plainIncoming > 0) ? (
               <View style={styles.plainBanner}>
                 <View style={styles.scanTextWrap}>
                   <Text style={styles.scanTitle}>
-                    {groupThousands(plainSpendable)} sats on a plain address
+                    {groupThousands(plainSpendable || plainIncoming)} sats on a
+                    plain address
                   </Text>
                   <Text style={styles.scanSub}>
-                    Held separately from this balance, ready to send.
+                    {plainSpendable > 0
+                      ? 'Held separately from this balance, ready to send.'
+                      : 'Waiting to be mined — held separately from this balance.'}
                   </Text>
                 </View>
                 <TouchableOpacity style={styles.scanBtn} onPress={goToPlain}>

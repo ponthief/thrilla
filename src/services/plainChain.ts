@@ -31,6 +31,7 @@ export interface PlainAddressState {
   utxos: PlainUtxo[];
   confirmed_sats: number;
   unconfirmed_sats: number;
+  unconfirmed_count: number;
 }
 
 export interface PlainPreview {
@@ -40,6 +41,10 @@ export interface PlainPreview {
   // Coins seen but not yet mined. Never spent: an unconfirmed payment can still
   // be replaced, which would orphan anything built on top of it.
   unconfirmed_sats: number;
+  // How many arrivals that total is made of. Several payments to one address
+  // are one address balance, which is correct but says nothing about how many
+  // landed — and while they are unconfirmed the total is all there is to go on.
+  unconfirmed_count: number;
 }
 
 export interface BuiltPlainTx {
@@ -109,6 +114,7 @@ export interface PlainChainState {
   utxos: PlainUtxo[];
   confirmedSats: number;
   unconfirmedSats: number;
+  unconfirmedCount: number;
   // index → address for everything walked, so callers can group UTXOs back to
   // the derivation index whose key signs for them.
   addressForIndex: Map<number, string>;
@@ -174,6 +180,10 @@ export async function loadPlainChain(
     utxos: indices.flatMap((i) => state[i].utxos),
     confirmedSats: indices.reduce((n, i) => n + state[i].confirmed_sats, 0),
     unconfirmedSats: indices.reduce((n, i) => n + state[i].unconfirmed_sats, 0),
+    unconfirmedCount: indices.reduce(
+      (n, i) => n + (state[i].unconfirmed_count || 0),
+      0,
+    ),
   };
 }
 

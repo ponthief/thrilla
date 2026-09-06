@@ -210,8 +210,11 @@ export default function PlainAddressCard({ wallet }: Props) {
               <Text style={styles.balanceValue}>{groupThousands(sats)} sats</Text>
               {chain.unconfirmedSats > 0 ? (
                 <Text style={styles.balanceHint}>
-                  + {groupThousands(chain.unconfirmedSats)} sats unconfirmed —
-                  spendable once mined
+                  + {groupThousands(chain.unconfirmedSats)} sats from{' '}
+                  {chain.unconfirmedCount > 1
+                    ? `${chain.unconfirmedCount} payments`
+                    : '1 payment'}{' '}
+                  waiting to be mined
                 </Text>
               ) : null}
               {chain.fundedIndices.length > 1 ? (
