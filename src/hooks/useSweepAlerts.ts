@@ -8,6 +8,7 @@ import { sweepAddressAt } from '@services/spKeys';
 import { lastAnnounced, setLastAnnounced } from '@services/sweepAlerts';
 import { usePendingSends } from '@stores/pendingSends';
 import { usePushBanner } from '@stores/pushBanner';
+import { useSweepStatus } from '@stores/sweepStatus';
 import { useNotifyStore } from '@stores/notifyStore';
 
 // Watches the wallet's BIP-84 sweep chain and says when coins land on it.
@@ -66,6 +67,15 @@ export function useSweepAlerts() {
     let cancelled = false;
     let watch: Watch | null = null;
 
+    // The wallet screen prompts from this, so it does not have to walk the
+    // chain itself just to know whether there is anything to prompt about.
+    const publish = (walletId: string, sweepable: number, unconfirmed: number) =>
+      useSweepStatus.getState().set({
+        walletId,
+        sweepableSats: sweepable,
+        unconfirmedSats: unconfirmed,
+      });
+
     // Full gap-limit walk: establishes which addresses to watch and where the
     // receive address currently sits.
     const rewalk = async (): Promise<number | null> => {
@@ -93,6 +103,7 @@ export function useSweepAlerts() {
         indices,
         used: new Set(chain.usedIndices),
       };
+      publish(wallet.id, chain.confirmedSats, chain.unconfirmedSats);
       return chain.confirmedSats;
     };
 
@@ -140,7 +151,12 @@ export function useSweepAlerts() {
           );
           // The receive address was paid, so it is no longer the receive
           // address — re-walk to find the new one and pick up its balance.
-          sats = newlyUsed ? await rewalk() : res.confirmed_sats;
+          if (newlyUsed) {
+            sats = await rewalk();
+          } else {
+            sats = res.confirmed_sats;
+            publish(watch.walletId, res.confirmed_sats, res.unconfirmed_sats);
+          }
         }
         if (!cancelled && watch && sats != null) {
           await announce(watch.walletId, sats);

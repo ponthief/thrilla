@@ -12,6 +12,8 @@ import { useAuthStore } from '@stores/authStore';
 import { getWalletKeys } from '@services/secureKeys';
 import { loadSweepChain, SweepChainState } from '@services/sweepChain';
 import { usePendingSends } from '@stores/pendingSends';
+import { useNavStore } from '@stores/navStore';
+import { useSweepStatus } from '@stores/sweepStatus';
 import QRCode from './QRCode';
 import SweepModal, { SweepSetupModal } from './SweepModal';
 import { colors } from '@/theme';
@@ -34,8 +36,8 @@ interface Props {
 }
 
 /**
- * The wallet's plain bech32 address, for paying in from anything that can't
- * send to a Silent Payments address — an exchange withdrawal, most often.
+ * The wallet's plain bech32 address, for being paid by anything that can't send
+ * to a Silent Payments address.
  *
  * A fresh address every time. The device walks its own BIP-84 chain from the
  * account key held in the keystore and shows the first address with no history,
@@ -67,6 +69,12 @@ export default function SweepCard({ wallet }: Props) {
   const [copied, setCopied] = useState(false);
   const [sweepOpen, setSweepOpen] = useState(false);
   const [setupOpen, setSetupOpen] = useState(false);
+  // Bumped by the prompt on the wallet screen, which is how most people will
+  // arrive here — the card is otherwise collapsed and easily missed.
+  const sweepRequest = useNavStore((s) => s.sweepRequest);
+  useEffect(() => {
+    if (sweepRequest > 0) setOpen(true);
+  }, [sweepRequest]);
 
   const refresh = useCallback(async () => {
     if (!inkey) return;
@@ -82,7 +90,15 @@ export default function SweepCard({ wallet }: Props) {
     setLoading(true);
     setError(null);
     try {
-      setChain(await loadSweepChain(inkey, wallet.id, xprv, wallet.network));
+      const next = await loadSweepChain(inkey, wallet.id, xprv, wallet.network);
+      setChain(next);
+      // Share what we just learned, so the wallet screen's prompt reflects a
+      // manual refresh instead of waiting for the background watcher's poll.
+      useSweepStatus.getState().set({
+        walletId: wallet.id,
+        sweepableSats: next.confirmedSats,
+        unconfirmedSats: next.unconfirmedSats,
+      });
     } catch (e: any) {
       setError(e?.message || 'Could not check your sweep addresses.');
     } finally {
@@ -109,9 +125,9 @@ export default function SweepCard({ wallet }: Props) {
     return (
       <TouchableOpacity style={styles.collapsed} onPress={() => setOpen(true)}>
         <View style={styles.collapsedText}>
-          <Text style={styles.collapsedTitle}>Paying in from an exchange?</Text>
+          <Text style={styles.collapsedTitle}>Need a plain bitcoin address?</Text>
           <Text style={styles.collapsedSub}>
-            Use a plain bitcoin address, then sweep it in.
+            For senders that can't pay a Silent Payments address.
           </Text>
         </View>
         <Text style={styles.chevron}>›</Text>
