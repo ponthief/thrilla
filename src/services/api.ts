@@ -778,15 +778,26 @@ export async function buildPlainSpend(
 
 // Separate from broadcastTx: these coins were never tracked in the wallet, so
 // there are no input UTXOs to mark spent.
+//
+// Pass `incomingAmount` ONLY when this pays the wallet's own SP address. The
+// server records those so the user's OTHER devices can see the payment while it
+// is in flight — otherwise it exists nowhere but the device that sent it, since
+// no wallet-owned input was spent and the output is not found until a scan.
+// Payments out of the plain chain are deliberately never recorded.
 export async function broadcastPlainTx(
   adminkey: string,
   walletId: string,
   txHex: string,
+  incomingAmount: number | null = null,
 ): Promise<{ txid: string }> {
   return req(`${SILNT}/api/v1/plain/broadcast`, {
     method: 'POST',
     headers: apiKey(adminkey),
-    body: JSON.stringify({ wallet_id: walletId, tx_hex: txHex }),
+    body: JSON.stringify({
+      wallet_id: walletId,
+      tx_hex: txHex,
+      incoming_amount: incomingAmount,
+    }),
   });
 }
 
