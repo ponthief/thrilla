@@ -1,18 +1,19 @@
 import * as Keychain from 'react-native-keychain';
 
-// Remembers the sweep balance this device has already announced, per wallet.
+// Remembers the plain-address balance this device has already announced, per
+// wallet.
 //
-// Without it, "you have funds to sweep" would fire on every app launch for as
-// long as the coins sat there — the alert is about coins ARRIVING, and coins
-// that arrived last week are not news. Announce only what's new: an amount
-// above what was last announced. A sweep drops the balance to zero, which
-// resets the mark so the next withdrawal is news again.
+// Without it, "coins arrived" would fire on every app launch for as long as they
+// sat there — the alert is about coins ARRIVING, and coins that arrived last
+// week are not news. Announce only what's new: an amount above what was last
+// announced. Spending them drops the balance, which resets the mark so the next
+// payment is news again.
 //
 // Per-device, like the payment-alerts switch it is gated by, and stored the same
 // way (react-native-keychain — the app has no AsyncStorage/MMKV dependency).
 // Not secret; it lives here because this is where per-device state goes.
 
-const SEEN_SERVICE = 'com.thrilla.sweep.announced';
+const SEEN_SERVICE = 'com.thrilla.plain.announced';
 
 type SeenMap = Record<string, number>;
 
@@ -38,7 +39,7 @@ export async function setLastAnnounced(walletId: string, sats: number): Promise<
   try {
     const all = await readAll();
     all[walletId] = Math.max(0, Math.floor(sats));
-    await Keychain.setGenericPassword('sweepseen', JSON.stringify(all), {
+    await Keychain.setGenericPassword('plainseen', JSON.stringify(all), {
       service: SEEN_SERVICE,
       accessible: Keychain.ACCESSIBLE.WHEN_UNLOCKED,
     });

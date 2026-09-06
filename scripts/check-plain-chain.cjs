@@ -1,16 +1,16 @@
 /*
- * Standalone check for the sweep chain (services/sweepChain, services/spKeys).
- * No jest — this repo has none set up:
+ * Standalone check for the plain address chain (services/plainChain,
+ * services/spKeys). No jest — this repo has none set up:
  *
- *     node scripts/check-sweep-chain.cjs
+ *     node scripts/check-plain-chain.cjs
  *
- * The sweep derives its addresses from the BIP-84 ACCOUNT key held in the
- * keystore rather than from the seed, so that sweeping needs no recovery
- * phrase. That is only safe if the two paths agree exactly: an account key that
- * derived even slightly different addresses would show the user an address, take
- * their money, and then sign for something else. This asserts they match across
- * every network and a spread of indices, checks both against the canonical
- * BIP-84 vectors, and confirms indices actually rotate.
+ * Addresses come from the BIP-84 ACCOUNT key held in the keystore rather than
+ * from the seed, so that receiving and spending need no recovery phrase. That is
+ * only safe if the two paths agree exactly: an account key that derived even
+ * slightly different addresses would show the user an address, take their money,
+ * and then sign for something else. This asserts they match across every network
+ * and a spread of indices, checks both against the canonical BIP-84 vectors, and
+ * confirms indices actually rotate.
  *
  * It mirrors the derivation in services/spKeys.ts rather than importing it —
  * that module is TypeScript with React Native imports in its dependency graph.

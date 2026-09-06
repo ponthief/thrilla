@@ -709,18 +709,19 @@ export async function broadcastTx(
   });
 }
 
-// ── Sweep (plain bech32 addresses → this wallet) ────────────────────────────
+// ── Plain addresses ─────────────────────────────────────────────────────────
 //
-// For being paid by anything that can't send to a Silent Payments address — an
-// exchange, a payroll provider, any service that only knows bech32. Coins land
-// on the wallet's BIP-84 chain (the same chain a swap refund uses) and sit there
-// until swept in.
+// A bech32 pocket beside the Silent Payments wallet, for being paid by and
+// paying anything that can't handle an sp1… address. Coins land on the wallet's
+// BIP-84 chain (the same chain a swap refund uses) and are spent straight out of
+// it — they never enter the SP wallet, which is what keeps them unlinked from
+// the rest of the balance.
 //
 // The device derives the addresses and asks about a window of them. The server
 // is never given the xpub, so it learns the addresses actually in play and
 // cannot derive the next one, let alone every address the seed could produce.
 
-export interface SweepUtxo {
+export interface PlainUtxo {
   address: string;
   txid: string;
   vout: number;
@@ -728,81 +729,92 @@ export interface SweepUtxo {
   height: number;
 }
 
-export interface SweepAddressState {
+export interface PlainAddressState {
   address: string;
   // True if the address has ANY history, spent or not — what decides whether it
   // can still be handed out. A used-and-emptied address has no UTXOs but must
   // never be shown again.
   used: boolean;
-  utxos: SweepUtxo[];
+  utxos: PlainUtxo[];
   confirmed_sats: number;
   unconfirmed_sats: number;
 }
 
-export interface SweepPreview {
-  addresses: SweepAddressState[];
-  utxos: SweepUtxo[];
+export interface PlainPreview {
+  addresses: PlainAddressState[];
+  utxos: PlainUtxo[];
   confirmed_sats: number;
-  // Coins seen but not yet mined. Never swept: an unconfirmed exchange
-  // withdrawal can still be replaced, which would orphan the sweep with it.
+  // Coins seen but not yet mined. Never spent: an unconfirmed payment can still
+  // be replaced, which would orphan anything built on top of it.
   unconfirmed_sats: number;
 }
 
-export interface BuiltSweep {
+export interface BuiltPlainTx {
   tx_hex: string;
   amount: number;
+  // Zero when sending everything, which empties the addresses outright.
+  change: number;
   fee: number;
   total_input: number;
   vsize: number;
   fee_rate_used: number;
   input_count: number;
-  swept_addresses: string[];
+  swept_addresses: string[]; // the addresses this spends from
   unconfirmed_sats: number;
+  destination?: string;
 }
 
 // Which of these addresses have been used, and what's unspent on them. Uses
 // inkey. The backend caps the batch at 50.
-export async function getSweepPreview(
+export async function getPlainPreview(
   inkey: string,
   walletId: string,
   addresses: string[],
-): Promise<SweepPreview> {
+): Promise<PlainPreview> {
   const qs = addresses
     .map((a) => `address=${encodeURIComponent(a)}`)
     .join('&');
-  return req(`${SILNT}/api/v1/sweep/${walletId}?${qs}`, { headers: apiKey(inkey) });
+  return req(`${SILNT}/api/v1/plain/${walletId}?${qs}`, { headers: apiKey(inkey) });
 }
 
-// Build and sign the sweep. Keys are passed transiently for signing, the same as
-// the spend key in buildTx, and are never stored server-side. Send keys only for
-// addresses the preview showed holding coins — normally one. There's no
-// destination parameter: the server always sweeps into this wallet's own Silent
-// Payment address.
-export async function buildSweepTx(
+// Pay out of the plain chain. The destination can be an ordinary address or a
+// Silent Payments one — paying your own SP address is how these coins move into
+// that wallet, if you want them there.
+//
+// `amount` null means send everything. `changeAddress` must be the chain's next
+// unused address; the backend refuses anything off that chain, so the remainder
+// cannot be routed elsewhere.
+export async function buildPlainSpend(
   adminkey: string,
   walletId: string,
-  sweepKeysHex: string[],
+  keysHex: string[],
+  destination: string,
+  amount: number | null,
+  changeAddress: string | null,
   feeRate: number,
-): Promise<BuiltSweep> {
-  return req(`${SILNT}/api/v1/sweep/build`, {
+): Promise<BuiltPlainTx> {
+  return req(`${SILNT}/api/v1/plain/spend`, {
     method: 'POST',
     headers: apiKey(adminkey),
     body: JSON.stringify({
       wallet_id: walletId,
-      sweep_keys: sweepKeysHex,
+      keys: keysHex,
+      destination,
+      amount,
+      change_address: changeAddress,
       fee_rate: feeRate,
     }),
   });
 }
 
-// Separate from broadcastTx: a sweep spends coins the wallet never tracked, so
+// Separate from broadcastTx: these coins were never tracked in the wallet, so
 // there are no input UTXOs to mark spent.
-export async function broadcastSweepTx(
+export async function broadcastPlainTx(
   adminkey: string,
   walletId: string,
   txHex: string,
 ): Promise<{ txid: string }> {
-  return req(`${SILNT}/api/v1/sweep/broadcast`, {
+  return req(`${SILNT}/api/v1/plain/broadcast`, {
     method: 'POST',
     headers: apiKey(adminkey),
     body: JSON.stringify({ wallet_id: walletId, tx_hex: txHex }),

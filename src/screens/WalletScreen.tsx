@@ -22,7 +22,7 @@ import TransactionList, { TxItem } from '../components/TransactionList';
 import TxDetailModal from '../components/TxDetailModal';
 import BitcoinSign from '../components/BitcoinSign';
 import { usePendingSends } from '@stores/pendingSends';
-import { useSweepStatus } from '@stores/sweepStatus';
+import { usePlainStatus } from '@stores/plainStatus';
 import { useNavStore } from '@stores/navStore';
 import { useTxLabelStore } from '@stores/txLabelStore';
 import { useCatchUpScan } from '../hooks/useCatchUpScan';
@@ -107,41 +107,21 @@ export default function WalletScreen() {
   const txLabelMap = useTxLabelStore((s) => s.labels);
   const pendingLocal = usePendingSends((s) => s.sends);
   // Coins sitting on the plain bech32 chain, found by the background watcher
-  // (hooks/useSweepAlerts). They are NOT in the balance above and never will be
-  // until they are swept, and the only place to do that is a collapsed card on
-  // another tab — so say so here, where people actually look.
-  const sweepWalletId = useSweepStatus((s) => s.walletId);
-  const sweepSats = useSweepStatus((s) => s.sweepableSats);
-  const goToSweep = useNavStore((s) => s.goToSweep);
-  const sweepPending = pendingLocal.some(
-    (x) => x.kind === 'sweep' && x.walletId === spWallet?.id,
+  // (hooks/usePlainAlerts). They are NOT part of the balance above and are not
+  // meant to be — they are spent from their own card on the Receive tab, which
+  // is collapsed and easy to miss, so say so here where people actually look.
+  const plainWalletId = usePlainStatus((s) => s.walletId);
+  const plainSats = usePlainStatus((s) => s.spendableSats);
+  const plainSpendPending = usePlainStatus((s) => !!s.pendingSpend);
+  const goToPlain = useNavStore((s) => s.goToPlain);
+  // Hidden while a payment from there is in flight: the chain index lags a
+  // mempool spend, so the figure it reports is coins already on their way.
+  const plainSpendable =
+    spWallet && plainWalletId === spWallet.id && !plainSpendPending ? plainSats : 0;
+  const spTxs = useMemo(
+    () => spRawTxs.map((t) => spTxToItem(t, txLabelMap)),
+    [spRawTxs, txLabelMap],
   );
-  const sweepableSats =
-    spWallet && sweepWalletId === spWallet.id && !sweepPending ? sweepSats : 0;
-  const spTxs = useMemo(() => {
-    const rows = spRawTxs.map((t) => spTxToItem(t, txLabelMap));
-    // A broadcast sweep is invisible to the server until it confirms and its
-    // output is scanned in: the wallet spent no coins it owned, so there is
-    // nothing for the transaction list to report. Show the local record instead,
-    // so an in-flight sweep is visible here rather than only on the sweep card.
-    // It drops out on confirmation, when the server row takes over.
-    const known = new Set(spRawTxs.map((t) => t.txid));
-    const sweeps = pendingLocal
-      .filter(
-        (s) => s.kind === 'sweep' && s.walletId === spWallet?.id && !known.has(s.txid),
-      )
-      .map<TxItem>((s) => ({
-        id: s.txid,
-        direction: 'in',
-        amountSats: s.amountSats ?? 0,
-        label: txLabelMap[s.txid] || 'Swept in',
-        timestamp: Math.floor(s.addedAt / 1000),
-        pending: true,
-      }));
-    // Newest first, matching the server's ordering — a pending sweep is always
-    // the most recent thing that happened.
-    return [...sweeps, ...rows];
-  }, [spRawTxs, txLabelMap, pendingLocal, spWallet?.id]);
   const [lnTxs, setLnTxs] = useState<TxItem[]>([]);
 
   const load = useCallback(async () => {
@@ -423,18 +403,18 @@ export default function WalletScreen() {
               </View>
             ) : null}
 
-            {isSp && !keysMissing && sweepableSats > 0 ? (
-              <View style={styles.sweepBanner}>
+            {isSp && !keysMissing && plainSpendable > 0 ? (
+              <View style={styles.plainBanner}>
                 <View style={styles.scanTextWrap}>
                   <Text style={styles.scanTitle}>
-                    {groupThousands(sweepableSats)} sats waiting to sweep
+                    {groupThousands(plainSpendable)} sats on a plain address
                   </Text>
                   <Text style={styles.scanSub}>
-                    Paid to a plain address — not in your balance until swept.
+                    Held separately from this balance, ready to send.
                   </Text>
                 </View>
-                <TouchableOpacity style={styles.scanBtn} onPress={goToSweep}>
-                  <Text style={styles.scanBtnText}>Sweep</Text>
+                <TouchableOpacity style={styles.scanBtn} onPress={goToPlain}>
+                  <Text style={styles.scanBtnText}>View</Text>
                 </TouchableOpacity>
               </View>
             ) : null}
@@ -619,9 +599,9 @@ const styles = StyleSheet.create({
     marginBottom: 16,
     gap: 10,
   },
-  // Same shape as the catch-up banner, in the wallet's own accent rather than
-  // the scan warning colour: money waiting is an opportunity, not a problem.
-  sweepBanner: {
+  // Same shape as the catch-up banner, in green rather than the scan warning
+  // colour: coins waiting are an opportunity, not a problem.
+  plainBanner: {
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: 'rgba(34,197,94,0.12)',

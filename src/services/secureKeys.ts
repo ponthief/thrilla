@@ -13,14 +13,18 @@ export interface WalletKeys {
   // and deriving it needs the mnemonic, which exists in memory only at
   // create/recover time. Absent on wallets stored before it was derived.
   refundAddress?: string;
-  // BIP-84 ACCOUNT extended private key (m/84'/coin'/0'), for the sweep chain.
-  // Held here so the wallet can hand out a fresh sweep address per payment and
-  // sign the sweep without the user re-entering their recovery phrase.
+  // BIP-84 ACCOUNT extended private key (m/84'/coin'/0'), for the plain address
+  // chain. Held here so the wallet can hand out a fresh plain address per
+  // payment and sign from it without the user re-entering their recovery phrase.
   //
   // A smaller secret than the spendKey already in this record: it reaches one
-  // throwaway branch that holds coins in transit, where the spend key reaches
-  // the whole wallet. Wiped with everything else by the duress PIN. Absent on
-  // wallets stored before sweeping existed — SweepCard backfills it.
+  // branch holding coins in transit, where the spend key reaches the whole
+  // wallet. Wiped with everything else by the duress PIN. Absent on wallets
+  // stored before it existed — PlainSetupModal backfills it.
+  //
+  // The NAME is deliberately left as-is: it is a key in the serialized keystore
+  // blob on devices in the wild, and renaming it would silently orphan their
+  // account key and send them back through the recovery-phrase prompt.
   sweepAccount?: string;
 }
 

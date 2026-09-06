@@ -12,17 +12,17 @@ export type TabKey = 'wallet' | 'send' | 'receive' | 'settings';
 
 interface NavState {
   tab: TabKey;
-  // Bumped to ask the Receive tab to expand its sweep card.
-  sweepRequest: number;
+  // Bumped to ask the Receive tab to expand its plain-address card.
+  plainRequest: number;
   setTab: (tab: TabKey) => void;
-  // Go to Receive AND open the sweep card, for the prompt on the wallet screen.
-  goToSweep: () => void;
+  // Go to Receive AND open that card, for the prompt on the wallet screen.
+  goToPlain: () => void;
 }
 
 export const useNavStore = create<NavState>((set) => ({
   tab: 'wallet',
-  sweepRequest: 0,
+  plainRequest: 0,
   setTab: (tab) => set({ tab }),
-  goToSweep: () =>
-    set((s) => ({ tab: 'receive', sweepRequest: s.sweepRequest + 1 })),
+  goToPlain: () =>
+    set((s) => ({ tab: 'receive', plainRequest: s.plainRequest + 1 })),
 }));

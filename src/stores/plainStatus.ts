@@ -1,0 +1,61 @@
+import { create } from 'zustand';
+
+// What is sitting on the plain chain, so surfaces other than its card can react
+// to it.
+//
+// The card is on the Receive tab, behind a collapsed row — nobody finds it by
+// accident. The Wallet tab is where people actually look, so it needs to be able
+// to say "there are coins here that aren't in your balance". This is how it
+// finds out, without every screen running its own chain walk.
+//
+// Written by whoever last looked: the background watcher (hooks/usePlainAlerts)
+// on its poll, and the card itself on a manual refresh.
+
+// A payment broadcast from the plain chain that the chain index has not caught
+// up with yet. Its inputs are spent, but a mempool spend takes a moment to reach
+// Fulcrum, so a refresh straight after broadcast reads back the old balance —
+// and offering those coins again would build a conflicting transaction.
+export interface PendingPlainSpend {
+  txid: string;
+  // Pool balance at the moment of broadcast. When a later walk disagrees with
+  // it, the index has caught up and this can be dropped.
+  balanceAtSpend: number;
+  at: number; // ms
+}
+
+// Give up waiting for the index rather than blocking indefinitely if a
+// transaction is dropped or replaced.
+export const PLAIN_SPEND_STALE_MS = 15 * 60 * 1000;
+
+interface PlainStatusState {
+  // Scoped to a wallet: the balance is meaningless attached to the wrong one,
+  // and the app can switch networks.
+  walletId: string | null;
+  spendableSats: number;
+  unconfirmedSats: number;
+  pendingSpend: PendingPlainSpend | null;
+  set: (s: { walletId: string; spendableSats: number; unconfirmedSats: number }) => void;
+  markSpent: (spend: PendingPlainSpend) => void;
+  clearSpent: () => void;
+}
+
+export const usePlainStatus = create<PlainStatusState>((set) => ({
+  walletId: null,
+  spendableSats: 0,
+  unconfirmedSats: 0,
+  pendingSpend: null,
+  set: (s) => set(s),
+  markSpent: (pendingSpend) => set({ pendingSpend }),
+  clearSpent: () => set({ pendingSpend: null }),
+}));
+
+// True once the chain index has caught up with a payment, or once waiting for it
+// has gone on long enough not to be worth blocking on.
+export function plainSpendSettled(
+  spend: PendingPlainSpend | null,
+  observedSats: number,
+): boolean {
+  if (!spend) return true;
+  if (Date.now() - spend.at > PLAIN_SPEND_STALE_MS) return true;
+  return observedSats !== spend.balanceAtSpend;
+}
