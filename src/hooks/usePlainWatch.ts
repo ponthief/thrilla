@@ -11,12 +11,17 @@ import { usePushBanner } from '@stores/pushBanner';
 import { usePlainStatus } from '@stores/plainStatus';
 import { useNotifyStore } from '@stores/notifyStore';
 
-// Watches the wallet's plain BIP-84 chain and says when coins land on it.
+// Watches the wallet's plain BIP-84 chain: what is on it, and when coins land.
 //
 // Nothing else would tell the user. A Silent Payments payment is found by the
 // scanner and announced; a bech32 payment to this chain is invisible until
 // somebody opens the collapsed card on Receive and looks, so it could sit there
 // for weeks unnoticed.
+//
+// The watch itself runs whatever the notification preference says, and only the
+// banner is gated on it. The wallet screen's prompt reads the balance this
+// publishes, so gating the whole watch left that prompt blank until the user
+// happened to open the card on Receive — the one thing it exists to prevent.
 //
 // Mounted at the app shell, so the notice arrives whichever tab the user is on,
 // and only while the app is in the FOREGROUND. Reaching the user with the app
@@ -52,17 +57,19 @@ interface Watch {
   used: Set<number>;
 }
 
-export function usePlainAlerts() {
+export function usePlainWatch() {
   const inkey = useAuthStore((s) => s.inkey);
   const confirmedTick = usePendingSends((s) => s.confirmedTick);
-  // Subscribed rather than read once, so turning alerts on starts the watch
-  // and turning them off stops it, without waiting for a restart.
+  // Subscribed rather than read once, so flipping the preference starts or
+  // stops the banner without waiting for a restart. It does not stop the walk.
   const alertsOn = useNotifyStore((s) => s.paymentAlerts);
+  // Pull-to-refresh on the wallet screen bumps this. Restarting the effect
+  // drops the narrow watch, so the next tick is a full re-walk.
+  const refreshTick = usePlainStatus((s) => s.refreshTick);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
-    // No alerts wanted, no reason to poll for them.
-    if (!inkey || !alertsOn) return;
+    if (!inkey) return;
 
     let cancelled = false;
     let watch: Watch | null = null;
@@ -106,6 +113,9 @@ export function usePlainAlerts() {
       return chain.confirmedSats;
     };
 
+    // With alerts off the mark still moves, silently: the wallet screen is
+    // already showing the balance, so turning alerts back on later should not
+    // raise a banner for coins the user has been looking at for a week.
     const announce = async (walletId: string, sats: number) => {
       const before = await lastAnnounced(walletId);
       if (sats <= before) {
@@ -114,6 +124,7 @@ export function usePlainAlerts() {
         return;
       }
       await setLastAnnounced(walletId, sats);
+      if (!alertsOn) return;
       usePushBanner.getState().show({
         title: 'Coins arrived',
         body: `${groupThousands(sats)} sats on your plain address, ready to send.`,
@@ -175,5 +186,5 @@ export function usePlainAlerts() {
     };
     // confirmedTick restarts the watch when wallet activity confirms, so the
     // balance it reads (and the announced mark) reset without waiting a poll.
-  }, [inkey, alertsOn, confirmedTick]);
+  }, [inkey, alertsOn, confirmedTick, refreshTick]);
 }

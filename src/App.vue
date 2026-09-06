@@ -51,7 +51,9 @@ const APP_ROLE = import.meta.env.VITE_APP_ROLE || 'user'
 const IS_ADMIN_BUILD = APP_ROLE === 'admin'
 
 const baseNav = [
-  { name: 'wallets', label: 'SP Wallet',   icon: '◈' },
+  // Not "SP Wallet": the screen also holds the plain bech32 pocket, which is
+  // deliberately not a Silent Payments address.
+  { name: 'wallets', label: 'Wallet',   icon: '◈' },
   { name: 'utxos',   label: 'Coins',    icon: '⬡' },
   { name: 'send',    label: 'Send',     icon: '↗' },
   ...(LIGHTNING_ENABLED ? [{ name: 'lightning', label: 'Lightning', icon: '⚡' }] : []),

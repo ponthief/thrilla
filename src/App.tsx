@@ -34,7 +34,7 @@ import {
 import PushBanner from './components/PushBanner';
 import BitcoinSign from './components/BitcoinSign';
 import { useSendConfirmations } from './hooks/useSendConfirmations';
-import { usePlainAlerts } from './hooks/usePlainAlerts';
+import { usePlainWatch } from './hooks/usePlainWatch';
 import { useNavStore, TabKey as NavTabKey } from '@stores/navStore';
 import { useTxLabelStore } from '@stores/txLabelStore';
 import { colors, DEVICE_TRUST_ENABLED } from '@/theme';
@@ -117,7 +117,7 @@ function Shell() {
   useSendConfirmations();
   // Coins arriving on the plain bech32 chain: nothing else would notice them,
   // since they are not Silent Payments outputs the scanner finds.
-  usePlainAlerts();
+  usePlainWatch();
   // Device-only transaction labels: read once from the keystore so the wallet
   // list can render them synchronously.
   const loadTxLabels = useTxLabelStore((s) => s.load);
