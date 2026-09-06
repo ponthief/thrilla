@@ -23,6 +23,7 @@ import * as api from '@/api'
 import { loadPlainChain } from '@/services/plainChain'
 import { deriveSilentPayment, isValidMnemonic } from '@/services/spKeys'
 import PlainSendModal from './PlainSendModal.vue'
+import QrModal from './QrModal.vue'
 import SeedInput from './SeedInput.vue'
 
 const props = defineProps({
@@ -38,6 +39,7 @@ const loading     = ref(false)
 const error       = ref(null)
 const copied      = ref(false)
 const sendOpen    = ref(false)
+const qrOpen      = ref(false)
 
 // A payment broadcast from here that the chain index hasn't caught up with. Its
 // inputs are spent, but a mempool spend takes a moment to reach Fulcrum, and
@@ -213,6 +215,8 @@ async function runSetup() {
           <span class="mono addr">{{ chain.receiveAddress }}</span>
           <button class="btn btn-ghost btn-sm btn-icon" @click="copyAddress"
                   :title="copied ? 'Copied' : 'Copy address'">{{ copied ? '✓' : '⎘' }}</button>
+          <button class="btn btn-ghost btn-sm btn-icon" @click="qrOpen = true"
+                  title="Show QR code">▦</button>
           <button class="btn btn-ghost btn-sm" @click="refresh" :disabled="loading">
             {{ loading ? 'Checking…' : 'Refresh' }}
           </button>
@@ -272,6 +276,15 @@ async function runSetup() {
       :chain="chain"
       @sent="onSent"
       @close="sendOpen = false; refresh()"
+    />
+
+    <!-- The address only reaches the sender by being read off a screen, so it
+         needs a QR as much as the Silent Payments one above does. -->
+    <QrModal
+      :show="qrOpen"
+      :address="chain?.receiveAddress || ''"
+      title="Plain address"
+      @close="qrOpen = false"
     />
   </div>
 </template>
