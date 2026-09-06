@@ -245,9 +245,9 @@ async function runSetup() {
           Send these coins
         </button>
         <p v-if="hasCoins && !inFlight" class="text-dim text-xs" style="margin:8px 0 0;line-height:1.6">
-          Paid straight from here, so these coins are never linked to the rest of
-          your balance. To hold them in the wallet instead, send them to your own
-          Silent Payments address.
+          Paid straight from here, these reach the recipient without being linked
+          to the rest of your balance — or send them to your own Silent Payments
+          address to hold them in the wallet.
         </p>
         <p v-if="!hasCoins && !inFlight" class="text-dim text-xs" style="margin:8px 0 0;line-height:1.6">
           Nothing here yet. Send coins to the address above, then check back once
