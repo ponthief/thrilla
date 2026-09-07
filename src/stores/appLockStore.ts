@@ -13,7 +13,11 @@ interface AppLockState {
   enabled: boolean; // derived: bioEnabled || pinSet (does the app lock at all)
   locked: boolean;
   unlocking: boolean; // a prompt is in flight — suppress re-lock races
+  // How long the app may sit unused before locking. 0 = lock the moment it
+  // leaves the foreground. See services/appLock.
+  autoLockMs: number;
   refresh: () => Promise<void>;
+  setAutoLockMs: (ms: number) => Promise<void>;
   setBioEnabled: (v: boolean) => void;
   setPinSet: (v: boolean) => void;
   lock: () => void;
@@ -45,10 +49,22 @@ export const useAppLockStore = create<AppLockState>((set) => ({
   // screen it cannot satisfy.
   locked: true,
   unlocking: false,
+  autoLockMs: appLock.DEFAULT_AUTO_LOCK_MS,
 
   refresh: async () => {
-    const [bio, pin] = await Promise.all([appLock.isEnabled(), appPin.hasPin()]);
-    set({ bioEnabled: bio, pinSet: pin, enabled: bio || pin, ready: true });
+    const [bio, pin, autoLockMs] = await Promise.all([
+      appLock.isEnabled(),
+      appPin.hasPin(),
+      appLock.getAutoLockMs(),
+    ]);
+    set({ bioEnabled: bio, pinSet: pin, enabled: bio || pin, autoLockMs, ready: true });
+  },
+
+  // State first so the choice takes effect on the next background immediately,
+  // then persist.
+  setAutoLockMs: async (ms) => {
+    set({ autoLockMs: ms });
+    await appLock.setAutoLockMs(ms);
   },
 
   // Each lock method has its own flag; `enabled` (does the app lock at all) is

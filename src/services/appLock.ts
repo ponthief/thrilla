@@ -81,6 +81,63 @@ export async function enable(): Promise<boolean> {
   return true;
 }
 
+// ── Auto-lock delay ──────────────────────────────────────────────────────────
+//
+// How long the app may sit unused before it locks. Time spent in the background
+// counts, because "unused" is measured from the last touch (sessionActivity)
+// and a backgrounded app receives none.
+//
+// This exists because the app used to lock on EVERY trip to the background,
+// which made glancing at another app — checking the address someone sent you,
+// copying an amount — cost a fingerprint every time. That is the behaviour
+// people turn locks off over.
+//
+// ZERO means lock immediately on leaving the foreground, which is the old
+// behaviour kept as a choice for anyone who wants it.
+
+const TIMEOUT_SERVICE = 'com.thrilla.applock.timeout';
+
+// A minute is short enough that a lost phone is not sitting open for long, and
+// long enough that switching apps to look something up does not re-prompt.
+export const DEFAULT_AUTO_LOCK_MS = 60 * 1000;
+
+// The offered choices. Kept here rather than in the settings screen so the
+// stored value can be validated against them — a number that came back from the
+// keystore malformed should fall back, not become a 3ms auto-lock.
+export const AUTO_LOCK_CHOICES: { label: string; ms: number }[] = [
+  { label: 'Immediately', ms: 0 },
+  { label: 'After 1 minute', ms: 60 * 1000 },
+  { label: 'After 5 minutes', ms: 5 * 60 * 1000 },
+  { label: 'After 15 minutes', ms: 15 * 60 * 1000 },
+  { label: 'After 1 hour', ms: 60 * 60 * 1000 },
+];
+
+export async function getAutoLockMs(): Promise<number> {
+  try {
+    const c = await Keychain.getGenericPassword({ service: TIMEOUT_SERVICE });
+    if (!c) return DEFAULT_AUTO_LOCK_MS;
+    const n = Number(c.password);
+    // Only a value we actually offer. Anything else — a corrupted record, or a
+    // choice removed in a later version — falls back rather than being honoured.
+    return AUTO_LOCK_CHOICES.some((o) => o.ms === n) ? n : DEFAULT_AUTO_LOCK_MS;
+  } catch {
+    return DEFAULT_AUTO_LOCK_MS;
+  }
+}
+
+export async function setAutoLockMs(ms: number): Promise<void> {
+  try {
+    await Keychain.setGenericPassword('timeout', String(ms), {
+      service: TIMEOUT_SERVICE,
+      accessible: Keychain.ACCESSIBLE.WHEN_UNLOCKED,
+    });
+  } catch {
+    /* keystore unavailable — the choice applies this session and is re-asked
+       for next launch, which fails towards the default rather than towards
+       never locking */
+  }
+}
+
 // Turn the lock off and remove the guarded sentinel.
 export async function disable(): Promise<void> {
   try {
