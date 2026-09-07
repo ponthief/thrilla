@@ -146,6 +146,42 @@ check('and does not flash the wallet',
 check('a fresh password sign-in goes to the wallet, not the lock screen',
       gate(coldStart({ locked: false })) === 'shell');
 
+// ── auto-lock delay ─────────────────────────────────────────────────────────
+// Two triggers share this setting and must not both fire or both miss: zero is
+// App.tsx locking on 'background', everything else is useIdleLock counting from
+// the last touch. Time backgrounded counts, which is what lets one number cover
+// both "left on a desk" and "switched away briefly".
+console.log('\nauto-lock delay');
+
+// Mirrors App.tsx: the immediate lock is registered only for zero.
+const locksOnBackground = (autoLockMs) => autoLockMs === 0;
+// Mirrors useIdleLock: the timer runs only above zero, and fires past the delay.
+const idleWouldLock = (autoLockMs, msSinceTouch) =>
+  autoLockMs > 0 && msSinceTouch > autoLockMs;
+
+const MIN = 60 * 1000;
+check('"Immediately" locks on leaving the foreground', locksOnBackground(0));
+check('a delay does not lock on leaving the foreground', !locksOnBackground(MIN));
+check('"Immediately" runs no idle timer', !idleWouldLock(0, 60 * 60 * 1000));
+// Exactly one trigger is live for any setting — neither doubled up nor missed.
+for (const ms of [0, MIN, 5 * MIN, 15 * MIN, 60 * MIN]) {
+  const bg = locksOnBackground(ms);
+  const idle = idleWouldLock(ms, ms + 1);
+  check(`${ms}ms has exactly one live trigger`, bg !== idle, `bg=${bg} idle=${idle}`);
+}
+check('a 30s glance away does not lock at the 1-minute setting',
+      !idleWouldLock(MIN, 30 * 1000));
+check('a 2-minute absence does lock at the 1-minute setting',
+      idleWouldLock(MIN, 2 * MIN));
+check('being exactly at the delay has not yet locked', !idleWouldLock(MIN, MIN));
+
+// The tick, mirroring useIdleLock: frequent enough that a short delay is
+// honoured roughly on time, never busier than every 5s.
+const tickFor = (ms) => Math.max(5000, Math.min(30000, Math.floor(ms / 4)));
+check('the 1-minute setting is checked every 15s', tickFor(MIN) === 15000);
+check('long delays do not check more than every 30s', tickFor(60 * MIN) === 30000);
+check('short delays do not busy-loop', tickFor(MIN) >= 5000 && tickFor(5 * MIN) >= 5000);
+
 // The invariant, stated as an exhaustive sweep rather than a sample: with a
 // session present and no lock, no combination of the other flags reaches the
 // wallet.

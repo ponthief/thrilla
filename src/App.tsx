@@ -226,6 +226,7 @@ const App = () => {
 
   const lockEnabled = useAppLockStore((s) => s.enabled);
   const lockReady = useAppLockStore((s) => s.ready);
+  const autoLockMs = useAppLockStore((s) => s.autoLockMs);
   const locked = useAppLockStore((s) => s.locked);
   const unlocking = useAppLockStore((s) => s.unlocking);
   const refreshLock = useAppLockStore((s) => s.refresh);
@@ -265,16 +266,24 @@ const App = () => {
     if (notifyReady && paymentAlerts) ensureNotificationPermission();
   }, [notifyReady, paymentAlerts]);
 
-  // Lock when the app leaves the foreground (only 'background', not the
-  // transient 'inactive' the OS emits during the unlock prompt itself, which
-  // would otherwise re-lock mid-unlock). Re-locking happens while backgrounded
-  // so the LockScreen is already up when the user returns.
+  // Locking on leaving the foreground, but ONLY for the "Immediately" setting.
+  //
+  // This used to be unconditional, so glancing at another app — checking an
+  // address someone sent you, copying an amount — cost a fingerprint every time
+  // you came back. That is the behaviour people turn locks off over. Every
+  // other setting hands the job to the idle timer, which counts time in the
+  // background as unused (no touches happen there) and locks once the chosen
+  // delay has passed. See hooks/useIdleLock.
+  //
+  // Still 'background' and not the transient 'inactive' the OS emits during the
+  // unlock prompt itself, which would re-lock mid-unlock.
   useEffect(() => {
+    if (autoLockMs !== 0) return;
     const sub = AppState.addEventListener('change', (state) => {
       if (state === 'background' && lockEnabled && !unlocking) lock();
     });
     return () => sub.remove();
-  }, [lockEnabled, unlocking, lock]);
+  }, [autoLockMs, lockEnabled, unlocking, lock]);
 
   // When device-trust is on, an authenticated-but-unconfirmed device must clear
   // the confirmation flow before reaching the wallet.

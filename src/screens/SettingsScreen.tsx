@@ -46,6 +46,12 @@ export default function SettingsScreen() {
   // In-app PIN + duress PIN.
   const pinSet = useAppLockStore((s) => s.pinSet);
   const setPinSet = useAppLockStore((s) => s.setPinSet);
+
+  // How long the app may sit unused before locking. Only offered when
+  // something actually locks — the choice is meaningless otherwise.
+  const lockAnyEnabled = useAppLockStore((s) => s.enabled);
+  const autoLockMs = useAppLockStore((s) => s.autoLockMs);
+  const setAutoLockMs = useAppLockStore((s) => s.setAutoLockMs);
   const [hasDuress, setHasDuress] = useState(false);
   const [pinModal, setPinModal] = useState<null | 'normal' | 'duress'>(null);
 
@@ -502,6 +508,34 @@ export default function SettingsScreen() {
             <Text style={styles.help}>{lockSubtitle}</Text>
             {lockMsg ? <Text style={styles.dustError}>{lockMsg}</Text> : null}
 
+            {/* Only meaningful once something locks. Shown under the toggle it
+                qualifies, rather than as a separate row that reads as unrelated. */}
+            {lockAnyEnabled ? (
+              <>
+                <Text style={styles.itemLabel}>Ask to unlock</Text>
+                <View style={styles.choiceRow}>
+                  {appLock.AUTO_LOCK_CHOICES.map((opt) => {
+                    const on = autoLockMs === opt.ms;
+                    return (
+                      <TouchableOpacity
+                        key={opt.ms}
+                        style={[styles.choice, on && styles.choiceOn]}
+                        onPress={() => setAutoLockMs(opt.ms)}>
+                        <Text style={[styles.choiceText, on && styles.choiceTextOn]}>
+                          {opt.label.replace('After ', '')}
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+                <Text style={styles.help}>
+                  {autoLockMs === 0
+                    ? 'Locks the moment you leave the app, so switching away to check something means unlocking on the way back.'
+                    : 'Time in another app counts towards this, so a quick glance elsewhere and back does not ask again.'}
+                </Text>
+              </>
+            ) : null}
+
             <View style={styles.divider} />
 
             <View style={styles.switchRow}>
@@ -793,6 +827,21 @@ const styles = StyleSheet.create({
     backgroundColor: colors.border,
     marginVertical: 16,
   },
+  // Wraps: five options do not fit one row on a narrow phone, and truncating
+  // them would leave the user guessing which delay they had picked.
+  choiceRow: { flexDirection: 'row', flexWrap: 'wrap', marginTop: 10 },
+  choice: {
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: 8,
+    paddingVertical: 7,
+    paddingHorizontal: 12,
+    marginRight: 8,
+    marginBottom: 8,
+  },
+  choiceOn: { borderColor: colors.primary, backgroundColor: colors.surfaceAlt },
+  choiceText: { fontSize: 13, color: colors.muted },
+  choiceTextOn: { color: colors.primary, fontWeight: '600' },
   effective: { fontSize: 12, color: colors.muted, marginTop: 10, fontWeight: '600' },
   dustError: { fontSize: 13, color: colors.danger, marginTop: 10 },
   dustSaved: { fontSize: 13, color: colors.green, marginTop: 10, fontWeight: '600' },
