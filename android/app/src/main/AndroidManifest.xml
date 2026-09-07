@@ -31,6 +31,36 @@
             <action android:name="android.intent.action.MAIN" />
             <category android:name="android.intent.category.LAUNCHER" />
         </intent-filter>
+
+        <!-- App Link for the registration verification URL, so the link in the
+             email opens the app instead of a browser. The app redeems the token
+             itself (hooks/useVerifyLink) and can then sign the user straight in
+             rather than sending them back to a login form.
+
+             autoVerify makes Android check https://<host>/.well-known/assetlinks.json
+             at install time for this package name and signing certificate. Until
+             that file is served, verification simply fails and the link keeps
+             opening in the browser — which still works, since the web /verify
+             page redeems the token exactly as before. Nothing breaks while the
+             domain side is outstanding.
+
+             The host is a per-flavor placeholder (app/build.gradle): mainnet and
+             signet are separate applicationIds, so they need separate hosts, or
+             both would claim the same URL and Android would ask the user which
+             app to open.
+
+             singleTask above is what makes a link arriving while the app is
+             already running reach JS: ReactActivity forwards onNewIntent to the
+             Linking module, so no native code is needed for it. -->
+        <intent-filter android:autoVerify="true">
+            <action android:name="android.intent.action.VIEW" />
+            <category android:name="android.intent.category.DEFAULT" />
+            <category android:name="android.intent.category.BROWSABLE" />
+            <data
+                android:scheme="https"
+                android:host="${verifyHost}"
+                android:pathPrefix="/verify" />
+        </intent-filter>
       </activity>
     </application>
 </manifest>

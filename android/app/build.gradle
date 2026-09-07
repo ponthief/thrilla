@@ -118,14 +118,25 @@ android {
     // builds can be installed side by side.
     flavorDimensions "network"
     productFlavors {
+        // verifyHost fills the App Link intent-filter in AndroidManifest.xml.
+        // It must be the host of the WEB app that the backend puts in
+        // verification emails (SILNT_FRONTEND_URL for that network's LNbits),
+        // and that host must serve /.well-known/assetlinks.json naming this
+        // flavor's applicationId and signing certificate. Each flavor needs its
+        // own host: they are separate applicationIds, and pointing both at one
+        // host would have them both claim the URL, leaving Android to ask the
+        // user which app to open. Until assetlinks.json is in place the link
+        // opens in a browser as before, which still completes registration.
         mainnet {
             dimension "network"
             resValue "string", "app_name", "Thrilla"
+            manifestPlaceholders = [verifyHost: "thrilla.me"]
         }
         signet {
             dimension "network"
             applicationIdSuffix ".signet"
             resValue "string", "app_name", "Thrilla Signet"
+            manifestPlaceholders = [verifyHost: "signet.thrilla.me"]
         }
     }
     signingConfigs {
