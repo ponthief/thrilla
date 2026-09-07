@@ -64,13 +64,20 @@ check('a number where a key belongs is not a session', !looksComplete({ ...full,
 // Mirrors the render switch, in order. The property that matters: 'shell' is
 // unreachable whenever a session exists with no lock configured.
 function gate({ hydrating, isAuthenticated, lockReady, lockEnabled, locked, deviceTrusted }) {
-  if (hydrating) return 'splash';
+  // Not just `hydrating`: a session that lands before the lock preference has
+  // been read must not reach the wallet in the gap.
+  if (hydrating || (isAuthenticated && !lockReady)) return 'splash';
   if (!isAuthenticated) return 'auth';
   if (lockEnabled && locked) return 'lock';
   if (lockReady && !lockEnabled) return 'lockSetup';
   if (!deviceTrusted) return 'deviceConfirm';
   return 'shell';
 }
+
+// The default `locked` in appLockStore. A cold start begins here, so if this
+// is ever flipped back to false a restored session reaches the wallet with
+// nothing asked of the user — the bug this file exists to catch.
+const LOCKED_AT_COLD_START = true;
 
 const SIGNED_IN = {
   hydrating: false,
@@ -107,6 +114,37 @@ check(
   'the lock screen outranks lock setup',
   gate({ ...SIGNED_IN, locked: true }) === 'lock',
 );
+
+// ── cold start with a restored session ──────────────────────────────────────
+// The case that shipped broken: `locked` lives in memory, so a relaunch begins
+// at appLockStore's default. With that default false, a restored session went
+// straight to the wallet — the lock covered backgrounding but not launch, which
+// is precisely what replaced the password prompt.
+console.log('\ncold start with a restored session');
+const coldStart = (over = {}) => ({
+  hydrating: false,
+  isAuthenticated: true,
+  lockReady: true,
+  lockEnabled: true,
+  locked: LOCKED_AT_COLD_START,
+  deviceTrusted: true,
+  ...over,
+});
+check('a restored session with a lock configured shows the lock screen',
+      gate(coldStart()) === 'lock');
+check('a restored session with no lock shows lock setup',
+      gate(coldStart({ lockEnabled: false })) === 'lockSetup');
+check('the wallet is not reachable at cold start with a lock configured',
+      gate(coldStart()) !== 'shell');
+// The race: session restored, lock preference not read back yet.
+check('a session landing before the lock preference holds the splash',
+      gate(coldStart({ lockReady: false, lockEnabled: false })) === 'splash');
+check('and does not flash the wallet',
+      gate(coldStart({ lockReady: false, lockEnabled: false })) !== 'shell');
+// Signing in with a password is the one path that unlocks, so it must NOT be
+// sent to the lock screen it just satisfied.
+check('a fresh password sign-in goes to the wallet, not the lock screen',
+      gate(coldStart({ locked: false })) === 'shell');
 
 // The invariant, stated as an exhaustive sweep rather than a sample: with a
 // session present and no lock, no combination of the other flags reaches the

@@ -102,6 +102,12 @@ export const useAuthStore = create<AuthState>((set) => ({
         email,
       });
 
+      // A password was just typed, so the app lock has nothing left to ask.
+      // The store starts locked (see appLockStore) precisely so that a session
+      // arriving any OTHER way — restored from the keystore on launch — does
+      // not skip it; this is the one path entitled to clear it.
+      useAppLockStore.getState().unlock();
+
       set({
         token,
         inkey: w.inkey,
@@ -134,6 +140,12 @@ export const useAuthStore = create<AuthState>((set) => ({
       set({ hydrating: false });
       return;
     }
+
+    // Deliberately does NOT unlock. The app lock is what guards a stored
+    // session, so a restored one arrives locked and the lock screen is the
+    // first thing the user sees — that is the whole substitution for the
+    // password prompt this replaced. appLockStore's initial value does the
+    // work; this comment exists so nobody "fixes" the missing unlock() here.
 
     // Device trust is re-established, not assumed: the keystore's device id
     // survives, but the server can have revoked this device since (see
