@@ -20,7 +20,15 @@
           <p class="text-dim" style="margin-bottom:8px">Welcome,</p>
           <p class="mono text-orange" style="margin-bottom:24px;font-size:14px">{{ username }}</p>
           <p class="text-dim text-sm" style="margin-bottom:24px">You can now sign in to Thrilla.</p>
-          <router-link to="/login" class="btn btn-primary w-full" style="display:block;text-decoration:none">SIGN IN</router-link>
+          <!-- Carries the username through, so the sign-in form arrives with it
+               filled in. This page is usually opened from a mail client, in a
+               different tab or browser from the one that registered, so nothing
+               the register form stored locally is reachable here — the username
+               the server just confirmed is all there is to pass on. The
+               password still has to be typed: the browser never had it. -->
+          <router-link :to="{ name: 'login', query: { u: username } }"
+                       class="btn btn-primary w-full"
+                       style="display:block;text-decoration:none">SIGN IN</router-link>
         </div>
 
         <div v-else>
