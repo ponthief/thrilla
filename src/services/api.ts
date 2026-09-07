@@ -95,6 +95,20 @@ function trustHeaders(): Record<string, string> {
   return h;
 }
 
+// Called when the server rejects our credentials outright (HTTP 401).
+//
+// This matters now that the session is kept on the device: keys that have been
+// rotated or had their account deleted would otherwise fail every screen
+// forever, with no path back to the login form. Registered by stores/authStore
+// — a callback rather than an import, since authStore imports this module.
+//
+// Deliberately NOT 403. Device-trust answers 403 for an unconfirmed device,
+// which is a state the app recovers from by confirming, not by signing out.
+let credentialsRejected: (() => void) | null = null;
+export function setCredentialsRejectedHandler(fn: () => void): void {
+  credentialsRejected = fn;
+}
+
 // Core request helper. When device-trust is enabled it also stamps the
 // `X-Thrilla-Client`/`X-Silnt-Device` headers (see trustHeaders).
 async function req<T = any>(path: string, options: RequestInit = {}): Promise<T> {
@@ -121,6 +135,7 @@ async function req<T = any>(path: string, options: RequestInit = {}): Promise<T>
 
   const data = await resp.json().catch(() => ({ detail: resp.statusText }));
   if (!resp.ok) {
+    if (resp.status === 401) credentialsRejected?.();
     const message =
       (data && (data.detail || data.message)) || `HTTP ${resp.status}`;
     throw new ApiError(message, resp.status, data && data.detail);

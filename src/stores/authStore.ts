@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import * as api from '@services/api';
 import * as deviceTrust from '@services/deviceTrust';
+import * as session from '@services/session';
 import { DEVICE_TRUST_ENABLED } from '@/theme';
 import { resetCatchUp } from '../hooks/useCatchUpScan';
 import { useBitmailAlert } from './bitmailAlert';
@@ -23,7 +24,13 @@ interface AuthState {
   deviceStatus: DeviceStatus;
   loading: boolean;
   error: string | null;
+  // True until the stored session has been looked for. Without it the login
+  // screen flashes on every launch before the keystore read comes back.
+  hydrating: boolean;
   login: (username: string, password: string) => Promise<boolean>;
+  // Sign in from the session kept on this device, if there is one. Runs once at
+  // startup; the app lock, not a password, is what guards it.
+  restore: () => Promise<void>;
   setTrusted: () => void;
   logout: (reason?: string) => void;
 }
@@ -40,6 +47,7 @@ export const useAuthStore = create<AuthState>((set) => ({
   deviceStatus: 'trusted',
   loading: false,
   error: null,
+  hydrating: true,
 
   login: async (username, password) => {
     set({ loading: true, error: null });
@@ -82,6 +90,18 @@ export const useAuthStore = create<AuthState>((set) => ({
         }
       }
 
+      // Kept for next launch, so this is the last password prompt. Best-effort:
+      // a keystore refusal costs one more login later, and failing a login that
+      // otherwise succeeded would be worse.
+      await session.saveSession({
+        inkey: w.inkey,
+        adminkey: w.adminkey,
+        walletId: w.id,
+        walletName: w.name ?? null,
+        username,
+        email,
+      });
+
       set({
         token,
         inkey: w.inkey,
@@ -94,6 +114,7 @@ export const useAuthStore = create<AuthState>((set) => ({
         deviceStatus,
         loading: false,
         error: null,
+        hydrating: false,
       });
       return true;
     } catch (e: any) {
@@ -101,16 +122,77 @@ export const useAuthStore = create<AuthState>((set) => ({
         loading: false,
         isAuthenticated: false,
         error: e?.message || 'Login failed',
+        hydrating: false,
       });
       return false;
     }
   },
 
+  restore: async () => {
+    const stored = await session.loadSession();
+    if (!stored) {
+      set({ hydrating: false });
+      return;
+    }
+
+    // Device trust is re-established, not assumed: the keystore's device id
+    // survives, but the server can have revoked this device since (see
+    // DevicesModal), and an untrusted device must land on the confirmation
+    // flow rather than the wallet.
+    let deviceStatus: DeviceStatus = 'trusted';
+    if (DEVICE_TRUST_ENABLED) {
+      await deviceTrust.activate(stored.username);
+      try {
+        const chk = await api.deviceCheck(stored.inkey);
+        deviceStatus = chk.status === 'trusted' ? 'trusted' : 'untrusted';
+      } catch (e: any) {
+        // A 401 here means the stored keys themselves are dead — rotated, or
+        // the account is gone. It must NOT be treated as an untrusted device:
+        // this runs before isAuthenticated is set, so the handler registered
+        // below is deliberately inert, and carrying on would bring the app up
+        // "signed in" with keys every request will refuse.
+        if (e?.status === 401) {
+          await session.clearSession();
+          set({
+            hydrating: false,
+            isAuthenticated: false,
+            error: 'Your saved sign-in is no longer valid. Please sign in again.',
+          });
+          return;
+        }
+        // Offline, or the backend is unreachable. Fail closed to enrollment,
+        // exactly as login does — the wallet screen would fail its own calls
+        // anyway, and this way a revoked device never slips through on a
+        // network error.
+        deviceStatus = 'untrusted';
+      }
+    }
+
+    set({
+      inkey: stored.inkey,
+      adminkey: stored.adminkey,
+      walletId: stored.walletId,
+      walletName: stored.walletName,
+      username: stored.username,
+      email: stored.email,
+      isAuthenticated: true,
+      deviceStatus,
+      hydrating: false,
+      error: null,
+    });
+  },
+
   // Called by the device-confirmation flow once a code is verified.
   setTrusted: () => set({ deviceStatus: 'trusted' }),
 
-  // `reason`, when given (e.g. idle timeout), is surfaced on the login screen.
+  // `reason`, when given, is surfaced on the login screen.
+  //
+  // A deliberate act now: the idle timer LOCKS rather than signing out, so
+  // reaching here means the user chose to (Settings), the duress PIN fired, or
+  // the server rejected the stored keys. All three mean the session on this
+  // device should stop existing, not just be forgotten until the next launch.
   logout: (reason?: string) => {
+    session.clearSession();
     // New session should re-evaluate catch-up scanning for every wallet.
     resetCatchUp();
     useBitmailAlert.getState().clear();
@@ -132,6 +214,20 @@ export const useAuthStore = create<AuthState>((set) => ({
       isAuthenticated: false,
       deviceStatus: 'trusted',
       error: reason || null,
+      hydrating: false,
     });
   },
 }));
+
+// Stored keys the server no longer accepts (rotated, or the account is gone).
+// Drop the session and send the user to the login form, which is the only thing
+// that can fix it — otherwise every screen fails with the same error and the
+// app has no way out, since it no longer asks for a password on its own.
+//
+// Guarded on isAuthenticated so a wrong password at the login screen, which is
+// also a 401, does not recurse back into logout.
+api.setCredentialsRejectedHandler(() => {
+  const s = useAuthStore.getState();
+  if (!s.isAuthenticated) return;
+  s.logout('Your saved sign-in is no longer valid. Please sign in again.');
+});

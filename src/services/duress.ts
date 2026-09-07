@@ -1,5 +1,6 @@
 import * as api from '@services/api';
 import { wipeAllWalletKeys } from '@services/secureKeys';
+import { clearSession } from '@services/session';
 import { useTxLabelStore } from '@stores/txLabelStore';
 import { usePlainHistory } from '@stores/plainHistoryStore';
 import { resetCatchUp } from '@/hooks/useCatchUpScan';
@@ -20,6 +21,14 @@ export async function runDuress(
   if (inkey) api.disableAllBackgroundScans(inkey).catch(() => {});
   try {
     await wipeAllWalletKeys();
+  } catch {
+    /* best-effort */
+  }
+  // The stored session goes too, and before logout() so it is gone even if the
+  // process dies mid-wipe. Leaving it would hand a coerced unlock a working
+  // admin key to the account — the one thing the wipe is for.
+  try {
+    await clearSession();
   } catch {
     /* best-effort */
   }
