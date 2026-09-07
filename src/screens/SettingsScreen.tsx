@@ -577,6 +577,11 @@ export default function SettingsScreen() {
               Keep this wallet caught up on the server while you're away, so you
               don't face a long scan when you return. Uploads your scan key
               (detection only — it can never spend your funds).
+              {'\n\n'}
+              Turning this off doesn't stop the app scanning: opening the wallet
+              still catches it up, using the key on this device without sending
+              it anywhere. What this controls is whether the server holds that
+              key and scans on its own.
             </Text>
             {bgMsg ? <Text style={styles.dustError}>{bgMsg}</Text> : null}
           </View>
