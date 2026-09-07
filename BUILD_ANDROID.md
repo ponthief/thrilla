@@ -52,6 +52,89 @@ analog of the web build's `vite build --mode mainnet`. The keys live in
 `LNBITS_URL` **must** be a full absolute URL to the backend (there is no
 same-origin fallback in the APK).
 
+## App Links: making the verification email open the app
+
+Registration emails link to the web app's `/verify?token=…` page. That URL is
+declared as an Android App Link, so on a device with the app installed the link
+opens the app, which redeems the token itself and signs the user straight in
+instead of sending them back through a browser to a login form.
+
+This needs one thing served from the domain. **Until it is, nothing breaks** —
+Android's verification simply fails, the link opens in a browser, and the web
+`/verify` page completes registration exactly as before.
+
+### 1. Check the host matches
+
+`android/app/build.gradle` sets `verifyHost` per flavor:
+
+| flavor | verifyHost | applicationId |
+| --- | --- | --- |
+| mainnet | `thrilla.me` | `com.thrilla_btc.thrilla` |
+| signet | `signet.thrilla.me` | `com.thrilla_btc.thrilla.signet` |
+
+Each must equal the host of the web app in that network's verification emails —
+i.e. the `SILNT_FRONTEND_URL` set on that LNbits instance. **Change the
+placeholder if your signet web app is served somewhere else.** The two flavors
+need different hosts: they are separate applicationIds, and if both claimed one
+URL Android would ask the user which app to open.
+
+### 2. Get the signing certificate's SHA-256 fingerprint
+
+For the release keystore referenced by `THRILLA_STORE_FILE`:
+
+```bash
+keytool -list -v -keystore /path/to/thrilla-release.keystore \
+        -alias thrilla | grep 'SHA256:'
+```
+
+For debug builds (a different certificate, so a different fingerprint):
+
+```bash
+keytool -list -v -keystore android/app/debug.keystore \
+        -alias androiddebugkey -storepass android | grep 'SHA256:'
+```
+
+### 3. Serve `/.well-known/assetlinks.json`
+
+At `https://<verifyHost>/.well-known/assetlinks.json`, as
+`application/json`, reachable over HTTPS with no redirect:
+
+```json
+[{
+  "relation": ["delegate_permission/common.handle_all_urls"],
+  "target": {
+    "namespace": "android_app",
+    "package_name": "com.thrilla_btc.thrilla",
+    "sha256_cert_fingerprints": ["AA:BB:…:FF"]
+  }
+}]
+```
+
+Use that flavor's `package_name` from the table above, and list every
+fingerprint that should match — add the debug one during development, and add
+Google Play's app-signing certificate if the app is distributed through Play,
+since Play re-signs uploads with its own key.
+
+### 4. Verify it took
+
+```bash
+# after installing the APK
+adb shell pm get-app-links com.thrilla_btc.thrilla
+# want: the host listed as "verified"
+
+# force a re-check without reinstalling
+adb shell pm verify-app-links --re-verify com.thrilla_btc.thrilla
+
+# test the intent directly, without waiting for an email
+adb shell am start -a android.intent.action.VIEW \
+  -d "https://thrilla.me/verify?token=test"
+```
+
+If the host shows anything other than `verified`, the link keeps opening in the
+browser. Usual causes: the JSON not served over HTTPS, served with the wrong
+content type, behind a redirect, or listing a fingerprint that doesn't match the
+certificate the installed APK was actually signed with.
+
 ## Build a debug APK
 
 ```bash

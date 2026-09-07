@@ -15,6 +15,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import * as api from '@services/api';
 import { useAuthStore } from '@stores/authStore';
+import { useVerifyStore } from '@stores/verifyStore';
 import { colors } from '@/theme';
 
 const PRIMARY = colors.primary;
@@ -111,6 +112,9 @@ export default function RegisterScreen({ onBackToLogin }: Props) {
   // Returning to the foreground is the signal. The user left to open a link and
   // came back, which is exactly when the account has just become real — better
   // than polling, which would keep asking while they are still reading email.
+  //
+  // Still the path for a link opened in a browser, which is every case where
+  // the App Link is not verified for the device (see hooks/useVerifyLink).
   useEffect(() => {
     if (!sentTo) return;
     const sub = AppState.addEventListener('change', (state) => {
@@ -118,6 +122,14 @@ export default function RegisterScreen({ onBackToLogin }: Props) {
     });
     return () => sub.remove();
   }, [sentTo, finishRegistration]);
+
+  // The App Link path: the link opened the app, useVerifyLink redeemed the
+  // token, and this screen is still holding the password. Nothing for the user
+  // to press, and no round trip through a browser.
+  const verifyStatus = useVerifyStore((s) => s.status);
+  useEffect(() => {
+    if (sentTo && verifyStatus === 'done') finishRegistration();
+  }, [sentTo, verifyStatus, finishRegistration]);
 
   const passwordsMatch = confirm.length > 0 && confirm === password;
 
