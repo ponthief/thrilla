@@ -227,6 +227,13 @@ adb install android/app/build/outputs/apk/debug/app-debug.apk
 You're building with JDK 21. RN 0.73.6 uses AGP 8.1.1, which only supports JDK
 17. Set `JAVA_HOME` to JDK 17 (or the Gradle JDK in Studio) and rebuild.
 
+**Screenshots do nothing / screen recording is blank / the recents preview is
+empty:** that is deliberate, not a bug. `MainActivity` sets `FLAG_SECURE` so
+Android draws a blank instead of the wallet in the app-switcher thumbnail, and
+that flag also blocks screenshots, screen recording and mirroring for the whole
+app. To capture screens while developing, comment out the `window.setFlags` call
+in `MainActivity.kt` and rebuild — don't ship that.
+
 **`SDK location not found`:** create `android/local.properties` with `sdk.dir=...`.
 
 **`gradlew: Permission denied`:** `chmod +x android/gradlew`.
