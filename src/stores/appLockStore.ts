@@ -26,7 +26,24 @@ export const useAppLockStore = create<AppLockState>((set) => ({
   bioEnabled: false,
   pinSet: false,
   enabled: false,
-  locked: false,
+  // Starts LOCKED, and this is load-bearing.
+  //
+  // `locked` is in memory, so a cold start always begins from this value. It
+  // used to be false, which was harmless while a cold start had no session and
+  // the login screen was the gate — the lock only ever covered backgrounding
+  // within a live session. Once the session began surviving a restart, false
+  // meant a relaunch walked straight into the wallet with nothing asked for.
+  //
+  // Fail closed instead: assume locked until something proves otherwise.
+  // Restoring a stored session proves nothing, so it stays locked; signing in
+  // with a password unlocks explicitly (authStore.login), because the user just
+  // authenticated and asking again in the same breath is theatre.
+  //
+  // Safe before the preference has loaded: App.tsx gates the lock screen on
+  // `enabled`, which is false until refresh() says otherwise, so a wallet with
+  // no lock configured falls through to the setup screen rather than a lock
+  // screen it cannot satisfy.
+  locked: true,
   unlocking: false,
 
   refresh: async () => {
