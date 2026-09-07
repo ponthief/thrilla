@@ -20,6 +20,9 @@ import { colors } from '@/theme';
 
 const PRIMARY = colors.primary;
 
+// Matches REGISTRATION_CODE_DIGITS on the server.
+const CODE_LENGTH = 6;
+
 interface Props {
   onBackToLogin: () => void;
 }
@@ -53,6 +56,9 @@ export default function RegisterScreen({ onBackToLogin }: Props) {
 
   const [finishing, setFinishing] = useState(false);
   const [notYet, setNotYet] = useState(false);
+  const [code, setCode] = useState('');
+  const [confirming, setConfirming] = useState(false);
+  const [codeError, setCodeError] = useState<string | null>(null);
 
   const newCaptcha = useCallback(() => {
     setCaptcha(makeCaptcha());
@@ -131,6 +137,32 @@ export default function RegisterScreen({ onBackToLogin }: Props) {
     if (sentTo && verifyStatus === 'done') finishRegistration();
   }, [sentTo, verifyStatus, finishRegistration]);
 
+  // The code path, which is the one that works with the web app closed.
+  //
+  // Redeeming the code CREATES the account, so a success here is followed
+  // immediately by the sign-in that the password in `pending` makes possible —
+  // the user typed six digits and lands in the wallet.
+  const submitCode = useCallback(async () => {
+    if (!sentTo || code.length !== CODE_LENGTH || confirming) return;
+    setConfirming(true);
+    setCodeError(null);
+    try {
+      await api.confirmRegistration(sentTo, code);
+    } catch (e: any) {
+      // The server answers every rejection identically on purpose — a wrong
+      // code and an expired one are one message — so this is passed through
+      // rather than interpreted.
+      setCodeError(e?.message || 'That code could not be verified.');
+      setConfirming(false);
+      return;
+    }
+    // The account now exists. finishRegistration owns the sign-in and clears
+    // the held credentials; leave `confirming` set so the button stays busy
+    // through the handover rather than flickering back to idle.
+    await finishRegistration();
+    setConfirming(false);
+  }, [sentTo, code, confirming, finishRegistration]);
+
   const passwordsMatch = confirm.length > 0 && confirm === password;
 
   const canSubmit = useMemo(
@@ -174,39 +206,78 @@ export default function RegisterScreen({ onBackToLogin }: Props) {
   if (sentTo) {
     return (
       <SafeAreaView style={styles.container}>
-        <View style={styles.sentWrap}>
+        {/* Wrapped now that this screen has an input: on a short screen the
+            number pad would otherwise sit over the Verify button. */}
+        <KeyboardAvoidingView
+          style={styles.flex}
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+        <ScrollView
+          contentContainerStyle={styles.sentWrap}
+          keyboardShouldPersistTaps="handled">
           <Text style={styles.sentIcon}>📧</Text>
           <Text style={styles.sentTitle}>Check your email</Text>
-          <Text style={styles.sentSub}>We've sent a verification link to</Text>
+          <Text style={styles.sentSub}>We've sent a 6-digit code to</Text>
           <Text style={styles.sentEmail}>{sentTo}</Text>
           <Text style={styles.sentHint}>
-            Click the link in the email within 1 hour to activate your account.
-            Don't forget to check your spam folder.
+            Enter it below within 1 hour to activate your account. Don't forget
+            to check your spam folder.
           </Text>
 
-          <Text style={styles.sentHint}>
-            {finishing
-              ? 'Signing you in…'
-              : notYet
-              ? "That link doesn't seem to have been opened yet. Click it, then come back here."
-              : "Come back to this screen once you've clicked it — you'll be signed in automatically."}
-          </Text>
+          {/* The code, not the link, is what this screen asks for: it needs
+              nothing but the API, so it works on a deployment whose web app is
+              closed to the outside. The same email still carries a link for
+              anyone who registered in a browser, and opening it does the same
+              job — the effects below pick that up too. */}
+          <TextInput
+            style={[styles.input, styles.codeInput]}
+            value={code}
+            onChangeText={(v) => {
+              setCodeError(null);
+              // Digits only, so a pasted "code: 123456" or a stray space does
+              // not fail a code the user copied correctly.
+              setCode(v.replace(/\D/g, '').slice(0, CODE_LENGTH));
+            }}
+            keyboardType="number-pad"
+            autoComplete="one-time-code"
+            textContentType="oneTimeCode"
+            placeholder="123456"
+            placeholderTextColor={colors.faint}
+            maxLength={CODE_LENGTH}
+            editable={!confirming && !finishing}
+          />
+
+          {codeError ? <Text style={styles.error}>{codeError}</Text> : null}
 
           <TouchableOpacity
-            style={[styles.primaryBtn, finishing && styles.btnDisabled]}
-            onPress={finishRegistration}
-            disabled={finishing}>
-            {finishing ? (
+            style={[
+              styles.primaryBtn,
+              (code.length !== CODE_LENGTH || confirming || finishing) &&
+                styles.btnDisabled,
+            ]}
+            onPress={submitCode}
+            disabled={code.length !== CODE_LENGTH || confirming || finishing}>
+            {confirming || finishing ? (
               <ActivityIndicator color={colors.onPrimary} />
             ) : (
-              <Text style={styles.primaryBtnText}>I've clicked the link</Text>
+              <Text style={styles.primaryBtnText}>Verify and sign in</Text>
             )}
           </TouchableOpacity>
+
+          {/* Only mentioned once the user has been given a reason to wonder:
+              the link path is a fallback, and leading with it on a deployment
+              where it cannot open would be actively misleading. */}
+          {notYet ? (
+            <Text style={styles.sentHint}>
+              Opened the link in the email instead? Come back to this screen and
+              you'll be signed in automatically.
+            </Text>
+          ) : null}
 
           <TouchableOpacity style={styles.ghostBtn} onPress={onBackToLogin}>
             <Text style={styles.ghostBtnText}>← Back to sign in</Text>
           </TouchableOpacity>
-        </View>
+        </ScrollView>
+        </KeyboardAvoidingView>
       </SafeAreaView>
     );
   }
@@ -371,6 +442,17 @@ const styles = StyleSheet.create({
     backgroundColor: colors.surfaceAlt,
   },
   inputError: { borderColor: colors.danger },
+  // Wide-tracked and centred: six digits read as a code rather than as text,
+  // and it is the one field on this screen.
+  codeInput: {
+    marginTop: 20,
+    alignSelf: 'stretch',
+    textAlign: 'center',
+    fontSize: 28,
+    letterSpacing: 8,
+    paddingVertical: 12,
+    fontFamily: 'monospace',
+  },
   passwordWrap: { position: 'relative', justifyContent: 'center' },
   passwordInput: { paddingRight: 44 },
   reveal: { position: 'absolute', right: 8, padding: 8 },
@@ -402,6 +484,7 @@ const styles = StyleSheet.create({
     paddingVertical: 14,
     alignItems: 'center',
     marginTop: 22,
+    alignSelf: 'stretch',
   },
   primaryBtnText: { color: colors.onPrimary, fontSize: 16, fontWeight: '600' },
   btnDisabled: { opacity: 0.5 },
@@ -410,7 +493,7 @@ const styles = StyleSheet.create({
   footerLink: { color: PRIMARY, fontWeight: '600' },
 
   // Success state
-  sentWrap: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 32 },
+  sentWrap: { flexGrow: 1, justifyContent: 'center', alignItems: 'center', padding: 32 },
   sentIcon: { fontSize: 48, marginBottom: 12 },
   sentTitle: { fontSize: 22, fontWeight: 'bold', color: colors.text, marginBottom: 8 },
   sentSub: { fontSize: 14, color: colors.muted, textAlign: 'center' },
