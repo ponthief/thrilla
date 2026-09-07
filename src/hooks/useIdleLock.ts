@@ -4,8 +4,15 @@ import { useAuthStore } from '@stores/authStore';
 import { useAppLockStore } from '@stores/appLockStore';
 import { msSinceActivity, resetActivity } from '@services/sessionActivity';
 
-// Idle timeout: lock the app after this long without genuine user interaction.
-export const IDLE_TIMEOUT_MS = 10 * 60 * 1000; // 10 minutes
+// How long the app may sit unused before locking is a setting now
+// (Settings → Security → Auto-lock, stored by services/appLock). Time spent in
+// the background counts towards it: "unused" is measured from the last touch,
+// and a backgrounded app receives none. That is what lets one timer cover both
+// "left the app open on a desk" and "switched away to look something up".
+//
+// The zero case — lock the moment the app leaves the foreground — is handled in
+// App.tsx instead, because there is nothing to wait for and no point running a
+// timer for it.
 
 // This used to sign the user out, which made sense when signing back in was the
 // only way in: the session lived in memory and the password was the gate. Now
@@ -19,12 +26,14 @@ export const IDLE_TIMEOUT_MS = 10 * 60 * 1000; // 10 minutes
 // answers coercion. Signing out is now only a deliberate act (Settings), a
 // duress unlock, or the server rejecting the stored keys.
 //
-// Checks every 30s and again whenever the app returns to the foreground, which
-// covers being backgrounded past the timeout. Root-level touch capture in
-// App.tsx feeds activity via touchActivity().
+// Checked on a tick scaled to the chosen delay, and again whenever the app
+// returns to the foreground — that second check is what covers being
+// backgrounded past the timeout, since JS timers do not run reliably there.
+// Root-level touch capture in App.tsx feeds activity via touchActivity().
 export function useIdleLock(): void {
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
   const lockEnabled = useAppLockStore((s) => s.enabled);
+  const autoLockMs = useAppLockStore((s) => s.autoLockMs);
   const lock = useAppLockStore((s) => s.lock);
 
   useEffect(() => {
@@ -32,15 +41,21 @@ export function useIdleLock(): void {
     // normally happen — a stored session requires one (see App.tsx) — but a
     // wallet mid-setup has no lock yet and must not be trapped behind one.
     if (!isAuthenticated || !lockEnabled) return;
+    // Zero is App.tsx's job (lock on leaving the foreground), so there is
+    // nothing here to count down.
+    if (autoLockMs <= 0) return;
 
     // Fresh timer when the session begins.
     resetActivity();
 
     const enforce = () => {
-      if (msSinceActivity() > IDLE_TIMEOUT_MS) lock();
+      if (msSinceActivity() > autoLockMs) lock();
     };
 
-    const interval = setInterval(enforce, 30 * 1000);
+    // Checked often enough that a short delay is honoured roughly on time
+    // rather than up to 30s late, but never more often than every 5s.
+    const tick = Math.max(5 * 1000, Math.min(30 * 1000, Math.floor(autoLockMs / 4)));
+    const interval = setInterval(enforce, tick);
     const sub = AppState.addEventListener('change', (state) => {
       if (state === 'active') enforce();
     });
@@ -49,5 +64,5 @@ export function useIdleLock(): void {
       clearInterval(interval);
       sub.remove();
     };
-  }, [isAuthenticated, lockEnabled, lock]);
+  }, [isAuthenticated, lockEnabled, autoLockMs, lock]);
 }
