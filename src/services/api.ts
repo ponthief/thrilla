@@ -388,6 +388,22 @@ export async function verifyRegistration(
   });
 }
 
+// Redeem the 6-digit code from the same email instead of its link.
+//
+// This is the path that works when the web app is closed to the outside — it
+// needs nothing but this API, which the app is already talking to. The code and
+// the link lead to the same account and whichever is used first spends the
+// other.
+export async function confirmRegistration(
+  email: string,
+  code: string,
+): Promise<VerifiedRegistration> {
+  return req(`${SILNT}/api/v1/auth/register-confirm`, {
+    method: 'POST',
+    body: JSON.stringify({ email, code }),
+  });
+}
+
 export async function requestPasswordReset(email: string): Promise<unknown> {
   return req(`${SILNT}/api/v1/auth/forgot-password`, {
     method: 'POST',
