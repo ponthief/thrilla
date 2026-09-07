@@ -1,13 +1,18 @@
 import * as Keychain from 'react-native-keychain';
 
-// Remembers the plain-address balance this device has already announced, per
-// wallet.
+// Remembers what this device has already announced about the plain address, per
+// wallet: the confirmed balance, and the unconfirmed total.
 //
-// Without it, "coins arrived" would fire on every app launch for as long as they
-// sat there — the alert is about coins ARRIVING, and coins that arrived last
-// week are not news. Announce only what's new: an amount above what was last
-// announced. Spending them drops the balance, which resets the mark so the next
+// Without it, the notice would fire on every poll for as long as the coins sat
+// there — the alert is about a payment ARRIVING, and one that arrived last week
+// is not news. Announce only what's new: a figure above what was last
+// announced. Spending drops the balance, which resets the mark so the next
 // payment is news again.
+//
+// Two marks, not one, because a payment is worth saying twice: once when it
+// shows up unconfirmed, once when it is mined. Tracking them separately is what
+// stops the second notice from being suppressed by the first (the amounts are
+// equal) and stops each poll in between from repeating either.
 //
 // Per-device, like the payment-alerts switch it is gated by, and stored the same
 // way (react-native-keychain — the app has no AsyncStorage/MMKV dependency).
@@ -15,7 +20,31 @@ import * as Keychain from 'react-native-keychain';
 
 const SEEN_SERVICE = 'com.thrilla.plain.announced';
 
-type SeenMap = Record<string, number>;
+export interface AnnouncedMarks {
+  confirmed: number;
+  pending: number;
+}
+
+// Records written before the pending mark existed hold a bare number, which was
+// the confirmed balance. Read those as a zero pending mark rather than throwing
+// the record away, so an existing install does not re-announce what it has
+// already shown.
+type StoredMark = number | Partial<AnnouncedMarks>;
+type SeenMap = Record<string, StoredMark>;
+
+const ZERO: AnnouncedMarks = { confirmed: 0, pending: 0 };
+
+function normalize(v: StoredMark | undefined): AnnouncedMarks {
+  if (typeof v === 'number') {
+    return { confirmed: v >= 0 ? Math.floor(v) : 0, pending: 0 };
+  }
+  if (v && typeof v === 'object') {
+    const c = typeof v.confirmed === 'number' && v.confirmed >= 0 ? v.confirmed : 0;
+    const p = typeof v.pending === 'number' && v.pending >= 0 ? v.pending : 0;
+    return { confirmed: Math.floor(c), pending: Math.floor(p) };
+  }
+  return ZERO;
+}
 
 async function readAll(): Promise<SeenMap> {
   try {
@@ -29,16 +58,21 @@ async function readAll(): Promise<SeenMap> {
   }
 }
 
-export async function lastAnnounced(walletId: string): Promise<number> {
+export async function lastAnnounced(walletId: string): Promise<AnnouncedMarks> {
   const all = await readAll();
-  const n = all[walletId];
-  return typeof n === 'number' && n >= 0 ? n : 0;
+  return normalize(all[walletId]);
 }
 
-export async function setLastAnnounced(walletId: string, sats: number): Promise<void> {
+export async function setLastAnnounced(
+  walletId: string,
+  marks: AnnouncedMarks,
+): Promise<void> {
   try {
     const all = await readAll();
-    all[walletId] = Math.max(0, Math.floor(sats));
+    all[walletId] = {
+      confirmed: Math.max(0, Math.floor(marks.confirmed)),
+      pending: Math.max(0, Math.floor(marks.pending)),
+    };
     await Keychain.setGenericPassword('plainseen', JSON.stringify(all), {
       service: SEEN_SERVICE,
       accessible: Keychain.ACCESSIBLE.WHEN_UNLOCKED,
