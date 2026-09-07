@@ -20,6 +20,8 @@ import QRCode from '../components/QRCode';
 import BitMailCard from '../components/BitMailCard';
 import PlainAddressCard from '../components/PlainAddressCard';
 import ScanPanel from './ScanScreen';
+import { useNavStore } from '@stores/navStore';
+import { useSilntWallet } from '../hooks/useSilntWallet';
 import { colors, LIGHTNING_ENABLED } from '@/theme';
 
 const PRIMARY = colors.primary;
@@ -41,39 +43,90 @@ function groupThousands(n: number): string {
     .replace(/\B(?=(\d{3})+(?!\d))/g, ',');
 }
 
-type Tab = 'address' | 'scan';
+type ReceiveView = 'address' | 'plain' | 'scan';
 
 export default function ReceiveScreen() {
-  // Receive now covers both sides of getting paid: showing your address
-  // ("Address") and finding payments already sent to it ("Scan"). Scan used to
-  // be its own tab but did little on its own, so it lives here as a segment.
-  const [tab, setTab] = useState<Tab>('address');
+  // The segment offers the two things this screen hands out: the Silent
+  // Payments address, and the plain bech32 one for senders that can't pay it.
+  //
+  // Scan is deliberately NOT one of them. It finds payments already sent to
+  // you, which is a rescue action rather than an address — and with background
+  // scanning on it is redundant. It lives behind a row under the BIP-353
+  // details instead (see ScanEntryRow), which is also what freed the second
+  // segment slot for the plain address: previously that was a collapsed card
+  // three cards down, and nobody found it.
+  const [view, setView] = useState<ReceiveView>('address');
+
+  // The wallet screen's prompt about coins on the plain chain comes straight
+  // here. It used to expand a collapsed card; now it selects the segment.
+  const plainRequest = useNavStore((s) => s.plainRequest);
+  useEffect(() => {
+    if (plainRequest > 0) setView('plain');
+  }, [plainRequest]);
 
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
       <View style={styles.header}>
         <Text style={styles.headerTitle}>Receive</Text>
-        <View style={styles.segment}>
-          <SegmentButton
-            label="Address"
-            active={tab === 'address'}
-            onPress={() => setTab('address')}
-          />
-          <SegmentButton
-            label="Scan"
-            active={tab === 'scan'}
-            onPress={() => setTab('scan')}
-          />
-        </View>
+        {view === 'scan' ? (
+          <TouchableOpacity onPress={() => setView('address')}>
+            <Text style={styles.backLink}>‹ Back to address</Text>
+          </TouchableOpacity>
+        ) : (
+          <View style={styles.segment}>
+            <SegmentButton
+              label="Address"
+              active={view === 'address'}
+              onPress={() => setView('address')}
+            />
+            <SegmentButton
+              label="Plain"
+              active={view === 'plain'}
+              onPress={() => setView('plain')}
+            />
+          </View>
+        )}
       </View>
-      {tab === 'address' ? <AddressReceive /> : <ScanPanel />}
+      {view === 'address' ? (
+        <AddressReceive onScan={() => setView('scan')} />
+      ) : view === 'plain' ? (
+        <PlainReceive />
+      ) : (
+        <ScanPanel />
+      )}
     </SafeAreaView>
+  );
+}
+
+// The plain bech32 pocket, on its own now rather than collapsed at the bottom
+// of the address view.
+function PlainReceive() {
+  const { wallet, loading, error, reload } = useSilntWallet();
+
+  return (
+    <ScrollView style={styles.flex} contentContainerStyle={styles.content}>
+      {loading ? (
+        <View style={styles.card}>
+          <ActivityIndicator color={PRIMARY} />
+          <Text style={styles.pendingText}>Loading…</Text>
+        </View>
+      ) : error || !wallet ? (
+        <View style={styles.card}>
+          <Text style={styles.error}>{error || 'No wallet available.'}</Text>
+          <TouchableOpacity style={styles.primaryBtn} onPress={reload}>
+            <Text style={styles.primaryBtnText}>Retry</Text>
+          </TouchableOpacity>
+        </View>
+      ) : (
+        <PlainAddressCard wallet={wallet} />
+      )}
+    </ScrollView>
   );
 }
 
 // The "get paid" side: your reusable Silent Payments address (plus an invoice
 // generator if Lightning is ever enabled).
-function AddressReceive() {
+function AddressReceive({ onScan }: { onScan: () => void }) {
   const [mode, setMode] = useState<Mode>(
     LIGHTNING_ENABLED ? 'lightning' : 'onchain',
   );
@@ -105,7 +158,7 @@ function AddressReceive() {
         {LIGHTNING_ENABLED && mode === 'lightning' ? (
           <LightningReceive />
         ) : (
-          <OnchainReceive />
+          <OnchainReceive onScan={onScan} />
         )}
       </ScrollView>
     </KeyboardAvoidingView>
@@ -333,42 +386,8 @@ function LightningReceive() {
 }
 
 // ── On-chain (Silent Payments) ───────────────────────────────────────────────
-function OnchainReceive() {
-  const inkey = useAuthStore((s) => s.inkey);
-
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [wallet, setWallet] = useState<api.SilntWallet | null>(null);
-
-  const load = useCallback(async () => {
-    if (!inkey) {
-      setLoading(false);
-      setError('Not logged in.');
-      return;
-    }
-    setLoading(true);
-    setError(null);
-    try {
-      const wallets = await api.getSilntWallets(inkey);
-      const chosen = api.pickSilntWallet(wallets);
-      if (!chosen) {
-        setWallet(null);
-        setError(
-          'No Silent Payments wallet on this network yet. Open the Wallet tab to create one.',
-        );
-      } else {
-        setWallet(chosen);
-      }
-    } catch (e: any) {
-      setError(e?.message || 'Could not load your receive address.');
-    } finally {
-      setLoading(false);
-    }
-  }, [inkey]);
-
-  useEffect(() => {
-    load();
-  }, [load]);
+function OnchainReceive({ onScan }: { onScan: () => void }) {
+  const { wallet, loading, error, reload: load } = useSilntWallet();
 
   if (loading) {
     return (
@@ -409,8 +428,66 @@ function OnchainReceive() {
       </View>
 
       <BitMailCard wallet={wallet} />
-      <PlainAddressCard wallet={wallet} />
+      {/* Below the BIP-353 details, not in the segment: finding payments
+          already sent to you is a rescue action, not one of the two addresses
+          this screen hands out. */}
+      <ScanEntryRow wallet={wallet} onPress={onScan} />
     </>
+  );
+}
+
+// The way into the manual scan.
+//
+// How loudly it asks depends on whether the server is already scanning for this
+// wallet. With background scanning ON a manual scan is redundant — payments
+// arrive on their own — so this is a quiet one-liner. With it OFF, scanning is
+// the ONLY way a payment is ever found, so it says so plainly.
+function ScanEntryRow({
+  wallet,
+  onPress,
+}: {
+  wallet: api.SilntWallet;
+  onPress: () => void;
+}) {
+  const inkey = useAuthStore((s) => s.inkey);
+  // null until known: neither wording is right while we are still asking, and
+  // guessing would flip the row's meaning a moment after it rendered.
+  const [bgOn, setBgOn] = useState<boolean | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!inkey) return;
+    api
+      .getBackgroundScan(inkey, wallet.id)
+      .then((on) => {
+        if (!cancelled) setBgOn(on);
+      })
+      .catch(() => {
+        // Can't tell — assume it is on, which keeps the row quiet rather than
+        // alarming someone whose payments are in fact arriving fine.
+        if (!cancelled) setBgOn(true);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [inkey, wallet.id]);
+
+  if (bgOn === null) return null;
+
+  return (
+    <TouchableOpacity style={styles.collapsedRow} onPress={onPress}>
+      <View style={styles.collapsedRowText}>
+        <Text style={styles.collapsedRowTitle}>
+          {bgOn ? 'Missing a payment?' : 'Scan for payments'}
+        </Text>
+        <Text style={styles.collapsedRowSub}>
+          {bgOn
+            ? 'Payments arrive on their own — scan manually only if one seems late.'
+            : 'Background scanning is off, so payments are only found when you scan.'}
+        </Text>
+      </View>
+      <Text style={styles.collapsedRowChevron}>›</Text>
+    </TouchableOpacity>
   );
 }
 
@@ -431,6 +508,22 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     padding: 3,
   },
+  backLink: { color: colors.muted, fontSize: 15, fontWeight: '600', paddingVertical: 8 },
+  collapsedRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: colors.surface,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.border,
+    borderRadius: 12,
+    paddingVertical: 14,
+    paddingHorizontal: 16,
+    marginTop: 12,
+  },
+  collapsedRowText: { flex: 1 },
+  collapsedRowTitle: { fontSize: 14, fontWeight: '600', color: colors.text },
+  collapsedRowSub: { fontSize: 12, color: colors.faint, marginTop: 3, lineHeight: 17 },
+  collapsedRowChevron: { fontSize: 22, color: colors.faint, paddingLeft: 10 },
   subSegmentWrap: { paddingHorizontal: 16, marginBottom: 4 },
   segmentBtn: {
     flex: 1,
