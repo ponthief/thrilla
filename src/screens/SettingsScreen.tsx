@@ -59,6 +59,14 @@ export default function SettingsScreen() {
         setPinModal('normal');
         return;
       }
+      // Same rule as the biometric toggle: the last remaining lock stays.
+      if (!lockEnabled) {
+        Alert.alert(
+          'Keep your PIN',
+          "This is the only way to unlock the app. Turn on App Lock first, or sign out to stop keeping your sign-in on this device.",
+        );
+        return;
+      }
       Alert.alert(
         'Turn off App PIN?',
         'This removes your PIN and any duress PIN, and returns to biometric unlock.',
@@ -76,7 +84,7 @@ export default function SettingsScreen() {
         ],
       );
     },
-    [setPinSet],
+    [setPinSet, lockEnabled],
   );
 
   const onPinDone = useCallback(() => {
@@ -300,6 +308,16 @@ export default function SettingsScreen() {
             );
           }
         } else {
+          // The lock is what guards the stored session now that the password is
+          // not asked for on launch, so the LAST method cannot be removed. The
+          // app would otherwise bounce straight to the setup screen, which
+          // reads as a bug rather than a rule.
+          if (!pinSet) {
+            setLockMsg(
+              'This is the only way to unlock the app. Set an App PIN first, or sign out to stop keeping your sign-in on this device.',
+            );
+            return;
+          }
           await appLock.disable();
           setLockEnabled(false);
         }
@@ -307,7 +325,7 @@ export default function SettingsScreen() {
         setLockBusy(false);
       }
     },
-    [setLockEnabled],
+    [setLockEnabled, pinSet],
   );
 
   const lockSubtitle = biometry

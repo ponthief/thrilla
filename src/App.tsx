@@ -4,6 +4,7 @@ import {
   useSafeAreaInsets,
 } from 'react-native-safe-area-context';
 import {
+  ActivityIndicator,
   AppState,
   StatusBar,
   StyleSheet,
@@ -21,10 +22,11 @@ import RegisterScreen from './screens/RegisterScreen';
 import ForgotPasswordScreen from './screens/ForgotPasswordScreen';
 import DeviceConfirmScreen from './screens/DeviceConfirmScreen';
 import LockScreen from './screens/LockScreen';
+import LockSetupScreen from './screens/LockSetupScreen';
 import { useAuthStore } from '@stores/authStore';
 import { useAppLockStore } from '@stores/appLockStore';
 import { useNotifyStore } from '@stores/notifyStore';
-import { useIdleLogout } from './hooks/useIdleLogout';
+import { useIdleLock } from './hooks/useIdleLock';
 import { touchActivity } from '@services/sessionActivity';
 import {
   ensureNotificationPermission,
@@ -142,6 +144,18 @@ function Shell() {
   );
 }
 
+// Held while the keystore is asked whether there is a session. One keystore
+// read, so this is a frame or two — but rendering the login screen and then
+// yanking it away looks like a bug, and rendering nothing looks like a crash.
+function SplashGate() {
+  return (
+    <View style={styles.splash}>
+      <StatusBar barStyle="light-content" backgroundColor={colors.bg} />
+      <ActivityIndicator color={PRIMARY} />
+    </View>
+  );
+}
+
 type AuthScreen = 'login' | 'register' | 'forgot';
 
 // Minimal auth-flow navigator (the app has no router; a state switch is enough
@@ -167,6 +181,7 @@ const App = () => {
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
   const deviceStatus = useAuthStore((s) => s.deviceStatus);
   const inkey = useAuthStore((s) => s.inkey);
+  const hydrating = useAuthStore((s) => s.hydrating);
 
   // Register this device for push while signed in; unregister on sign-out (using
   // the last-known key, since inkey is cleared by logout). No-op when Firebase
@@ -209,19 +224,28 @@ const App = () => {
   }, [isAuthenticated, inkey, deviceReady, paymentAlerts, notifyReady]);
 
   const lockEnabled = useAppLockStore((s) => s.enabled);
+  const lockReady = useAppLockStore((s) => s.ready);
   const locked = useAppLockStore((s) => s.locked);
   const unlocking = useAppLockStore((s) => s.unlocking);
   const refreshLock = useAppLockStore((s) => s.refresh);
   const lock = useAppLockStore((s) => s.lock);
 
-  // Idle session timeout (mirrors web): sign out after inactivity.
-  useIdleLogout();
+  // Idle timeout: lock after inactivity. It used to sign out, which now would
+  // additionally erase the stored session — see hooks/useIdleLock.
+  useIdleLock();
 
   // Load the app-lock and notification preferences once at startup.
   useEffect(() => {
     refreshLock();
     refreshNotify();
   }, [refreshLock, refreshNotify]);
+
+  // Sign in from the session kept on this device, if there is one. This is what
+  // makes the login screen a first-run step rather than a launch ritual.
+  const restore = useAuthStore((s) => s.restore);
+  useEffect(() => {
+    restore();
+  }, [restore]);
 
   // Prompt for notification permission at first launch, so the user can allow
   // payment alerts before (and independently of) device-trust + FCM token
@@ -253,6 +277,13 @@ const App = () => {
 
   const showLock = isAuthenticated && lockEnabled && locked;
 
+  // A stored session with nothing guarding it is the one state this must never
+  // render the wallet in: the password is no longer asked for, so without a PIN
+  // or biometric anyone holding the phone is already inside. Waiting for
+  // lockReady keeps a launch from flashing this screen before the preference
+  // has been read back.
+  const needsLockSetup = isAuthenticated && lockReady && !lockEnabled;
+
   return (
     <SafeAreaProvider>
       {/* Passive activity tracker: every touch refreshes the idle timer without
@@ -263,10 +294,18 @@ const App = () => {
           touchActivity();
           return false;
         }}>
-        {!isAuthenticated ? (
+        {/* Order matters. Hydrating first, so a stored session never flashes
+            the login screen on the way in. Lock setup before device
+            confirmation: an unguarded session is this app's problem to fix
+            before it starts talking to the server about which device it is. */}
+        {hydrating ? (
+          <SplashGate />
+        ) : !isAuthenticated ? (
           <AuthNavigator />
         ) : showLock ? (
           <LockScreen />
+        ) : needsLockSetup ? (
+          <LockSetupScreen />
         ) : needsDeviceConfirm ? (
           <DeviceConfirmScreen />
         ) : (
@@ -283,6 +322,12 @@ const App = () => {
 const styles = StyleSheet.create({
   appRoot: {
     flex: 1,
+  },
+  splash: {
+    flex: 1,
+    backgroundColor: colors.bg,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   root: {
     flex: 1,
