@@ -27,6 +27,7 @@ import { useAuthStore } from '@stores/authStore';
 import { useAppLockStore } from '@stores/appLockStore';
 import { useNotifyStore } from '@stores/notifyStore';
 import { useIdleLock } from './hooks/useIdleLock';
+import { useVerifyLink } from './hooks/useVerifyLink';
 import { touchActivity } from '@services/sessionActivity';
 import {
   ensureNotificationPermission,
@@ -239,6 +240,11 @@ const App = () => {
     refreshLock();
     refreshNotify();
   }, [refreshLock, refreshNotify]);
+
+  // An email-verification link that opened the app rather than a browser. Sits
+  // at this level because it must be caught whether the app was launched by the
+  // link or was already running on the register screen.
+  useVerifyLink();
 
   // Sign in from the session kept on this device, if there is one. This is what
   // makes the login screen a first-run step rather than a launch ritual.

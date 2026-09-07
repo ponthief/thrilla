@@ -353,8 +353,12 @@ export async function cancelBip353Request(
 // ── Auth: registration + password recovery ──────────────────────────────────
 // Both are public (no key). Registration sends a verification email and does
 // NOT create the account until the emailed link is opened; password reset
-// emails a signed link. The link steps happen in the browser, so the app only
-// needs to kick these off and tell the user to check their email.
+// emails a signed link.
+//
+// The link can now land in the app rather than a browser (an Android App Link
+// on the verify URL — see AndroidManifest.xml), so the app needs to be able to
+// redeem the token itself. The browser path still works and is the fallback
+// whenever the link opens anywhere else.
 export async function startRegistration(
   username: string,
   password: string,
@@ -363,6 +367,24 @@ export async function startRegistration(
   return req(`${SILNT}/api/v1/auth/register-start`, {
     method: 'POST',
     body: JSON.stringify({ username, password, email }),
+  });
+}
+
+export interface VerifiedRegistration {
+  success: boolean;
+  username: string;
+  email: string;
+}
+
+// Redeem a verification token: this is what actually creates the account.
+// Idempotent only in the sense that a second attempt fails — the server
+// rejects a username that now exists — so callers must not retry blindly.
+export async function verifyRegistration(
+  token: string,
+): Promise<VerifiedRegistration> {
+  return req(`${SILNT}/api/v1/auth/register-verify`, {
+    method: 'POST',
+    body: JSON.stringify({ token }),
   });
 }
 

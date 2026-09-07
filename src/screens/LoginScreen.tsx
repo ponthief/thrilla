@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   Image,
@@ -12,6 +12,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAuthStore } from '@stores/authStore';
+import { useVerifyStore } from '@stores/verifyStore';
 import { colors } from '@/theme';
 
 const PRIMARY = colors.primary;
@@ -27,6 +28,20 @@ export default function LoginScreen({ onCreateAccount, onForgotPassword }: Props
   const login = useAuthStore((s) => s.login);
   const loading = useAuthStore((s) => s.loading);
   const error = useAuthStore((s) => s.error);
+
+  // A verification link opened the app after it had been killed, so the account
+  // was created but the password it was registered with is long gone. Prefill
+  // what the server confirmed: one field to type instead of two, and it
+  // confirms the link worked, which the user otherwise has to infer.
+  const verifyStatus = useVerifyStore((s) => s.status);
+  const verifiedUsername = useVerifyStore((s) => s.username);
+  const verifyError = useVerifyStore((s) => s.error);
+  const justVerified = verifyStatus === 'done' && !!verifiedUsername;
+  useEffect(() => {
+    if (justVerified && verifiedUsername && !username) {
+      setUsername(verifiedUsername);
+    }
+  }, [justVerified, verifiedUsername, username]);
 
   const canSubmit = username.trim().length > 0 && password.length > 0 && !loading;
 
@@ -76,6 +91,15 @@ export default function LoginScreen({ onCreateAccount, onForgotPassword }: Props
               returnKeyType="go"
               onSubmitEditing={onSubmit}
             />
+
+            {justVerified ? (
+              <Text style={styles.verified}>
+                ✓ Email verified. Enter your password to finish signing in.
+              </Text>
+            ) : null}
+            {verifyStatus === 'failed' && verifyError ? (
+              <Text style={styles.error}>{verifyError}</Text>
+            ) : null}
 
             {error ? <Text style={styles.error}>{error}</Text> : null}
 
@@ -157,6 +181,12 @@ const styles = StyleSheet.create({
     color: colors.danger,
     fontSize: 13,
     marginTop: 14,
+  },
+  verified: {
+    color: colors.green,
+    fontSize: 13,
+    marginTop: 14,
+    lineHeight: 18,
   },
   button: {
     backgroundColor: PRIMARY,

@@ -427,11 +427,13 @@ function OnchainReceive({ onScan }: { onScan: () => void }) {
         </View>
       </View>
 
-      <BitMailCard wallet={wallet} />
-      {/* Below the BIP-353 details, not in the segment: finding payments
-          already sent to you is a rescue action, not one of the two addresses
-          this screen hands out. */}
+      {/* Directly under the address, above the BIP-353 card. It was below both
+          and went unnoticed — which for the background-scanning-off case is the
+          whole mechanism by which payments are ever found, so burying it was
+          the wrong call. */}
       <ScanEntryRow wallet={wallet} onPress={onScan} />
+
+      <BitMailCard wallet={wallet} />
     </>
   );
 }
@@ -474,19 +476,27 @@ function ScanEntryRow({
 
   if (bgOn === null) return null;
 
+  // Two weights, because the two cases are not equally urgent. With scanning
+  // off this is the only way a payment is ever found, so it gets the accent
+  // border and reads as an instruction; with it on the same row is a footnote.
   return (
-    <TouchableOpacity style={styles.collapsedRow} onPress={onPress}>
-      <View style={styles.collapsedRowText}>
-        <Text style={styles.collapsedRowTitle}>
-          {bgOn ? 'Missing a payment?' : 'Scan for payments'}
+    <TouchableOpacity
+      style={[styles.scanRow, !bgOn && styles.scanRowUrgent]}
+      onPress={onPress}>
+      <Text style={[styles.scanIcon, !bgOn && styles.scanIconUrgent]}>
+        {bgOn ? '⌕' : '⚠'}
+      </Text>
+      <View style={styles.scanRowText}>
+        <Text style={[styles.scanRowTitle, !bgOn && styles.scanRowTitleUrgent]}>
+          {bgOn ? 'Missing a payment?' : 'Scan to find your payments'}
         </Text>
-        <Text style={styles.collapsedRowSub}>
+        <Text style={styles.scanRowSub}>
           {bgOn
-            ? 'Payments arrive on their own — scan manually only if one seems late.'
-            : 'Background scanning is off, so payments are only found when you scan.'}
+            ? 'Payments arrive on their own. Scan manually only if one seems late.'
+            : "Background scanning is off, so payments won't appear until you scan for them."}
         </Text>
       </View>
-      <Text style={styles.collapsedRowChevron}>›</Text>
+      <Text style={styles.scanRowChevron}>›</Text>
     </TouchableOpacity>
   );
 }
@@ -509,21 +519,32 @@ const styles = StyleSheet.create({
     padding: 3,
   },
   backLink: { color: colors.muted, fontSize: 15, fontWeight: '600', paddingVertical: 8 },
-  collapsedRow: {
+  scanRow: {
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: colors.surface,
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: colors.border,
-    borderRadius: 12,
-    paddingVertical: 14,
+    borderRadius: 14,
+    paddingVertical: 15,
     paddingHorizontal: 16,
-    marginTop: 12,
+    marginTop: 16,
   },
-  collapsedRowText: { flex: 1 },
-  collapsedRowTitle: { fontSize: 14, fontWeight: '600', color: colors.text },
-  collapsedRowSub: { fontSize: 12, color: colors.faint, marginTop: 3, lineHeight: 17 },
-  collapsedRowChevron: { fontSize: 22, color: colors.faint, paddingLeft: 10 },
+  // Scanning off: the row is load-bearing, so it gets weight rather than a
+  // hairline. A full-width accent border, not a red alert — nothing is broken,
+  // the user just has to do the finding.
+  scanRowUrgent: {
+    borderWidth: 1,
+    borderColor: PRIMARY,
+    backgroundColor: colors.surfaceAlt,
+  },
+  scanIcon: { fontSize: 20, color: colors.faint, marginRight: 12 },
+  scanIconUrgent: { color: PRIMARY },
+  scanRowText: { flex: 1 },
+  scanRowTitle: { fontSize: 14, fontWeight: '600', color: colors.text },
+  scanRowTitleUrgent: { fontSize: 15, color: PRIMARY },
+  scanRowSub: { fontSize: 12, color: colors.faint, marginTop: 3, lineHeight: 17 },
+  scanRowChevron: { fontSize: 22, color: colors.faint, paddingLeft: 10 },
   subSegmentWrap: { paddingHorizontal: 16, marginBottom: 4 },
   segmentBtn: {
     flex: 1,
