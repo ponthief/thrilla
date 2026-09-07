@@ -51,8 +51,11 @@ function resumeFrom(
   return start;
 }
 
-// Rendered inside the Receive screen (the "Scan" segment), so this is a plain
-// panel — no SafeAreaView or page header of its own; Receive supplies both.
+// Rendered inside the Receive screen, reached from the row beneath the BIP-353
+// card rather than from the segment: with background scanning on, a manual scan
+// is redundant, so it does not deserve a permanent slot. A plain panel — no
+// SafeAreaView or page header of its own; Receive supplies both, including the
+// way back.
 export default function ScanPanel() {
   const inkey = useAuthStore((s) => s.inkey);
 

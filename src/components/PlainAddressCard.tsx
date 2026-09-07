@@ -11,7 +11,6 @@ import * as api from '@services/api';
 import { useAuthStore } from '@stores/authStore';
 import { getWalletKeys } from '@services/secureKeys';
 import { loadPlainChain, PlainChainState } from '@services/plainChain';
-import { useNavStore } from '@stores/navStore';
 import { usePlainStatus, plainSpendSettled } from '@stores/plainStatus';
 import { usePlainHistory } from '@stores/plainHistoryStore';
 import QRCode from './QRCode';
@@ -63,8 +62,10 @@ interface Props {
  * history, so two payments never share one. The server is asked about a window
  * of derived addresses but never given the xpub, so it cannot derive the next.
  *
- * Collapsed by default: the Silent Payments address above needs none of this
- * machinery and should be used wherever the sender will accept it.
+ * Owns the "Plain" segment of the Receive screen. It used to be a collapsed row
+ * beneath the Silent Payments address and the BIP-353 card, which nobody found;
+ * the Silent Payments address is still the one to use wherever a sender will
+ * accept it, and being second in the segment is enough to say so.
  */
 export default function PlainAddressCard({ wallet }: Props) {
   const inkey = useAuthStore((s) => s.inkey);
@@ -75,7 +76,6 @@ export default function PlainAddressCard({ wallet }: Props) {
   // transaction. Cleared once a walk disagrees with the balance at broadcast.
   const pendingSpend = usePlainStatus((s) => s.pendingSpend);
 
-  const [open, setOpen] = useState(false);
   const [accountXprv, setAccountXprv] = useState<string | null>(null);
   const [chain, setChain] = useState<PlainChainState | null>(null);
   const [loading, setLoading] = useState(false);
@@ -87,12 +87,6 @@ export default function PlainAddressCard({ wallet }: Props) {
   const [copiedTxid, setCopiedTxid] = useState<string | null>(null);
   const [spendOpen, setSpendOpen] = useState(false);
   const [setupOpen, setSetupOpen] = useState(false);
-  // Bumped by the prompt on the wallet screen, which is how most people will
-  // arrive here — the card is otherwise collapsed and easily missed.
-  const plainRequest = useNavStore((s) => s.plainRequest);
-  useEffect(() => {
-    if (plainRequest > 0) setOpen(true);
-  }, [plainRequest]);
 
   const refresh = useCallback(async () => {
     if (!inkey) return;
@@ -134,10 +128,8 @@ export default function PlainAddressCard({ wallet }: Props) {
   }, [inkey, wallet.id, wallet.network]);
 
   useEffect(() => {
-    // Only reach for the chain index once the user has actually opened this —
-    // it is a round trip for a card most people will never use.
-    if (open) refresh();
-  }, [open, refresh]);
+    refresh();
+  }, [refresh]);
 
   const onCopy = useCallback(() => {
     if (!chain) return;
@@ -146,20 +138,6 @@ export default function PlainAddressCard({ wallet }: Props) {
     setTimeout(() => setCopied(false), 1500);
   }, [chain]);
 
-  if (!open) {
-    return (
-      <TouchableOpacity style={styles.collapsed} onPress={() => setOpen(true)}>
-        <View style={styles.collapsedText}>
-          <Text style={styles.collapsedTitle}>Need a plain bitcoin address?</Text>
-          <Text style={styles.collapsedSub}>
-            For senders that can't pay a Silent Payments address.
-          </Text>
-        </View>
-        <Text style={styles.chevron}>›</Text>
-      </TouchableOpacity>
-    );
-  }
-
   const sats = chain?.confirmedSats ?? 0;
   const inFlight = !!pendingSpend;
   const hasCoins = sats > 0 && !!accountXprv && !!chain?.fundedIndices.length;
@@ -167,12 +145,7 @@ export default function PlainAddressCard({ wallet }: Props) {
 
   return (
     <View style={styles.card}>
-      <View style={styles.titleRow}>
-        <Text style={styles.title}>Plain address</Text>
-        <TouchableOpacity onPress={() => setOpen(false)}>
-          <Text style={styles.hideBtn}>Hide</Text>
-        </TouchableOpacity>
-      </View>
+      <Text style={styles.title}>Plain bitcoin address</Text>
 
       {!accountXprv ? (
         <>
@@ -341,22 +314,6 @@ export default function PlainAddressCard({ wallet }: Props) {
 }
 
 const styles = StyleSheet.create({
-  collapsed: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: colors.surface,
-    borderRadius: 14,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: colors.border,
-    paddingHorizontal: 18,
-    paddingVertical: 16,
-    marginTop: 16,
-  },
-  collapsedText: { flex: 1 },
-  collapsedTitle: { fontSize: 15, fontWeight: '600', color: colors.text },
-  collapsedSub: { fontSize: 12, color: colors.muted, marginTop: 3 },
-  chevron: { fontSize: 24, color: colors.faint, marginLeft: 12 },
-
   card: {
     backgroundColor: colors.surface,
     borderRadius: 14,
@@ -366,15 +323,13 @@ const styles = StyleSheet.create({
     borderColor: colors.border,
     marginTop: 16,
   },
-  titleRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
+  title: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: colors.text,
     alignSelf: 'stretch',
-    justifyContent: 'space-between',
     marginBottom: 16,
   },
-  title: { fontSize: 16, fontWeight: '700', color: colors.text },
-  hideBtn: { fontSize: 13, fontWeight: '600', color: colors.muted },
   mono: { fontFamily: 'monospace', fontSize: 13, color: colors.text, marginTop: 14 },
   caption: {
     fontSize: 12,

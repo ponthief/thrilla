@@ -12,10 +12,11 @@ export type TabKey = 'wallet' | 'send' | 'receive' | 'settings';
 
 interface NavState {
   tab: TabKey;
-  // Bumped to ask the Receive tab to expand its plain-address card.
+  // Bumped to ask the Receive tab to select its "Plain" segment.
   plainRequest: number;
   setTab: (tab: TabKey) => void;
-  // Go to Receive AND open that card, for the prompt on the wallet screen.
+  // Go to Receive AND switch to the plain address, for the wallet screen's
+  // prompt about coins sitting there.
   goToPlain: () => void;
 }
 
