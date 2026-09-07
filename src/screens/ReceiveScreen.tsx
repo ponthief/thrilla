@@ -488,12 +488,18 @@ function ScanEntryRow({
       </Text>
       <View style={styles.scanRowText}>
         <Text style={[styles.scanRowTitle, !bgOn && styles.scanRowTitleUrgent]}>
-          {bgOn ? 'Missing a payment?' : 'Scan to find your payments'}
+          {bgOn ? 'Missing a payment?' : 'Scan for payments'}
         </Text>
+        {/* Both weights have to be TRUE, which the second one was not: it said
+            payments would not appear until you scanned here. They do — opening
+            the wallet catches up on its own whenever the gap is small enough
+            (hooks/useCatchUpScan), whatever the background-scan setting says.
+            What actually changes with it off is that catching up depends on you
+            opening the app, so a long absence is the case this row is for. */}
         <Text style={styles.scanRowSub}>
           {bgOn
-            ? 'Payments arrive on their own. Scan manually only if one seems late.'
-            : "Background scanning is off, so payments won't appear until you scan for them."}
+            ? 'The server keeps this wallet scanned. Scan here only if a payment seems late.'
+            : "The app catches up when you open it. Scan here if you've been away a while, or a payment seems late."}
         </Text>
       </View>
       <Text style={styles.scanRowChevron}>›</Text>
