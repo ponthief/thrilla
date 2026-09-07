@@ -39,11 +39,10 @@ const IDLE_POLL_MS = 30 * 60 * 1000;
 // sender is likely to pay again.
 const MAX_WATCHED = 10;
 
-// Hermes ships without full Intl, so Number.toLocaleString does not group.
-function groupThousands(n: number): string {
-  return Math.floor(n)
-    .toString()
-    .replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+// What a poll learned about the pool, whichever path found it.
+interface Totals {
+  confirmed: number;
+  unconfirmed: number;
 }
 
 interface Watch {
@@ -85,7 +84,7 @@ export function usePlainWatch() {
 
     // Full gap-limit walk: establishes which addresses to watch and where the
     // receive address currently sits.
-    const rewalk = async (): Promise<number | null> => {
+    const rewalk = async (): Promise<Totals | null> => {
       const wallets = await api.getSilntWallets(inkey);
       const wallet = api.pickSilntWallet(wallets);
       if (!wallet) return null;
@@ -110,25 +109,62 @@ export function usePlainWatch() {
         used: new Set(chain.usedIndices),
       };
       publish(wallet.id, chain.confirmedSats, chain.unconfirmedSats);
-      return chain.confirmedSats;
+      return {
+        confirmed: chain.confirmedSats,
+        unconfirmed: chain.unconfirmedSats,
+      };
     };
 
-    // With alerts off the mark still moves, silently: the wallet screen is
+    // A payment is announced TWICE: once when it turns up unconfirmed, once
+    // when it is mined. Only the confirmed half existed before, which meant an
+    // arriving payment said nothing at all until its block — the balance simply
+    // changed under the user.
+    //
+    // No amounts in either notice. The card and the wallet screen show the
+    // figure; a banner does not need to, and one without it cannot be read off
+    // the screen by someone else. It also keeps these notices worded the same
+    // as the server's FCM pushes, which omit amounts because their text passes
+    // through Google in plaintext (see _notify_payment_found in siLNt).
+    //
+    // With alerts off the marks still move, silently: the wallet screen is
     // already showing the balance, so turning alerts back on later should not
     // raise a banner for coins the user has been looking at for a week.
-    const announce = async (walletId: string, sats: number) => {
+    const announce = async (
+      walletId: string,
+      confirmed: number,
+      unconfirmed: number,
+    ) => {
       const before = await lastAnnounced(walletId);
-      if (sats <= before) {
-        // Includes the drop after spending, which re-arms the alert.
-        if (sats !== before) await setLastAnnounced(walletId, sats);
+      const isNewConfirmed = confirmed > before.confirmed;
+      const isNewPending = unconfirmed > before.pending;
+
+      if (!isNewConfirmed && !isNewPending) {
+        // Either figure falling — coins mined, spent, or a replaced
+        // transaction — re-arms the alert for the next payment.
+        if (confirmed !== before.confirmed || unconfirmed !== before.pending) {
+          await setLastAnnounced(walletId, { confirmed, pending: unconfirmed });
+        }
         return;
       }
-      await setLastAnnounced(walletId, sats);
+      await setLastAnnounced(walletId, { confirmed, pending: unconfirmed });
       if (!alertsOn) return;
-      usePushBanner.getState().show({
-        title: 'Coins arrived',
-        body: `${groupThousands(sats)} sats on your plain address, ready to send.`,
-      });
+
+      // Confirmation wins when both moved at once: it is the more final of the
+      // two, and one banner at a time is enough.
+      usePushBanner.getState().show(
+        isNewConfirmed
+          ? {
+              title: 'Payment confirmed',
+              body: 'A payment to your plain address has been mined. Open Receive to view it.',
+            }
+          : {
+              // Not "on the way" — the card already uses that for an OUTGOING
+              // spend waiting on the chain index, and these would read as the
+              // same event.
+              title: 'Payment incoming',
+              body: 'A payment to your plain address is waiting to be mined. Open Receive to view it.',
+            },
+      );
     };
 
     const tick = async () => {
@@ -138,9 +174,9 @@ export function usePlainWatch() {
         return;
       }
       try {
-        let sats: number | null;
+        let totals: Totals | null;
         if (!watch) {
-          sats = await rewalk();
+          totals = await rewalk();
         } else {
           // Narrow poll: just the addresses already known to matter, rather
           // than walking the whole chain every five minutes.
@@ -162,14 +198,17 @@ export function usePlainWatch() {
           // The receive address was paid, so it is no longer the receive
           // address — re-walk to find the new one and pick up its balance.
           if (newlyUsed) {
-            sats = await rewalk();
+            totals = await rewalk();
           } else {
-            sats = res.confirmed_sats;
+            totals = {
+              confirmed: res.confirmed_sats,
+              unconfirmed: res.unconfirmed_sats,
+            };
             publish(watch.walletId, res.confirmed_sats, res.unconfirmed_sats);
           }
         }
-        if (!cancelled && watch && sats != null) {
-          await announce(watch.walletId, sats);
+        if (!cancelled && watch && totals != null) {
+          await announce(watch.walletId, totals.confirmed, totals.unconfirmed);
         }
       } catch {
         // Transient — the next tick retries. Never disturb the app for this.
