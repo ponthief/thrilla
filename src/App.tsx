@@ -304,7 +304,14 @@ const App = () => {
             the login screen on the way in. Lock setup before device
             confirmation: an unguarded session is this app's problem to fix
             before it starts talking to the server about which device it is. */}
-        {hydrating ? (
+        {/* `!lockReady` counts as still starting up, not just `hydrating`.
+            The session restore and the lock-preference read are separate
+            async reads, and if the session lands first there is a frame or two
+            where a locked wallet has enabled=false and ready=false — long
+            enough to render Shell and kick off its data loads before the lock
+            screen replaces it. Holding the splash until both are in closes
+            that window. */}
+        {hydrating || (isAuthenticated && !lockReady) ? (
           <SplashGate />
         ) : !isAuthenticated ? (
           <AuthNavigator />
