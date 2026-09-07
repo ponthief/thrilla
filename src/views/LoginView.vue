@@ -15,7 +15,11 @@ const sessionExpired = route.query.expired === '1'
 const accountClosed = route.query.closed === '1'
 const auth   = useAuthStore()
 
-const username    = ref('')
+// Prefilled when arriving straight from email verification, which knows the
+// username the server just activated. Only ever a convenience — the field stays
+// editable, and there is nothing to prefill on a normal visit.
+const username    = ref(typeof route.query.u === 'string' ? route.query.u : '')
+const justVerified = !!username.value
 const password    = ref('')
 const showPassword = ref(false)
 
@@ -204,6 +208,10 @@ onUnmounted(() => clearInterval(lockTimer))
 
             <div v-if="accountClosed" class="alert alert-success" style="margin-bottom:16px">
               ✓ Your account has been closed. Thank you for using Thrilla.
+            </div>
+
+            <div v-if="justVerified" class="alert alert-success" style="margin-bottom:16px">
+              ✓ Email verified. Enter your password to finish signing in.
             </div>
 
             <div v-if="isLocked" class="alert alert-error" style="margin-bottom:16px">

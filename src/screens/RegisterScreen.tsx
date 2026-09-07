@@ -1,6 +1,7 @@
-import React, { useCallback, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
+  AppState,
   Image,
   KeyboardAvoidingView,
   Platform,
@@ -13,6 +14,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import * as api from '@services/api';
+import { useAuthStore } from '@stores/authStore';
 import { colors } from '@/theme';
 
 const PRIMARY = colors.primary;
@@ -48,10 +50,74 @@ export default function RegisterScreen({ onBackToLogin }: Props) {
   const [error, setError] = useState<string | null>(null);
   const [sentTo, setSentTo] = useState<string | null>(null);
 
+  const [finishing, setFinishing] = useState(false);
+  const [notYet, setNotYet] = useState(false);
+
   const newCaptcha = useCallback(() => {
     setCaptcha(makeCaptcha());
     setCaptchaAnswer('');
   }, []);
+
+  // What was just registered, so returning from the email can finish the job.
+  //
+  // Verification happens somewhere else entirely — a mail app, then a browser,
+  // where the link activates the account and tells the user to "sign in". Left
+  // alone, they come back and type the password they typed sixty seconds ago,
+  // which is now the ONLY password prompt in the app's life (the session is
+  // kept after this) and a silly one to make them face.
+  //
+  // Held in a ref, in memory, never written anywhere. If the OS kills the app
+  // while they are in the browser this is simply gone and they land on the
+  // login form as before — the honest fallback. Persisting a password to close
+  // that gap would trade the whole point of the change for a little polish.
+  const pending = useRef<{ username: string; password: string } | null>(null);
+
+  // Dropped explicitly on the way out rather than left to the garbage
+  // collector, so the window in which this exists is the one the screen is
+  // visible for and nothing longer.
+  useEffect(
+    () => () => {
+      pending.current = null;
+    },
+    [],
+  );
+
+  const login = useAuthStore((s) => s.login);
+
+  const finishRegistration = useCallback(async () => {
+    const creds = pending.current;
+    if (!creds || finishing) return;
+    setFinishing(true);
+    setNotYet(false);
+    // A failure here is the ordinary case, not an error: it means the link has
+    // not been clicked yet, so the account does not exist. Say so in those
+    // terms rather than showing a sign-in failure for something the user has
+    // not done wrong.
+    const ok = await login(creds.username, creds.password);
+    if (ok) {
+      // App.tsx swaps to the lock-setup screen the moment this resolves; there
+      // is nothing left for this screen to do.
+      pending.current = null;
+      return;
+    }
+    // login() parks its message in the store's error field, which the login
+    // screen renders. Clear it so backing out of here does not show "invalid
+    // username or password" for an account that is merely unverified.
+    useAuthStore.setState({ error: null });
+    setNotYet(true);
+    setFinishing(false);
+  }, [finishing, login]);
+
+  // Returning to the foreground is the signal. The user left to open a link and
+  // came back, which is exactly when the account has just become real — better
+  // than polling, which would keep asking while they are still reading email.
+  useEffect(() => {
+    if (!sentTo) return;
+    const sub = AppState.addEventListener('change', (state) => {
+      if (state === 'active') finishRegistration();
+    });
+    return () => sub.remove();
+  }, [sentTo, finishRegistration]);
 
   const passwordsMatch = confirm.length > 0 && confirm === password;
 
@@ -80,6 +146,9 @@ export default function RegisterScreen({ onBackToLogin }: Props) {
     setLoading(true);
     try {
       await api.startRegistration(username.trim(), password, email.trim());
+      // Remembered only in memory, and only now that the server has accepted
+      // the registration — see the `pending` ref.
+      pending.current = { username: username.trim(), password };
       setSentTo(email.trim());
     } catch (e: any) {
       setError(e?.message || 'Registration failed.');
@@ -102,6 +171,26 @@ export default function RegisterScreen({ onBackToLogin }: Props) {
             Click the link in the email within 1 hour to activate your account.
             Don't forget to check your spam folder.
           </Text>
+
+          <Text style={styles.sentHint}>
+            {finishing
+              ? 'Signing you in…'
+              : notYet
+              ? "That link doesn't seem to have been opened yet. Click it, then come back here."
+              : "Come back to this screen once you've clicked it — you'll be signed in automatically."}
+          </Text>
+
+          <TouchableOpacity
+            style={[styles.primaryBtn, finishing && styles.btnDisabled]}
+            onPress={finishRegistration}
+            disabled={finishing}>
+            {finishing ? (
+              <ActivityIndicator color={colors.onPrimary} />
+            ) : (
+              <Text style={styles.primaryBtnText}>I've clicked the link</Text>
+            )}
+          </TouchableOpacity>
+
           <TouchableOpacity style={styles.ghostBtn} onPress={onBackToLogin}>
             <Text style={styles.ghostBtnText}>← Back to sign in</Text>
           </TouchableOpacity>
