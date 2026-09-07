@@ -182,6 +182,48 @@ check('the 1-minute setting is checked every 15s', tickFor(MIN) === 15000);
 check('long delays do not check more than every 30s', tickFor(60 * MIN) === 30000);
 check('short delays do not busy-loop', tickFor(MIN) >= 5000 && tickFor(5 * MIN) >= 5000);
 
+// ── catch-up threshold ──────────────────────────────────────────────────────
+// A per-device preference layered over the admin setting. The failure mode that
+// matters is the wrong one winning: a device that asked to be conservative
+// silently scanning a week, or an admin's "off" being overridden by a phone.
+console.log('\ncatch-up threshold');
+
+const FOLLOW_SERVER = -1;
+const ALWAYS_ASK = 0;
+// Mirrors services/catchUpPref.effectiveThreshold.
+const effective = (pref, server) => (pref === FOLLOW_SERVER ? server : pref);
+// Mirrors the decision in useCatchUpScan: below the threshold scans quietly.
+const scansQuietly = (gap, threshold) => gap < threshold;
+
+const DAY = 144;
+check('no preference follows the server', effective(FOLLOW_SERVER, 3 * DAY) === 3 * DAY);
+check('a preference overrides the server', effective(DAY, 3 * DAY) === DAY);
+check('a preference LOWER than the server is honoured',
+      effective(DAY, 7 * DAY) === DAY);
+check('a preference HIGHER than the server is honoured',
+      effective(7 * DAY, DAY) === 7 * DAY);
+
+// "Always ask" has to beat every gap, including a one-block one. It works by
+// being zero rather than by a special case, so this is the check that the
+// comparison is strict.
+check('"always ask" prompts even for a 1-block gap',
+      !scansQuietly(1, effective(ALWAYS_ASK, 3 * DAY)));
+check('"always ask" is not mistaken for "no preference"', ALWAYS_ASK !== FOLLOW_SERVER);
+
+// The window either side of a chosen limit.
+check('a 2-day gap scans quietly at the 3-day setting',
+      scansQuietly(2 * DAY, effective(3 * DAY, DAY)));
+check('a 4-day gap asks at the 3-day setting',
+      !scansQuietly(4 * DAY, effective(3 * DAY, DAY)));
+check('a gap exactly at the limit asks rather than scans',
+      !scansQuietly(3 * DAY, effective(3 * DAY, DAY)));
+
+// The admin's off switch is checked before any of this and returns outright, so
+// no preference can turn catch-up back on for a deployment that disabled it.
+const adminAllows = (loginScanEnabled) => loginScanEnabled !== false;
+check('an admin disabling catch-up cannot be overridden', !adminAllows(false));
+check('an admin leaving it on defers to the preference', adminAllows(true));
+
 // The invariant, stated as an exhaustive sweep rather than a sample: with a
 // session present and no lock, no combination of the other flags reaches the
 // wallet.

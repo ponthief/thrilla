@@ -19,6 +19,7 @@ import { usePushBanner } from '@stores/pushBanner';
 import * as api from '@services/api';
 import * as appLock from '@services/appLock';
 import * as appPin from '@services/appPin';
+import * as catchUpPref from '@services/catchUpPref';
 import {
   ensureNotificationPermission,
   hasNotificationPermission,
@@ -28,6 +29,16 @@ import { resetCatchUp } from '../hooks/useCatchUpScan';
 import { colors, DEVICE_TRUST_ENABLED } from '@/theme';
 import DevicesModal from '../components/DevicesModal';
 import PinSetupModal from '../components/PinSetupModal';
+
+// Blocks are what the scan works in; days are what the user waits. Ten minutes
+// a block, so 144 a day.
+function describeBlocks(blocks: number): string {
+  const days = blocks / 144;
+  if (days >= 7) return days === 7 ? 'a week' : `${Math.round(days)} days`;
+  if (days >= 1) return days === 1 ? '1 day' : `${Math.round(days)} days`;
+  const hours = Math.max(1, Math.round((blocks * 10) / 60));
+  return hours === 1 ? '1 hour' : `${hours} hours`;
+}
 
 export default function SettingsScreen() {
   const username = useAuthStore((state) => state.username);
@@ -173,6 +184,44 @@ export default function SettingsScreen() {
   const [bgEnabled, setBgEnabled] = useState(false);
   const [bgBusy, setBgBusy] = useState(false);
   const [bgMsg, setBgMsg] = useState<string | null>(null);
+
+  // Catch-up scanning: how much this device does without asking.
+  const [catchUpBlocks, setCatchUpBlocks] = useState<number>(
+    catchUpPref.FOLLOW_SERVER,
+  );
+  const [serverThreshold, setServerThreshold] = useState(432);
+
+  useEffect(() => {
+    catchUpPref.getCatchUpBlocks().then(setCatchUpBlocks);
+  }, []);
+
+  // Only to describe what "following the server" currently means — the hook
+  // reads it again at scan time, so this is display, not the decision.
+  useEffect(() => {
+    if (!inkey) return;
+    api
+      .getBackendConfig(inkey)
+      .then((cfg) => {
+        const n = Number(cfg?.login_scan_auto_threshold);
+        if (n > 0) setServerThreshold(n);
+      })
+      .catch(() => {
+        /* leave the default in the label */
+      });
+  }, [inkey]);
+
+  const onPickCatchUp = useCallback(async (blocks: number) => {
+    // Tapping the active choice clears the override and hands the decision back
+    // to the server, which is otherwise unreachable once one is set.
+    const next =
+      blocks === catchUpBlocks ? catchUpPref.FOLLOW_SERVER : blocks;
+    setCatchUpBlocks(next);
+    if (next === catchUpPref.FOLLOW_SERVER) {
+      await catchUpPref.clearCatchUpBlocks();
+    } else {
+      await catchUpPref.setCatchUpBlocks(next);
+    }
+  }, [catchUpBlocks]);
 
   // Remove wallet.
   const [removing, setRemoving] = useState(false);
@@ -616,6 +665,36 @@ export default function SettingsScreen() {
               still catches it up, using the key on this device without sending
               it anywhere. What this controls is whether the server holds that
               key and scans on its own.
+            </Text>
+
+            <View style={styles.divider} />
+
+            {/* The catch-up limit. It used to be a single admin number applied
+                to every client at once — chosen for browsers, inherited by
+                phones on mobile data. This device can now say how much it will
+                do quietly; leaving it alone follows the server as before. */}
+            <Text style={styles.itemLabel}>Catch up automatically</Text>
+            <View style={styles.choiceRow}>
+              {catchUpPref.CATCH_UP_CHOICES.map((opt) => {
+                const on = catchUpBlocks === opt.blocks;
+                return (
+                  <TouchableOpacity
+                    key={opt.blocks}
+                    style={[styles.choice, on && styles.choiceOn]}
+                    onPress={() => onPickCatchUp(opt.blocks)}>
+                    <Text style={[styles.choiceText, on && styles.choiceTextOn]}>
+                      {opt.label}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+            <Text style={styles.help}>
+              {catchUpBlocks === catchUpPref.FOLLOW_SERVER
+                ? `Following the server's setting (${describeBlocks(serverThreshold)}). Pick one above to decide for this device.`
+                : catchUpBlocks === catchUpPref.ALWAYS_ASK
+                ? 'Opening the wallet will always ask before scanning, however little there is to catch up on.'
+                : `Gaps under ${describeBlocks(catchUpBlocks)} are scanned quietly when you open the wallet. Anything longer asks first, since it is a wait.`}
             </Text>
             {bgMsg ? <Text style={styles.dustError}>{bgMsg}</Text> : null}
           </View>

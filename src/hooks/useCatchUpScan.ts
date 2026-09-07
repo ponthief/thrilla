@@ -4,6 +4,7 @@ import { getWalletKeys } from '@services/secureKeys';
 import { markScanStarted } from '@services/scanCooldown';
 import { usePushBanner } from '@stores/pushBanner';
 import { paymentAlertsOn } from '@stores/notifyStore';
+import { getCatchUpBlocks, effectiveThreshold } from '@services/catchUpPref';
 
 // Wallets already evaluated this app session, so returning to the Wallet tab
 // doesn't re-trigger a scan/prompt. Cleared on create/import (id may be reused)
@@ -128,17 +129,28 @@ export function useCatchUpScan(
       // Auto-vs-prompt threshold from the backend config (renamed on master
       // from /blindbit/config to /backend/config). Falls back to the backend's
       // own default if the endpoint is unavailable.
-      let threshold = DEFAULT_THRESHOLD;
+      let serverThreshold = DEFAULT_THRESHOLD;
       try {
         const cfg = await api.getBackendConfig(inkey);
+        // The admin can switch catch-up off for everyone. That stays absolute:
+        // a per-device preference decides HOW MUCH to do automatically, not
+        // whether the deployment allows it at all.
         if (cfg.login_scan_enabled === false) return;
-        threshold =
+        serverThreshold =
           Number(cfg.login_scan_auto_threshold ?? DEFAULT_THRESHOLD) ||
           DEFAULT_THRESHOLD;
       } catch {
         /* endpoint unavailable — use the default threshold */
       }
       if (cancelled) return;
+
+      // This device's own answer, if it has one. The admin value was picked for
+      // browser users and applied to phones as well; this lets a phone say how
+      // much silent scanning it is willing to do on its own connection, and
+      // falls back to the server's number when the user has expressed no view.
+      const preference = await getCatchUpBlocks();
+      if (cancelled) return;
+      const threshold = effectiveThreshold(preference, serverThreshold);
 
       let tip = 0;
       try {
@@ -174,6 +186,9 @@ export function useCatchUpScan(
       if (cancelled) return;
 
       setGap(g);
+      // `threshold` of 0 is "always ask": no gap is ever below it, so every
+      // catch-up becomes a prompt. That falls out of the comparison rather than
+      // needing a case of its own.
       if (g < threshold) {
         begin(walletId, keys.scanSecret, last);
       } else {
