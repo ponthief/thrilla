@@ -69,14 +69,31 @@ Android's verification simply fails, the link opens in a browser, and the web
 
 | flavor | verifyHost | applicationId |
 | --- | --- | --- |
-| mainnet | `thrilla.me` | `com.thrilla_btc.thrilla` |
+| mainnet | `signet.thrilla.me` | `com.thrilla_btc.thrilla` |
 | signet | `signet.thrilla.me` | `com.thrilla_btc.thrilla.signet` |
 
-Each must equal the host of the web app in that network's verification emails —
-i.e. the `SILNT_FRONTEND_URL` set on that LNbits instance. **Change the
-placeholder if your signet web app is served somewhere else.** The two flavors
-need different hosts: they are separate applicationIds, and if both claimed one
-URL Android would ask the user which app to open.
+Each must equal the host of `SILNT_FRONTEND_URL` on the LNbits instance that
+flavor talks to, because that is the host the backend puts in verification
+emails. A mismatch is silent — Android never verifies the link and it keeps
+opening in a browser.
+
+Both are `signet.thrilla.me` because that is what both backends are currently
+configured with.
+
+> **A mainnet backend pointing at the signet frontend cannot complete a
+> registration.** The token is encrypted with `settings.auth_secret_key`
+> (`AESCipher` in `lnbits/helpers.py`), which is per-instance. A link minted by
+> the mainnet backend, opened against a frontend that talks to the signet
+> backend, is decrypted with the wrong key: `decrypt_internal_message` returns
+> nothing and the user is told the link is invalid or expired. Give the mainnet
+> backend its own `SILNT_FRONTEND_URL` before mainnet registration goes live,
+> and change `verifyHost` for the mainnet flavor to match.
+
+Because both flavors share a host today, that host's `assetlinks.json` must list
+**both** package names (the file is an array of statements). A flavor missing
+from it falls back to the browser. With both installed and both listed, Android
+asks the user which app to open — unavoidable while they share a host, and it
+goes away once mainnet gets its own frontend host.
 
 ### 2. Get the signing certificate's SHA-256 fingerprint
 
@@ -96,24 +113,56 @@ keytool -list -v -keystore android/app/debug.keystore \
 
 ### 3. Serve `/.well-known/assetlinks.json`
 
-At `https://<verifyHost>/.well-known/assetlinks.json`, as
-`application/json`, reachable over HTTPS with no redirect:
+At `https://<verifyHost>/.well-known/assetlinks.json`, as `application/json`,
+over HTTPS with no redirect. One statement per applicationId that should claim
+the URL — both flavors point at `signet.thrilla.me` today, so both belong in
+this one file:
 
 ```json
-[{
-  "relation": ["delegate_permission/common.handle_all_urls"],
-  "target": {
-    "namespace": "android_app",
-    "package_name": "com.thrilla_btc.thrilla",
-    "sha256_cert_fingerprints": ["AA:BB:…:FF"]
+[
+  {
+    "relation": ["delegate_permission/common.handle_all_urls"],
+    "target": {
+      "namespace": "android_app",
+      "package_name": "com.thrilla_btc.thrilla",
+      "sha256_cert_fingerprints": ["AA:BB:…:FF"]
+    }
+  },
+  {
+    "relation": ["delegate_permission/common.handle_all_urls"],
+    "target": {
+      "namespace": "android_app",
+      "package_name": "com.thrilla_btc.thrilla.signet",
+      "sha256_cert_fingerprints": ["AA:BB:…:FF"]
+    }
   }
-}]
+]
 ```
 
-Use that flavor's `package_name` from the table above, and list every
-fingerprint that should match — add the debug one during development, and add
-Google Play's app-signing certificate if the app is distributed through Play,
-since Play re-signs uploads with its own key.
+List every fingerprint that should match in each `sha256_cert_fingerprints`
+array — add the debug certificate during development, and add Google Play's
+app-signing certificate if the app is distributed through Play, since Play
+re-signs uploads with its own key.
+
+The docroot is the one serving the SPA for that host — the site that answers
+`/verify`, not the marketing pages. Confirm with:
+
+```bash
+grep -rn -e server_name -e '\broot\b' /etc/nginx/sites-enabled/
+```
+
+**The SPA fallback will break this if you let it.** A wallet vhost has
+`try_files $uri $uri/ /index.html`, which happily answers
+`/.well-known/assetlinks.json` with the app's HTML — 200, `text/html`. Android
+rejects that and reports nothing useful. Add an exception ahead of the fallback:
+
+```nginx
+location = /.well-known/assetlinks.json {
+    default_type application/json;
+    add_header Cache-Control "public, max-age=300";
+    try_files $uri =404;
+}
+```
 
 ### 4. Verify it took
 
@@ -127,7 +176,7 @@ adb shell pm verify-app-links --re-verify com.thrilla_btc.thrilla
 
 # test the intent directly, without waiting for an email
 adb shell am start -a android.intent.action.VIEW \
-  -d "https://thrilla.me/verify?token=test"
+  -d "https://signet.thrilla.me/verify?token=test"
 ```
 
 If the host shows anything other than `verified`, the link keeps opening in the
