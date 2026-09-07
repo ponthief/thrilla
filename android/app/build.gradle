@@ -119,18 +119,26 @@ android {
     flavorDimensions "network"
     productFlavors {
         // verifyHost fills the App Link intent-filter in AndroidManifest.xml.
-        // It must be the host of the WEB app that the backend puts in
-        // verification emails (SILNT_FRONTEND_URL for that network's LNbits),
-        // and that host must serve /.well-known/assetlinks.json naming this
-        // flavor's applicationId and signing certificate. Each flavor needs its
-        // own host: they are separate applicationIds, and pointing both at one
-        // host would have them both claim the URL, leaving Android to ask the
-        // user which app to open. Until assetlinks.json is in place the link
-        // opens in a browser as before, which still completes registration.
+        // It MUST equal the host of SILNT_FRONTEND_URL on the LNbits instance
+        // this flavor talks to, because that is the host the backend puts in
+        // verification emails. A mismatch is silent: Android never verifies the
+        // link, and it keeps opening in a browser (which still works).
+        //
+        // Both are signet.thrilla.me today because that is what both backends
+        // are configured with. When the mainnet backend gets its own frontend
+        // URL, change mainnet here to match — and see the note in
+        // BUILD_ANDROID.md about why a mainnet backend pointing at the signet
+        // frontend cannot complete a registration.
+        //
+        // Sharing one host means both applicationIds claim the same URL, so
+        // that host's assetlinks.json must list BOTH packages (an array of
+        // statements) or the flavor missing from it falls back to the browser.
+        // With both installed and both listed, Android asks the user which app
+        // to open — unavoidable while they share a host.
         mainnet {
             dimension "network"
             resValue "string", "app_name", "Thrilla"
-            manifestPlaceholders = [verifyHost: "thrilla.me"]
+            manifestPlaceholders = [verifyHost: "signet.thrilla.me"]
         }
         signet {
             dimension "network"
