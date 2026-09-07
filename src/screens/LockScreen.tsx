@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
+  AppState,
   Image,
   StyleSheet,
   Text,
@@ -33,7 +34,8 @@ const PIN_LENGTH = 6;
 // never tells the app which finger or face unlocked it.
 export default function LockScreen() {
   const unlock = useAppLockStore((s) => s.unlock);
-  const unlocking = useAppLockStore((s) => s.unlocking);
+  // Deliberately not subscribed to `unlocking` — this screen writes it for
+  // App.tsx's benefit but must never gate itself on it. See the note below.
   const setUnlocking = useAppLockStore((s) => s.setUnlocking);
   const pinSet = useAppLockStore((s) => s.pinSet);
   const bioEnabled = useAppLockStore((s) => s.bioEnabled);
@@ -47,23 +49,70 @@ export default function LockScreen() {
     bioEnabled ? 'bio' : 'pin',
   );
 
+  // The initialiser above runs ONCE, on the first render, and reads store values
+  // that load asynchronously. App.tsx holds a splash until they are in, so it is
+  // right today — but if this screen ever mounted a frame early, a
+  // biometric-only user would be shown a PIN pad for a PIN that does not exist
+  // and no entry could ever succeed. Reconciling here means the wrong initial
+  // guess corrects itself instead of trapping the user.
+  const effectiveMode: 'bio' | 'pin' =
+    mode === 'pin' && !pinSet && bioEnabled
+      ? 'bio'
+      : mode === 'bio' && !bioEnabled && pinSet
+      ? 'pin'
+      : mode;
+
   // ── Biometric mode ──
+  //
+  // `unlocking` is GLOBAL state, and it exists for one job: stopping App.tsx's
+  // background handler from re-locking while the OS prompt is up (the prompt
+  // itself sends the app to the background). It must not also be what gates
+  // this screen's controls.
+  //
+  // It used to be both. If authenticate() never resolved — which is what
+  // happens when the activity is destroyed and recreated while the native
+  // prompt is showing — the flag stayed true, `prompt()` early-returned on it
+  // forever, and the Unlock button was disabled on it forever. The lock screen
+  // became unusable with no way out but force-quitting the app.
+  //
+  // So the button follows a LOCAL flag, cleared in a finally and again whenever
+  // the app comes back to the foreground, and nothing on this screen is gated
+  // on the global one.
+  const [busyBio, setBusyBio] = useState(false);
+
   const prompt = useCallback(async () => {
-    if (unlocking) return;
+    setBusyBio(true);
     setUnlocking(true);
     setFailed(false);
+    let ok = false;
     try {
-      const ok = await appLock.authenticate();
-      if (ok) {
-        unlock();
-        return;
-      }
+      ok = await appLock.authenticate();
     } catch {
-      /* authenticate() swallows errors; never wedge the button */
+      /* authenticate() swallows its own errors; treat a throw as a failure */
+    } finally {
+      // Always, on every path. This is the line whose absence wedged the screen.
+      setBusyBio(false);
+      setUnlocking(false);
+    }
+    if (ok) {
+      unlock();
+      return;
     }
     setFailed(true);
-    setUnlocking(false);
-  }, [unlocking, setUnlocking, unlock]);
+  }, [setUnlocking, unlock]);
+
+  // Coming back to the foreground means no OS prompt is in front of us any
+  // more, whatever happened to the promise we were waiting on. Clear both flags
+  // so a prompt that died with the activity cannot leave the screen inert.
+  useEffect(() => {
+    const sub = AppState.addEventListener('change', (state) => {
+      if (state === 'active') {
+        setBusyBio(false);
+        setUnlocking(false);
+      }
+    });
+    return () => sub.remove();
+  }, [setUnlocking]);
 
   // ── PIN mode ──
   const [pin, setPin] = useState('');
@@ -103,12 +152,16 @@ export default function LockScreen() {
   // so a cancelled prompt does not immediately reappear.
   const autoPrompted = useRef(false);
   useEffect(() => {
-    if (mode !== 'bio' || !bioEnabled || autoPrompted.current) return;
+    if (effectiveMode !== 'bio' || !bioEnabled || autoPrompted.current) return;
+    // Only while the app is actually in front. Firing during a cold start, when
+    // the activity may still be settling, is how a prompt ends up outliving the
+    // activity that owns it — the failure this screen is recovering from.
+    if (AppState.currentState !== 'active') return;
     autoPrompted.current = true;
     prompt();
-  }, [mode, bioEnabled, prompt]);
+  }, [effectiveMode, bioEnabled, prompt]);
 
-  if (mode === 'pin') {
+  if (effectiveMode === 'pin') {
     return (
       <SafeAreaView style={styles.container}>
         <View style={styles.content}>
@@ -174,10 +227,10 @@ export default function LockScreen() {
         </Text>
 
         <TouchableOpacity
-          style={[styles.button, unlocking && styles.buttonDisabled]}
+          style={[styles.button, busyBio && styles.buttonDisabled]}
           onPress={prompt}
-          disabled={unlocking}>
-          {unlocking ? (
+          disabled={busyBio}>
+          {busyBio ? (
             <ActivityIndicator color={colors.onPrimary} />
           ) : (
             <Text style={styles.buttonText}>{failed ? 'Try again' : 'Unlock'}</Text>
