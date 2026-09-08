@@ -3,6 +3,7 @@ import { AppState } from 'react-native';
 import { useAuthStore } from '@stores/authStore';
 import { useAppLockStore } from '@stores/appLockStore';
 import { msSinceActivity, resetActivity } from '@services/sessionActivity';
+import { seedBackupPending } from '@stores/seedBackup';
 
 // How long the app may sit unused before locking is a setting now
 // (Settings → Security → Auto-lock, stored by services/appLock). Time spent in
@@ -30,6 +31,11 @@ import { msSinceActivity, resetActivity } from '@services/sessionActivity';
 // returns to the foreground — that second check is what covers being
 // backgrounded past the timeout, since JS timers do not run reliably there.
 // Root-level touch capture in App.tsx feeds activity via touchActivity().
+
+// Long enough to write twelve words down without being rushed, short enough
+// that an abandoned phone does not sit open indefinitely.
+const SEED_BACKUP_FLOOR_MS = 10 * 60 * 1000;
+
 export function useIdleLock(): void {
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
   const lockEnabled = useAppLockStore((s) => s.enabled);
@@ -48,8 +54,20 @@ export function useIdleLock(): void {
     // Fresh timer when the session begins.
     resetActivity();
 
+    // Writing twelve words onto paper is minutes of not touching the screen,
+    // which the touch-based timer reads as idleness — and locking there is what
+    // destroyed a phrase that is shown once and stored nowhere. The reveal now
+    // survives a lock (stores/seedBackup), but being thrown out mid-word is
+    // still wrong, so the delay is floored while a backup is pending.
+    //
+    // Floored, not suspended: a phone left on a desk with a recovery phrase on
+    // screen should still lock eventually, and the user's own choice is honoured
+    // whenever it is already longer than the floor.
+    const effective = () =>
+      seedBackupPending() ? Math.max(autoLockMs, SEED_BACKUP_FLOOR_MS) : autoLockMs;
+
     const enforce = () => {
-      if (msSinceActivity() > autoLockMs) lock();
+      if (msSinceActivity() > effective()) lock();
     };
 
     // Checked often enough that a short delay is honoured roughly on time

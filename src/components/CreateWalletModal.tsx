@@ -21,6 +21,7 @@ import {
   validateNewWalletPassphrase,
 } from '@services/spKeys';
 import { resetCatchUp } from '../hooks/useCatchUpScan';
+import { useSeedBackup } from '@stores/seedBackup';
 import SeedInput from './SeedInput';
 import { colors } from '@/theme';
 
@@ -71,6 +72,19 @@ export default function CreateWalletModal({ visible, onClose, onCreated }: Props
   const [mnemonic, setMnemonic] = useState<string>('');
   const [acknowledged, setAcknowledged] = useState(false);
   const [copied, setCopied] = useState(false);
+
+  // A reveal interrupted by the app lock. The modal was unmounted while the
+  // phrase was on screen, so pick it back up rather than returning the user to
+  // a wallet screen with no way to see it again.
+  const pendingMnemonic = useSeedBackup((s) => s.mnemonic);
+  useEffect(() => {
+    if (pendingMnemonic && step === 'form' && !mnemonic) {
+      setMnemonic(pendingMnemonic);
+      setStep('reveal');
+    }
+    // Runs on mount and whenever a pending backup appears; the guards keep it
+    // from dragging a user who is mid-form back to a reveal.
+  }, [pendingMnemonic, step, mnemonic]);
 
   // Seed-backup verification (mirrors the web): after showing the seed, quiz the
   // user on a few random word positions before finishing. Entirely on-device.
@@ -199,6 +213,11 @@ export default function CreateWalletModal({ visible, onClose, onCreated }: Props
       resetCatchUp(res.wallet_id);
       if (mode === 'generate') {
         // Fresh seed — show it once so the user can back it up.
+        //
+        // Parked in the store BEFORE the step changes, so it exists outside this
+        // component from the moment it is displayed. A lock unmounts the modal;
+        // without this the only copy of the phrase went with it.
+        useSeedBackup.getState().begin(res.wallet_id, seedPhrase);
         setMnemonic(seedPhrase);
         setStep('reveal');
       } else {
@@ -228,6 +247,9 @@ export default function CreateWalletModal({ visible, onClose, onCreated }: Props
   ]);
 
   const finishReveal = useCallback(() => {
+    // The user has confirmed the phrase, so the app's responsibility for it
+    // ends here — and only here.
+    useSeedBackup.getState().done();
     onCreated();
     reset();
     onClose();
