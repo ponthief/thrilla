@@ -6,6 +6,7 @@ import { DEVICE_TRUST_ENABLED } from '@/theme';
 import { resetCatchUp } from '../hooks/useCatchUpScan';
 import { useBitmailAlert } from './bitmailAlert';
 import { useAppLockStore } from './appLockStore';
+import { useSeedBackup } from './seedBackup';
 
 // Device-trust gate state. 'trusted' when the feature is off (nothing to gate)
 // or the device is confirmed; 'untrusted' means the app must show the
@@ -205,6 +206,9 @@ export const useAuthStore = create<AuthState>((set) => ({
   // device should stop existing, not just be forgotten until the next launch.
   logout: (reason?: string) => {
     session.clearSession();
+    // A phrase awaiting backup belongs to the session being left. Keeping it
+    // would offer it to whoever signs in next.
+    useSeedBackup.getState().done();
     // New session should re-evaluate catch-up scanning for every wallet.
     resetCatchUp();
     useBitmailAlert.getState().clear();
