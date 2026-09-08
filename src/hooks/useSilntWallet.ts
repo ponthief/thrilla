@@ -13,6 +13,11 @@ export function useSilntWallet() {
   const [wallet, setWallet] = useState<api.SilntWallet | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  // "No wallet on this network" is NOT an error, and conflating the two put a
+  // Retry button in front of a request that had succeeded — retrying returned
+  // the same answer, so the button did nothing. WalletScreen has always kept
+  // this separate (spMissing); extracting the loader lost the distinction.
+  const [missing, setMissing] = useState(false);
 
   const load = useCallback(async () => {
     if (!inkey) {
@@ -22,14 +27,11 @@ export function useSilntWallet() {
     }
     setLoading(true);
     setError(null);
+    setMissing(false);
     try {
       const chosen = api.pickSilntWallet(await api.getSilntWallets(inkey));
       setWallet(chosen);
-      setError(
-        chosen
-          ? null
-          : 'No Silent Payments wallet on this network yet. Open the Wallet tab to create one.',
-      );
+      setMissing(!chosen);
     } catch (e: any) {
       setError(e?.message || 'Could not load your wallet.');
     } finally {
@@ -41,5 +43,5 @@ export function useSilntWallet() {
     load();
   }, [load]);
 
-  return { wallet, loading, error, reload: load };
+  return { wallet, loading, error, missing, reload: load };
 }

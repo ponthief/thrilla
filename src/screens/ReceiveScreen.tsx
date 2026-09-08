@@ -98,10 +98,31 @@ export default function ReceiveScreen() {
   );
 }
 
+// Shown when there is no wallet on this network, in place of an error.
+//
+// Retrying was the bug: the request had SUCCEEDED and truthfully reported no
+// wallet, so pressing Retry asked again and got the same answer. The action that
+// helps is creating one, which lives on the Wallet tab — so that is what the
+// button does.
+function NoWalletCard() {
+  const setTab = useNavStore((s) => s.setTab);
+  return (
+    <View style={styles.card}>
+      <Text style={styles.emptyTitle}>No wallet yet</Text>
+      <Text style={styles.caption}>
+        Create a Silent Payments wallet to start receiving.
+      </Text>
+      <TouchableOpacity style={styles.primaryBtn} onPress={() => setTab('wallet')}>
+        <Text style={styles.primaryBtnText}>Create a wallet</Text>
+      </TouchableOpacity>
+    </View>
+  );
+}
+
 // The plain bech32 pocket, on its own now rather than collapsed at the bottom
 // of the address view.
 function PlainReceive() {
-  const { wallet, loading, error, reload } = useSilntWallet();
+  const { wallet, loading, error, missing, reload } = useSilntWallet();
 
   return (
     <ScrollView style={styles.flex} contentContainerStyle={styles.content}>
@@ -110,9 +131,11 @@ function PlainReceive() {
           <ActivityIndicator color={PRIMARY} />
           <Text style={styles.pendingText}>Loading…</Text>
         </View>
+      ) : missing ? (
+        <NoWalletCard />
       ) : error || !wallet ? (
         <View style={styles.card}>
-          <Text style={styles.error}>{error || 'No wallet available.'}</Text>
+          <Text style={styles.error}>{error || 'Could not load your wallet.'}</Text>
           <TouchableOpacity style={styles.primaryBtn} onPress={reload}>
             <Text style={styles.primaryBtnText}>Retry</Text>
           </TouchableOpacity>
@@ -387,7 +410,7 @@ function LightningReceive() {
 
 // ── On-chain (Silent Payments) ───────────────────────────────────────────────
 function OnchainReceive({ onScan }: { onScan: () => void }) {
-  const { wallet, loading, error, reload: load } = useSilntWallet();
+  const { wallet, loading, error, missing, reload: load } = useSilntWallet();
 
   if (loading) {
     return (
@@ -396,6 +419,10 @@ function OnchainReceive({ onScan }: { onScan: () => void }) {
         <Text style={styles.pendingText}>Loading address…</Text>
       </View>
     );
+  }
+
+  if (missing) {
+    return <NoWalletCard />;
   }
 
   if (error || !wallet) {
@@ -525,6 +552,7 @@ const styles = StyleSheet.create({
     padding: 3,
   },
   backLink: { color: colors.muted, fontSize: 15, fontWeight: '600', paddingVertical: 8 },
+  emptyTitle: { fontSize: 17, fontWeight: '700', color: colors.text, marginBottom: 8 },
   scanRow: {
     flexDirection: 'row',
     alignItems: 'center',
