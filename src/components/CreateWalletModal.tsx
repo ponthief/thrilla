@@ -22,6 +22,7 @@ import {
 } from '@services/spKeys';
 import { resetCatchUp } from '../hooks/useCatchUpScan';
 import { useSeedBackup } from '@stores/seedBackup';
+import { saveSeed } from '@services/seedVault';
 import SeedInput from './SeedInput';
 import { colors } from '@/theme';
 
@@ -218,10 +219,18 @@ export default function CreateWalletModal({ visible, onClose, onCreated }: Props
         // component from the moment it is displayed. A lock unmounts the modal;
         // without this the only copy of the phrase went with it.
         useSeedBackup.getState().begin(res.wallet_id, seedPhrase);
+        // Kept so it can be shown again — see services/seedVault for why that
+        // is not a new exposure next to the spend key already stored. Awaited
+        // so the reveal below is never the only copy in existence.
+        await saveSeed(res.wallet_id, seedPhrase);
         setMnemonic(seedPhrase);
         setStep('reveal');
       } else {
-        // Import: the user already has their phrase — just finish.
+        // Import: the user already has their phrase, but store it anyway so
+        // "show my recovery phrase" works the same on an imported wallet as on
+        // a generated one. They typed it, so nothing new is learned by keeping
+        // it beside the keys it just derived.
+        await saveSeed(res.wallet_id, seedPhrase);
         onCreated();
         reset();
         onClose();

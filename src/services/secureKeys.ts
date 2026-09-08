@@ -1,4 +1,5 @@
 import * as Keychain from 'react-native-keychain';
+import { forgetSeed } from './seedVault';
 
 // Per-wallet secure storage for Silent Payments keys (scan_secret + spend_key).
 // Backed by the platform keystore (Android Keystore / iOS Keychain) via
@@ -108,6 +109,9 @@ export async function removeWalletKeys(walletId: string): Promise<void> {
   } catch {
     /* ignore */
   }
+  // The stored recovery phrase lives in its own entry (services/seedVault) and
+  // would otherwise outlive the wallet it belongs to.
+  await forgetSeed(walletId);
   await writeIndex((await readIndex()).filter((id) => id !== walletId));
 }
 
@@ -122,6 +126,9 @@ export async function wipeAllWalletKeys(): Promise<void> {
     } catch {
       /* keep going — wipe as much as possible */
     }
+    // A stored phrase reconstructs every key this loop is erasing, so a wipe
+    // that left it behind would not be a wipe at all.
+    await forgetSeed(id);
   }
   try {
     await Keychain.resetGenericPassword({ service: INDEX_SERVICE });

@@ -29,6 +29,8 @@ import { resetCatchUp } from '../hooks/useCatchUpScan';
 import { colors, DEVICE_TRUST_ENABLED } from '@/theme';
 import DevicesModal from '../components/DevicesModal';
 import PinSetupModal from '../components/PinSetupModal';
+import SeedRevealModal from '../components/SeedRevealModal';
+import { hasSeed } from '@services/seedVault';
 
 // Blocks are what the scan works in; days are what the user waits. Ten minutes
 // a block, so 144 a day.
@@ -185,6 +187,12 @@ export default function SettingsScreen() {
   const [bgBusy, setBgBusy] = useState(false);
   const [bgMsg, setBgMsg] = useState<string | null>(null);
 
+  // Whether this wallet's recovery phrase is on the device, and so whether
+  // there is anything to offer showing. Absent for wallets created before it
+  // was stored, and for anyone who chose to forget it.
+  const [seedStored, setSeedStored] = useState(false);
+  const [seedOpen, setSeedOpen] = useState(false);
+
   // Catch-up scanning: how much this device does without asking.
   const [catchUpBlocks, setCatchUpBlocks] = useState<number>(
     catchUpPref.FOLLOW_SERVER,
@@ -234,6 +242,7 @@ export default function SettingsScreen() {
         const w = api.pickSilntWallet(await api.getSilntWallets(inkey));
         if (!w) return;
         setWallet(w);
+        setSeedStored(await hasSeed(w.id));
         setBgEnabled(await api.getBackgroundScan(inkey, w.id));
       } catch {
         /* leave the toggle off/disabled if we can't load status */
@@ -669,6 +678,26 @@ export default function SettingsScreen() {
 
             <View style={styles.divider} />
 
+            {/* Only offered when the phrase is actually on this device. Showing
+                a dead button for older wallets would suggest a second copy
+                exists somewhere, which is the belief that loses coins. */}
+            {seedStored ? (
+              <>
+                <TouchableOpacity
+                  style={styles.rowBtn}
+                  onPress={() => setSeedOpen(true)}>
+                  <Text style={styles.itemLabel}>Show recovery phrase</Text>
+                  <Text style={styles.rowChevron}>›</Text>
+                </TouchableOpacity>
+                <Text style={styles.help}>
+                  Asks for your {pinSet ? 'PIN' : 'fingerprint or device PIN'}{' '}
+                  first. Your passphrase, if you set one, is not stored on this
+                  device and is not shown.
+                </Text>
+                <View style={styles.divider} />
+              </>
+            ) : null}
+
             {/* The catch-up limit. It used to be a single admin number applied
                 to every client at once — chosen for browsers, inherited by
                 phones on mobile data. This device can now say how much it will
@@ -847,6 +876,15 @@ export default function SettingsScreen() {
         />
       ) : null}
 
+      {wallet ? (
+        <SeedRevealModal
+          visible={seedOpen}
+          walletId={wallet.id}
+          onClose={() => setSeedOpen(false)}
+          onForgotten={() => setSeedStored(false)}
+        />
+      ) : null}
+
       <PinSetupModal
         visible={pinModal !== null}
         mode={pinModal === 'duress' ? 'duress' : 'normal'}
@@ -908,6 +946,13 @@ const styles = StyleSheet.create({
   },
   // Wraps: five options do not fit one row on a narrow phone, and truncating
   // them would leave the user guessing which delay they had picked.
+  rowBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 4,
+  },
+  rowChevron: { fontSize: 22, color: colors.faint },
   choiceRow: { flexDirection: 'row', flexWrap: 'wrap', marginTop: 10 },
   choice: {
     borderWidth: 1,
