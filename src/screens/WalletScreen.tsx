@@ -23,6 +23,7 @@ import TxDetailModal from '../components/TxDetailModal';
 import BitcoinSign from '../components/BitcoinSign';
 import { usePendingSends } from '@stores/pendingSends';
 import { usePlainStatus } from '@stores/plainStatus';
+import { useSeedBackup } from '@stores/seedBackup';
 import { useNavStore } from '@stores/navStore';
 import { useTxLabelStore } from '@stores/txLabelStore';
 import { useCatchUpScan } from '../hooks/useCatchUpScan';
@@ -86,6 +87,14 @@ export default function WalletScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const [rate, setRate] = useState<number | null>(null);
   const [showCreate, setShowCreate] = useState(false);
+
+  // A recovery phrase still awaiting backup — the app lock unmounted the modal
+  // while it was on screen. Reopen it: the phrase is shown once and stored
+  // nowhere, so the alternative is losing the only copy (see stores/seedBackup).
+  const seedPending = useSeedBackup((s) => !!s.mnemonic);
+  useEffect(() => {
+    if (seedPending) setShowCreate(true);
+  }, [seedPending]);
   const [showRecover, setShowRecover] = useState(false);
   const [showCoins, setShowCoins] = useState(false);
   const [detailTxid, setDetailTxid] = useState<string | null>(null);
@@ -476,7 +485,12 @@ export default function WalletScreen() {
 
       <CreateWalletModal
         visible={showCreate}
-        onClose={() => setShowCreate(false)}
+        // Closing is refused while a phrase is awaiting backup. The modal's own
+        // onRequestClose already ignores the back gesture past the form step;
+        // this closes the same door here, so nothing dismisses the one copy.
+        onClose={() => {
+          if (!seedPending) setShowCreate(false);
+        }}
         onCreated={() => {
           setShowCreate(false);
           setLoading(true);

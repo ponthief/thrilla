@@ -1,6 +1,7 @@
 import * as api from '@services/api';
 import { wipeAllWalletKeys } from '@services/secureKeys';
 import { clearSession } from '@services/session';
+import { useSeedBackup } from '@stores/seedBackup';
 import { useTxLabelStore } from '@stores/txLabelStore';
 import { usePlainHistory } from '@stores/plainHistoryStore';
 import { resetCatchUp } from '@/hooks/useCatchUpScan';
@@ -42,6 +43,13 @@ export async function runDuress(
   }
   try {
     await usePlainHistory.getState().clearAll();
+  } catch {
+    /* best-effort */
+  }
+  // A recovery phrase still on screen is the most valuable thing in the app —
+  // it reconstructs every key the wipe just removed — so it goes with them.
+  try {
+    useSeedBackup.getState().done();
   } catch {
     /* best-effort */
   }
