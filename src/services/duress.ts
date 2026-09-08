@@ -1,6 +1,7 @@
 import * as api from '@services/api';
 import { wipeAllWalletKeys } from '@services/secureKeys';
 import { clearSession } from '@services/session';
+import { forgetPlainDerivations } from '@services/spKeys';
 import { useSeedBackup } from '@stores/seedBackup';
 import { useTxLabelStore } from '@stores/txLabelStore';
 import { usePlainHistory } from '@stores/plainHistoryStore';
@@ -53,6 +54,9 @@ export async function runDuress(
   } catch {
     /* best-effort */
   }
+  // The parsed account key and its derived addresses are cached in memory for
+  // speed; a wipe must not leave them sitting there.
+  forgetPlainDerivations();
   resetCatchUp();
   logout();
 }
