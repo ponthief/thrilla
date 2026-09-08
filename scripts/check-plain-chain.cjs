@@ -71,5 +71,50 @@ ok('a passphrase yields a different chain',
    addrFrom(acctPP.derive('m/0/0').privateKey, 'mainnet') !==
    addrFrom(acct.derive('m/0/0').privateKey, 'mainnet'));
 
+// ── derivation cost ─────────────────────────────────────────────────────────
+// Showing a fresh receive address walks up to twenty indices. Each one used to
+// re-parse the account xprv, derive m/<chain>/<i> from scratch, and then
+// recompute the public key separately — and the chain walk did all of that
+// TWICE per index, once to build the request and once to pair the response.
+// On Hermes, where this is pure-JS bignum arithmetic with no native crypto,
+// that was seconds of blocked JS for an address the user is waiting on.
+//
+// Timed rather than asserted: the number is the point, and a regression here is
+// invisible in behaviour.
+{
+  console.log('\nderivation cost (20 addresses, this engine)');
+  const acctXprv = HDKey.fromMasterSeed(
+    mnemonicToSeedSync('abandon '.repeat(11) + 'about'),
+  ).derive("m/84'/0'/0'").privateExtendedKey;
+
+  const ms = (fn) => {
+    const t0 = process.hrtime.bigint();
+    fn();
+    return Number(process.hrtime.bigint() - t0) / 1e6;
+  };
+
+  const before = ms(() => {
+    for (let pass = 0; pass < 2; pass++) {
+      for (let i = 0; i < 20; i++) {
+        const c = HDKey.fromExtendedKey(acctXprv).derive(`m/0/${i}`);
+        secp256k1.getPublicKey(c.privateKey, true);
+      }
+    }
+  });
+
+  const after = ms(() => {
+    const chain = HDKey.fromExtendedKey(acctXprv).derive('m/0');
+    for (let i = 0; i < 20; i++) {
+      const c = chain.deriveChild(i);
+      if (!c.publicKey) throw new Error('no pubkey');
+    }
+  });
+
+  console.log(`  was  ${before.toFixed(0).padStart(4)} ms   (re-parsed per address, derived twice per index)`);
+  console.log(`  now  ${after.toFixed(0).padStart(4)} ms   (parsed once, one child, node's own pubkey)`);
+  console.log(`  ${(before / after).toFixed(1)}x faster before the cache; a repeat walk is served from it`);
+  ok('the fast path is actually faster', after < before, `${after} vs ${before}`);
+}
+
 console.log(failed ? `\n${failed} FAILED` : '\nall checks passed');
 process.exit(failed ? 1 : 0);

@@ -137,15 +137,19 @@ export async function loadPlainChain(
     }
     if (!batch.length) break;
 
-    const res = await preview(batch.map((i) => plainAddressAt(accountXprv, network, i)));
+    // Derived ONCE per index and kept. This used to call plainAddressAt again
+    // when pairing the response, so every walk did the work twice — and on
+    // Hermes that derivation is the whole cost of showing an address.
+    const addresses = batch.map((i) => plainAddressAt(accountXprv, network, i));
+    const res = await preview(addresses);
     // The backend answers in the order it was asked, but pair by address rather
     // than by position so a reordering can never mis-attribute coins to the
     // wrong derivation index — that would sign with the wrong key.
     const byAddress = new Map(res.addresses.map((a) => [a.address, a]));
-    for (const i of batch) {
-      const entry = byAddress.get(plainAddressAt(accountXprv, network, i));
+    batch.forEach((i, n) => {
+      const entry = byAddress.get(addresses[n]);
       if (entry) state[i] = entry;
-    }
+    });
     scanned += batch.length;
 
     // Stop once the tail of what we've seen is GAP_LIMIT unused in a row.
