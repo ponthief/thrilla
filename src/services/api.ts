@@ -370,6 +370,46 @@ export async function startRegistration(
   });
 }
 
+export interface SpendAlert {
+  txid: string;
+  detected_at: number;
+  acknowledged: boolean;
+}
+
+// Spends of this wallet's coins that the wallet itself did not broadcast.
+//
+// The server watches its own UTXO records read-only — no scan key involved —
+// so this works whether or not background scanning is on. The push is the
+// urgent channel; this is what keeps the warning on screen after it is gone.
+export async function getSpendAlerts(
+  inkey: string,
+  walletId: string,
+): Promise<{ alerts: SpendAlert[]; explorerBase: string }> {
+  const res = await req<{ alerts?: SpendAlert[]; explorer_base?: string }>(
+    `${SILNT}/api/v1/spend-alerts/${walletId}`,
+    { headers: apiKey(inkey) },
+  );
+  return {
+    alerts: res?.alerts || [],
+    // The base is per-network admin config, so it is not something the client
+    // can derive; falling back to the public explorer only makes the link wrong
+    // on a private network, never absent.
+    explorerBase: res?.explorer_base || 'https://mempool.space',
+  };
+}
+
+export async function acknowledgeSpendAlert(
+  adminkey: string,
+  walletId: string,
+  txid: string,
+): Promise<void> {
+  await req(`${SILNT}/api/v1/spend-alerts/${walletId}/ack`, {
+    method: 'POST',
+    headers: apiKey(adminkey),
+    body: JSON.stringify({ txid }),
+  });
+}
+
 export interface VerifiedRegistration {
   success: boolean;
   username: string;
