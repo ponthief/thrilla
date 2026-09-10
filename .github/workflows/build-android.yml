@@ -13,12 +13,17 @@ name: Build Android APK
 # Actions tab (or `gh workflow run`), pick the flavour, and download the APK
 # from the run's artifacts.
 #
-# It signs with the committed debug keystore, because the release signing
-# properties are not in CI (see android/app/build.gradle: release falls back to
-# the debug config when THRILLA_STORE_FILE is absent). That is installable and
-# fine for testing a change on your own phone; it is NOT shippable. Publishing
-# still means a local `npm run apk:mainnet` with the real key in
-# ~/.gradle/gradle.properties.
+# Two secrets change what comes out, and both are optional — with neither, this
+# builds a debug-signed APK with no push, which is fine for testing a change on
+# your own phone and is not shippable:
+#
+#   GOOGLE_SERVICES_JSON      switches push notifications on
+#   RELEASE_KEYSTORE_BASE64   signs with the real key, making it publishable
+#     + RELEASE_STORE_PASSWORD, RELEASE_KEY_ALIAS, RELEASE_KEY_PASSWORD
+#
+# See the steps below for how to produce each, and — for the keystore — what
+# putting it here exposes. "Verify what signed it" reports the certificate on
+# every run, so which key was used is never a guess.
 
 on:
   workflow_dispatch:
@@ -88,7 +93,9 @@ jobs:
       #   base64 -i  android/app/google-services.json     # macOS
       #
       # then paste the output into Settings → Secrets and variables → Actions →
-      # New repository secret, named GOOGLE_SERVICES_JSON.
+      # New repository secret, named GOOGLE_SERVICES_JSON. (-w0 only to get one
+      # line, which pastes more reliably; wrapped base64 decodes fine either
+      # way.)
       #
       # This file is not really a secret — it ships inside every published APK,
       # so anyone can read it out of one. Keeping it out of a public repo is
@@ -112,7 +119,7 @@ jobs:
           # later inside Gradle or — worse — silently producing an APK whose
           # push is quietly broken.
           python3 -c "import json; json.load(open('android/app/google-services.json'))" \
-            || { echo "::error::GOOGLE_SERVICES_JSON did not base64-decode to valid JSON. Re-copy it with 'base64 -w0' (no line breaks)."; exit 1; }
+            || { echo "::error::GOOGLE_SERVICES_JSON did not base64-decode to valid JSON — most likely a truncated paste. (Line breaks are fine; base64 -d ignores them.)"; exit 1; }
 
           # The flavours have different applicationIds — mainnet is
           # com.thrilla_btc.thrilla, signet adds the .signet suffix — and the
@@ -141,6 +148,67 @@ jobs:
           PY
           echo "push=on" >> "$GITHUB_OUTPUT"
 
+      # Release signing with the real key, when the four secrets are set:
+      #
+      #   RELEASE_KEYSTORE_BASE64   base64 -w0 thrilla-release.keystore
+      #   RELEASE_STORE_PASSWORD
+      #   RELEASE_KEY_ALIAS
+      #   RELEASE_KEY_PASSWORD
+      #
+      # Without all four, the build falls back to the committed debug keystore
+      # exactly as before (app/build.gradle only uses the release config when
+      # THRILLA_STORE_FILE is set).
+      #
+      # UNDERSTAND THE EXPOSURE. This key can ship an update to every phone with
+      # Thrilla installed, and for a wallet that means an update that can move
+      # funds. In Actions secrets it is reachable by anyone with push access to
+      # this repository — log masking is defeated by base64-ing twice — and by
+      # anyone who compromises the account. Keeping it on one machine and
+      # signing there with apksigner (seconds, no Gradle) avoids all of that.
+      # This path exists because it was asked for; it is not the safe default.
+      #
+      # The passwords go in through ORG_GRADLE_PROJECT_*, which Gradle reads as
+      # project properties, rather than -P flags. A -P password is visible in
+      # the process list and can be echoed by any plugin that logs its
+      # arguments; an environment variable is not.
+      - name: Decode the release keystore, if the secrets are set
+        id: signing
+        env:
+          KEYSTORE: ${{ secrets.RELEASE_KEYSTORE_BASE64 }}
+          STORE_PASSWORD: ${{ secrets.RELEASE_STORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.RELEASE_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.RELEASE_KEY_PASSWORD }}
+        run: |
+          if [ -z "${KEYSTORE:-}" ]; then
+            echo "RELEASE_KEYSTORE_BASE64 not set — signing with the debug keystore."
+            echo "mode=debug" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          # All or nothing. A keystore with no password would fail deep inside
+          # Gradle with a null-property error that says nothing useful.
+          for v in STORE_PASSWORD KEY_ALIAS KEY_PASSWORD; do
+            if [ -z "$(eval "printf '%s' \"\${$v:-}\"")" ]; then
+              echo "::error::RELEASE_KEYSTORE_BASE64 is set but RELEASE_$v is not. All four secrets are needed."
+              exit 1
+            fi
+          done
+          printf '%s' "$KEYSTORE" | base64 -d > android/app/release.keystore
+          # A truncated or line-wrapped secret decodes to something that is not a
+          # keystore. Prove it opens with the password given, here, rather than
+          # after four minutes of Gradle.
+          if ! keytool -list -keystore android/app/release.keystore \
+                       -storepass "$STORE_PASSWORD" > /tmp/ks.txt 2>&1; then
+            echo "::error::The decoded keystore would not open. Almost always RELEASE_STORE_PASSWORD is wrong; failing that, RELEASE_KEYSTORE_BASE64 is a truncated paste. (Line breaks in it are harmless — base64 -d ignores them.)"
+            exit 1
+          fi
+          if ! grep -qi -- "^${KEY_ALIAS}," /tmp/ks.txt && ! grep -qi -- "Alias name: ${KEY_ALIAS}$" /tmp/ks.txt; then
+            echo "::error::The keystore has no key aliased '${KEY_ALIAS}'. Aliases present are listed in the log above."
+            grep -iE '^[^,]+,|Alias name:' /tmp/ks.txt || true
+            exit 1
+          fi
+          rm -f /tmp/ks.txt
+          echo "mode=release" >> "$GITHUB_OUTPUT"
+
       - name: Resolve build parameters
         id: params
         run: |
@@ -157,6 +225,19 @@ jobs:
 
       - name: Build ${{ steps.params.outputs.task }}
         working-directory: android
+        env:
+          # Gradle reads ORG_GRADLE_PROJECT_x as project property x, so these
+          # satisfy build.gradle's hasProperty('THRILLA_STORE_FILE') check
+          # without any password reaching a command line. Empty when the secrets
+          # are unset, and Gradle ignores empty ones, so the debug fallback in
+          # build.gradle still applies.
+          #
+          # Relative, because signingConfigs.release calls file(THRILLA_STORE_FILE)
+          # from inside the app module, so it resolves against android/app.
+          ORG_GRADLE_PROJECT_THRILLA_STORE_FILE: ${{ steps.signing.outputs.mode == 'release' && 'release.keystore' || '' }}
+          ORG_GRADLE_PROJECT_THRILLA_STORE_PASSWORD: ${{ secrets.RELEASE_STORE_PASSWORD }}
+          ORG_GRADLE_PROJECT_THRILLA_KEY_ALIAS: ${{ secrets.RELEASE_KEY_ALIAS }}
+          ORG_GRADLE_PROJECT_THRILLA_KEY_PASSWORD: ${{ secrets.RELEASE_KEY_PASSWORD }}
         run: |
           chmod +x gradlew
           # The committed gradle.properties is sized for a desktop that is also
@@ -180,6 +261,63 @@ jobs:
           ls -l "$APK"
           echo "path=$APK" >> "$GITHUB_OUTPUT"
 
+      # Which key actually signed it. This is not a formality: if a release ever
+      # went out debug-signed by accident, Android would refuse it as an update
+      # for every existing user, and the fix would be asking all of them to
+      # uninstall and lose nothing but trust. So read the certificate out of the
+      # finished APK and compare it against the committed debug one — the check
+      # is "not the debug key", which is the failure that matters, and it cannot
+      # be fooled by the build merely intending to use the release key.
+      #
+      # Set a RELEASE_CERT_SHA256 repository VARIABLE (not a secret; a
+      # certificate fingerprint is public, it is in every APK) to also assert
+      # the exact expected key. That turns a swapped or regenerated keystore
+      # into a failed build rather than a release nobody can install over.
+      - name: Verify what signed it
+        id: cert
+        env:
+          EXPECTED: ${{ vars.RELEASE_CERT_SHA256 }}
+        run: |
+          APKSIGNER="$(find "$ANDROID_HOME/build-tools" -name apksigner -type f | sort -V | tail -1)"
+          test -n "$APKSIGNER" || { echo "::error::apksigner not found in the Android SDK"; exit 1; }
+
+          fingerprint() { # $1 = apk
+            "$APKSIGNER" verify --print-certs "$1" \
+              | grep -i 'SHA-256 digest' | head -1 | awk '{print $NF}' | tr 'A-F' 'a-f'
+          }
+          APK_CERT="$(fingerprint '${{ steps.apk.outputs.path }}')"
+          test -n "$APK_CERT" || { echo "::error::could not read a signing certificate from the APK"; exit 1; }
+
+          # The debug certificate, computed from the keystore in the repo rather
+          # than hardcoded, so it stays correct if that file is ever replaced.
+          DEBUG_CERT="$(keytool -list -v -keystore android/app/debug.keystore \
+                          -storepass android -alias androiddebugkey 2>/dev/null \
+                        | grep -i 'SHA256:' | head -1 | awk '{print $2}' \
+                        | tr -d ':' | tr 'A-F' 'a-f')"
+
+          echo "APK signing certificate SHA-256: $APK_CERT"
+          if [ "$APK_CERT" = "$DEBUG_CERT" ]; then
+            echo "signed=debug" >> "$GITHUB_OUTPUT"
+            if [ "${{ steps.signing.outputs.mode }}" = "release" ]; then
+              echo "::error::The release secrets are set, but this APK is signed with the DEBUG key. Do not publish it."
+              exit 1
+            fi
+            echo "::notice::Debug-signed — fine for testing, not shippable."
+          else
+            echo "signed=release" >> "$GITHUB_OUTPUT"
+            if [ -n "${EXPECTED:-}" ]; then
+              WANT="$(printf '%s' "$EXPECTED" | tr -d ':' | tr 'A-F' 'a-f')"
+              if [ "$APK_CERT" != "$WANT" ]; then
+                echo "::error::Signed with $APK_CERT but RELEASE_CERT_SHA256 expects $WANT. Wrong keystore or wrong alias."
+                exit 1
+              fi
+              echo "::notice::Release-signed, and the certificate matches RELEASE_CERT_SHA256."
+            else
+              echo "::notice::Release-signed. Set a RELEASE_CERT_SHA256 variable to have this checked against the key you expect."
+            fi
+          fi
+          echo "cert=$APK_CERT" >> "$GITHUB_OUTPUT"
+
       - uses: actions/upload-artifact@v4
         with:
           name: thrilla-${{ steps.params.outputs.flavor }}-${{ steps.params.outputs.type }}-${{ github.sha }}
@@ -202,6 +340,11 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          if [ "${{ steps.cert.outputs.signed }}" = "release" ]; then
+            NOTE="Signed with the real release key, so this is publishable and installs over an existing Thrilla."
+          else
+            NOTE="Signed with the **debug** keystore: it installs and runs, but is not shippable and will not install over a build signed with the release key. Uninstall first if you are switching."
+          fi
           TAG="ci-${{ steps.params.outputs.flavor }}-${{ steps.params.outputs.type }}"
           NAME="thrilla-${{ steps.params.outputs.flavor }}-${{ steps.params.outputs.type }}.apk"
           cp "${{ steps.apk.outputs.path }}" "$NAME"
@@ -212,9 +355,10 @@ jobs:
             --title "CI build — ${{ steps.params.outputs.flavor }} ${{ steps.params.outputs.type }}" \
             --notes "Built from \`${GITHUB_REF_NAME}\` at \`${GITHUB_SHA:0:8}\`, ABIs \`${{ steps.params.outputs.archs }}\`.
 
-          Signed with the **debug** keystore, so it installs and runs but is not shippable — and will not install over a build signed with the real release key. Uninstall first if you are switching.
+          Signing certificate SHA-256: \`${{ steps.cert.outputs.cert }}\` (${{ steps.cert.outputs.signed }} key).
+          Push notifications: ${{ steps.firebase.outputs.push }}.
 
-          Push notifications are inert in this build: \`google-services.json\` is not in the repository, so Firebase is not configured. Everything else works."
+          $NOTE"
           echo "url=$(gh release view "$TAG" --json assets --jq '.assets[0].url')" >> "$GITHUB_OUTPUT"
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
 
@@ -231,7 +375,8 @@ jobs:
             echo "| ABIs | \`${{ steps.params.outputs.archs }}\` |"
             echo "| size | $(du -h '${{ steps.apk.outputs.path }}' | cut -f1) |"
             echo "| release tag | \`${{ steps.release.outputs.tag }}\` (rolling, prerelease) |"
-            echo "| signed with | debug keystore — installable, not shippable |"
+            echo "| signed with | ${{ steps.cert.outputs.signed }} key |"
+            echo "| certificate | \`${{ steps.cert.outputs.cert }}\` |"
             echo "| push notifications | ${{ steps.firebase.outputs.push }} |"
             echo
             echo "From a desktop instead:"
@@ -239,3 +384,9 @@ jobs:
             echo "adb install -r <the .apk>"
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Remove the keystore
+        if: always()
+        run: |
+          shred -u android/app/release.keystore 2>/dev/null \
+            || rm -f android/app/release.keystore
