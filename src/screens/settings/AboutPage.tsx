@@ -21,7 +21,8 @@ export default function AboutPage({ onBack }: { onBack: () => void }) {
       </Group>
 
       <Help>
-        Set in IBM Plex, by IBM, under the SIL Open Font License 1.1.
+        Set in Geist and Geist Mono, by Vercel with basement.studio, under the
+        SIL Open Font License 1.1.
       </Help>
     </Page>
   );

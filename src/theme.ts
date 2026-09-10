@@ -59,17 +59,21 @@ export const colors = {
 
 // ── Typography ──────────────────────────────────────────────────────────────
 //
-// IBM Plex, bundled at android/app/src/main/assets/fonts (SIL OFL 1.1, licence
-// alongside). Not a fresh choice: src/style.css has declared IBM Plex Sans and
-// Mono as the brand faces since the web app was written — it simply never
-// loaded the files, so both clients fell back to the system font and looked like
-// nothing in particular. These are those faces, actually present.
+// Geist and Geist Mono, bundled at android/app/src/main/assets/fonts (SIL OFL
+// 1.1, licence alongside). A designed pair rather than two faces that happen to
+// share a name: the mono is drawn to sit beside the sans, which matters in a
+// wallet where a sentence of prose and a txid are usually in the same row.
 //
-// Mono is not decoration. The web app sets every heading in it
-// (`h1,h2,h3,h4 { font-family: var(--font-mono) }`), and a bitcoin wallet is
-// mostly figures, addresses and hashes — things that want fixed advance widths
-// so a digit does not shift when it changes. So: mono for headings, numbers and
-// anything hex; sans for prose.
+// This replaced IBM Plex, which src/style.css had declared as the brand face
+// but never actually loaded — so before this the app rendered in whatever the
+// system font was. Geist is also lighter: five faces for 540KB against Plex's
+// 908KB.
+//
+// Mono is not decoration. A bitcoin wallet is mostly figures, addresses and
+// hashes, and those want fixed advance widths so a digit does not shift the
+// ones after it when it changes. So: mono for headings, numbers and anything
+// hex; sans for prose. (If the mono headings read as too terminal-like, the
+// title/heading/overline roles below are the only thing to change.)
 //
 // One family per weight, because that is how Android resolves an asset font
 // (fonts/<fontFamily>.ttf). The corollary matters: NEVER pair these with
@@ -77,45 +81,54 @@ export const colors = {
 // file and synthesise a smeared one when it fails. The weight is in the family
 // name; that is the whole contract.
 export const fonts = {
-  sans: 'IBMPlexSans-Regular',
-  sansMedium: 'IBMPlexSans-Medium',
-  sansSemi: 'IBMPlexSans-SemiBold',
-  mono: 'IBMPlexMono-Regular',
-  monoSemi: 'IBMPlexMono-SemiBold',
+  sans: 'Geist-Regular',
+  sansMedium: 'Geist-Medium',
+  sansSemi: 'Geist-SemiBold',
+  mono: 'GeistMono-Regular',
+  monoSemi: 'GeistMono-SemiBold',
 };
 
 // A scale, so a screen picks a role rather than inventing a size. The jumps are
 // deliberately wide — the old settings screen ran everything at 12, 13 or 14px,
 // which is why it read as an undifferentiated wall: nothing was bigger, so
 // nothing was first.
+//
+// The tracking values are tuned for Geist and are not transferable. Geist is a
+// tighter, more evenly spaced face than IBM Plex was, so the positive tracking
+// that opened Plex Mono up now just looks loose, and the sizes read very
+// slightly larger (x-height 0.530 of the em against Plex Sans' 0.516). Swapping
+// the faces without revisiting these numbers gives back the flat, spaced-out
+// look they exist to avoid.
 export const type = {
   // A balance, or anything that is the single reason the screen exists.
-  display: { fontFamily: fonts.monoSemi, fontSize: 34, letterSpacing: -0.6 },
+  display: { fontFamily: fonts.monoSemi, fontSize: 34, letterSpacing: -0.4 },
   // Screen title.
-  title: { fontFamily: fonts.monoSemi, fontSize: 25, letterSpacing: 0.2 },
+  title: { fontFamily: fonts.monoSemi, fontSize: 25, letterSpacing: -0.2 },
   // Sub-page title, dialog heading.
-  heading: { fontFamily: fonts.monoSemi, fontSize: 19, letterSpacing: 0.1 },
+  heading: { fontFamily: fonts.monoSemi, fontSize: 19, letterSpacing: -0.1 },
   // The small uppercase rule over a group of rows. Tracking is what makes
   // uppercase readable at this size; without it the letters collide.
   overline: {
     fontFamily: fonts.monoSemi,
     fontSize: 11,
-    letterSpacing: 1.6,
+    letterSpacing: 1.3,
     textTransform: 'uppercase' as const,
   },
   // A row's own name.
-  rowTitle: { fontFamily: fonts.sansMedium, fontSize: 15, letterSpacing: 0.1 },
+  rowTitle: { fontFamily: fonts.sansMedium, fontSize: 15, letterSpacing: -0.1 },
   // Prose.
   body: { fontFamily: fonts.sans, fontSize: 14, lineHeight: 21 },
   // The explanation under a control. Its line height is the setting that
   // decides whether a paragraph of it is read or skipped.
   help: { fontFamily: fonts.sans, fontSize: 13, lineHeight: 20 },
   caption: { fontFamily: fonts.sans, fontSize: 12, lineHeight: 17 },
-  // A figure, an address, a txid, a block height.
-  value: { fontFamily: fonts.mono, fontSize: 13, letterSpacing: 0.2 },
-  valueStrong: { fontFamily: fonts.monoSemi, fontSize: 13, letterSpacing: 0.2 },
-  button: { fontFamily: fonts.sansSemi, fontSize: 15, letterSpacing: 0.3 },
-  buttonSmall: { fontFamily: fonts.sansSemi, fontSize: 13, letterSpacing: 0.3 },
+  // A figure, an address, a txid, a block height. No tracking: Geist Mono is
+  // already evenly spaced, and adding to it makes a long address harder to
+  // scan, not easier.
+  value: { fontFamily: fonts.mono, fontSize: 13, letterSpacing: 0 },
+  valueStrong: { fontFamily: fonts.monoSemi, fontSize: 13, letterSpacing: 0 },
+  button: { fontFamily: fonts.sansSemi, fontSize: 15, letterSpacing: 0.1 },
+  buttonSmall: { fontFamily: fonts.sansSemi, fontSize: 13, letterSpacing: 0.2 },
 };
 
 // Spacing and corner radii, on a 4px grid. Named so "the gap between a card and
