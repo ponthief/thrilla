@@ -81,6 +81,66 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      # Push notifications need android/app/google-services.json, which is not
+      # in the repository. Add it as a base64 secret to switch them on:
+      #
+      #   base64 -w0 android/app/google-services.json     # Linux
+      #   base64 -i  android/app/google-services.json     # macOS
+      #
+      # then paste the output into Settings → Secrets and variables → Actions →
+      # New repository secret, named GOOGLE_SERVICES_JSON.
+      #
+      # This file is not really a secret — it ships inside every published APK,
+      # so anyone can read it out of one. Keeping it out of a public repo is
+      # about not advertising the Firebase project, not about protecting a key.
+      #
+      # Absent, the build carries on: app/build.gradle only applies the
+      # google-services plugin when the file exists, so the APK simply has no
+      # push. That is why this step reports which it was.
+      - name: Configure Firebase, if the secret is set
+        id: firebase
+        env:
+          GOOGLE_SERVICES_JSON: ${{ secrets.GOOGLE_SERVICES_JSON }}
+        run: |
+          if [ -z "${GOOGLE_SERVICES_JSON:-}" ]; then
+            echo "GOOGLE_SERVICES_JSON not set — building without push notifications."
+            echo "push=off" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          printf '%s' "$GOOGLE_SERVICES_JSON" | base64 -d > android/app/google-services.json
+          # A mangled secret must fail here, loudly, rather than three minutes
+          # later inside Gradle or — worse — silently producing an APK whose
+          # push is quietly broken.
+          python3 -c "import json; json.load(open('android/app/google-services.json'))" \
+            || { echo "::error::GOOGLE_SERVICES_JSON did not base64-decode to valid JSON. Re-copy it with 'base64 -w0' (no line breaks)."; exit 1; }
+
+          # The flavours have different applicationIds — mainnet is
+          # com.thrilla_btc.thrilla, signet adds the .signet suffix — and the
+          # google-services plugin fails the build outright if the file has no
+          # client for the one being built. A Firebase project registered only
+          # for mainnet therefore breaks signet builds and vice versa, so say so
+          # here with the package name to add, instead of leaving a Gradle
+          # "No matching client found" to be deciphered.
+          PKG="com.thrilla_btc.thrilla"
+          [ "${{ inputs.flavor || 'signet' }}" = "signet" ] && PKG="$PKG.signet"
+          python3 - "$PKG" <<'PY' || exit 1
+          import json, sys
+          pkg = sys.argv[1]
+          data = json.load(open('android/app/google-services.json'))
+          have = [
+              c['client_info']['android_client_info']['package_name']
+              for c in data.get('client', [])
+          ]
+          if pkg not in have:
+              print(f"::error::google-services.json has no client for {pkg}. "
+                    f"It lists: {', '.join(have) or '(none)'}. Add an Android app "
+                    f"with package name {pkg} to the Firebase project, download the "
+                    f"file again and update the secret.")
+              sys.exit(1)
+          print(f"google-services.json covers {pkg} — push notifications on.")
+          PY
+          echo "push=on" >> "$GITHUB_OUTPUT"
+
       - name: Resolve build parameters
         id: params
         run: |
@@ -172,7 +232,7 @@ jobs:
             echo "| size | $(du -h '${{ steps.apk.outputs.path }}' | cut -f1) |"
             echo "| release tag | \`${{ steps.release.outputs.tag }}\` (rolling, prerelease) |"
             echo "| signed with | debug keystore — installable, not shippable |"
-            echo "| push notifications | off (no google-services.json in the repo) |"
+            echo "| push notifications | ${{ steps.firebase.outputs.push }} |"
             echo
             echo "From a desktop instead:"
             echo '```'
