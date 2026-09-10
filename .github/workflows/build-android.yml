@@ -53,6 +53,10 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
+    # Needed only by the rolling prerelease at the end, which is what makes the
+    # APK downloadable from a phone.
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v4
 
@@ -122,19 +126,55 @@ jobs:
           path: ${{ steps.apk.outputs.path }}
           retention-days: 14
 
+      # A run artifact is a login-gated zip, which is awkward when the device you
+      # want it on is the phone. This puts the raw .apk behind a fixed URL you
+      # can open in the phone's browser and install straight from Downloads:
+      #
+      #   github.com/<repo>/releases/download/ci-<flavor>-<type>/thrilla-<flavor>-<type>.apk
+      #
+      # Deliberately a PRERELEASE, and deliberately deleted and recreated each
+      # time rather than having its asset swapped: a prerelease is never "latest"
+      # so nothing consuming real releases picks it up, and recreating keeps the
+      # tag pointing at the commit that actually produced the file rather than at
+      # whatever the first build happened to be.
+      - name: Publish a rolling prerelease
+        id: release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG="ci-${{ steps.params.outputs.flavor }}-${{ steps.params.outputs.type }}"
+          NAME="thrilla-${{ steps.params.outputs.flavor }}-${{ steps.params.outputs.type }}.apk"
+          cp "${{ steps.apk.outputs.path }}" "$NAME"
+          gh release delete "$TAG" --yes --cleanup-tag 2>/dev/null || true
+          gh release create "$TAG" "$NAME" \
+            --prerelease \
+            --target "$GITHUB_SHA" \
+            --title "CI build — ${{ steps.params.outputs.flavor }} ${{ steps.params.outputs.type }}" \
+            --notes "Built from \`${GITHUB_REF_NAME}\` at \`${GITHUB_SHA:0:8}\`, ABIs \`${{ steps.params.outputs.archs }}\`.
+
+          Signed with the **debug** keystore, so it installs and runs but is not shippable — and will not install over a build signed with the real release key. Uninstall first if you are switching.
+
+          Push notifications are inert in this build: \`google-services.json\` is not in the repository, so Firebase is not configured. Everything else works."
+          echo "url=$(gh release view "$TAG" --json assets --jq '.assets[0].url')" >> "$GITHUB_OUTPUT"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+
       - name: Summary
         run: |
           {
             echo "### APK built"
+            echo
+            echo "**[Download the APK](${{ steps.release.outputs.url }})** — open this on the phone."
             echo
             echo "| | |"
             echo "|---|---|"
             echo "| task | \`${{ steps.params.outputs.task }}\` |"
             echo "| ABIs | \`${{ steps.params.outputs.archs }}\` |"
             echo "| size | $(du -h '${{ steps.apk.outputs.path }}' | cut -f1) |"
+            echo "| release tag | \`${{ steps.release.outputs.tag }}\` (rolling, prerelease) |"
             echo "| signed with | debug keystore — installable, not shippable |"
+            echo "| push notifications | off (no google-services.json in the repo) |"
             echo
-            echo "Download it from the Artifacts section of this run, then:"
+            echo "From a desktop instead:"
             echo '```'
             echo "adb install -r <the .apk>"
             echo '```'
