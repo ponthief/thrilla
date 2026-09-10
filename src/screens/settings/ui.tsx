@@ -149,9 +149,9 @@ export function InfoRow({
 }) {
   return (
     <View style={[styles.row, !first && styles.rowSeparated]}>
-      <Text style={styles.rowTitle}>{title}</Text>
+      <Text style={[styles.rowTitle, styles.infoTitle]}>{title}</Text>
       <Text
-        style={[styles.rowValue, !mono && styles.rowValueSans]}
+        style={[styles.rowValue, styles.infoValue, !mono && styles.rowValueSans]}
         numberOfLines={1}
         ellipsizeMode="middle">
         {value}
@@ -434,6 +434,14 @@ const styles = StyleSheet.create({
   row: {
     flexDirection: 'row',
     alignItems: 'center',
+    // The gap is the fix for a label sitting flush against its value: a row is
+    // two or three Texts side by side, and without it the only thing keeping
+    // them apart was one child happening to have flex: 1. InfoRow had no such
+    // child, so "Name" ran straight into the wallet's name. Declared once here
+    // rather than as a margin on each child, so a new kind of row cannot
+    // reintroduce it.
+    gap: space.md,
+    justifyContent: 'space-between',
     paddingHorizontal: space.lg,
     // 56px of height at this padding: a comfortable target, and tall enough
     // that a list of them has rhythm rather than looking crammed.
@@ -445,23 +453,28 @@ const styles = StyleSheet.create({
     borderTopColor: colors.border,
   },
   rowPressed: { backgroundColor: colors.surfaceAlt },
-  rowMain: { flex: 1, paddingRight: space.sm },
+  rowMain: { flex: 1 },
   rowTitle: { ...type.rowTitle, color: colors.text },
   rowTitleDanger: { color: colors.danger },
   rowHelp: { ...type.caption, color: colors.faint, marginTop: 3 },
   rowValue: {
     ...type.value,
     color: colors.muted,
+    // Shrinks rather than grows: in a NavRow the title block owns the space and
+    // a long value gives way to it.
     flexShrink: 1,
     textAlign: 'right',
   },
+  // An InfoRow is only a label and a value, so the value takes what is left and
+  // sits against the right edge while the label keeps its full width.
+  infoTitle: { flexShrink: 0 },
+  infoValue: { flex: 1 },
   rowValueSans: { ...type.help, color: colors.muted },
   chevron: {
     fontFamily: fonts.sans,
     fontSize: 22,
     lineHeight: 24,
     color: colors.inactive,
-    marginLeft: space.sm,
   },
   chevronDanger: { color: colors.danger },
 
