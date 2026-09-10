@@ -171,13 +171,23 @@ export default function ScanPanel() {
         /* treat as no active scan */
       }
 
-      // Prefill the range only when idle (not mid-scan and none just detected).
-      if (!scanning && !active && newTip) {
+      // Prefill the range when idle (not mid-scan and none just detected), and
+      // always when the fields are still empty.
+      //
+      // The empty case matters because it is what a wallet looks like when the
+      // server reports a scan that is not really running: the panel attaches to
+      // it, so `active` is true, so the range never got filled in and the user
+      // was left staring at "From __ up to __" with no way to start anything.
+      // Filling empty fields can never overwrite something the user typed.
+      if (newTip) {
         const birth = Number(w.last_height) || 0;
-        setFromHeight(
-          String(resumeFrom(birth, scannedFloorRef.current, newTip, minH)),
-        );
-        setToHeight(String(newTip));
+        const from = String(resumeFrom(birth, scannedFloorRef.current, newTip, minH));
+        const idle = !scanning && !active;
+        // Updater form so each field is compared against its LIVE value — this
+        // callback's closure can be a keystroke behind, and overwriting a height
+        // the user is halfway through typing would be worse than a blank field.
+        setFromHeight((cur) => (idle || !cur ? from : cur));
+        setToHeight((cur) => (idle || !cur ? String(newTip) : cur));
       }
     } catch (e: any) {
       setError(e?.message || 'Failed to load scan status.');

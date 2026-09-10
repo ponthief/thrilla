@@ -13,6 +13,7 @@ import * as api from '@services/api';
 import { storeWalletKeys } from '@services/secureKeys';
 import { deriveSilentPayment, isValidMnemonic } from '@services/spKeys';
 import { resetCatchUp } from '../hooks/useCatchUpScan';
+import { usePlainStatus } from '@stores/plainStatus';
 import SeedInput from './SeedInput';
 import { colors } from '@/theme';
 
@@ -77,6 +78,12 @@ export default function RecoverKeysModal({
         sweepAccount: keys.sweepAccount,
       });
       resetCatchUp(wallet.id);
+      // The recovered keys include the BIP-84 account key, which is what the
+      // plain-address card and the background watcher read to decide whether
+      // there is a plain chain at all. Both read it once, so without this they
+      // keep saying there isn't one — the card offering to set it up, the plain
+      // balance missing from the wallet screen — until they happen to remount.
+      usePlainStatus.getState().requestRefresh();
       onRecovered();
       onClose();
     } catch (e: any) {

@@ -17,7 +17,7 @@
  * Collapsed by default: the Silent Payments address above needs none of this
  * machinery and should be used wherever the sender will accept it.
  */
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { useAuthStore } from '@/stores/auth'
 import * as api from '@/api'
 import { loadPlainChain } from '@/services/plainChain'
@@ -128,6 +128,13 @@ async function refresh() {
 // and no push to fall back on. A wallet with no account key costs one vault read
 // and no network at all, and the walk itself is a single batched request.
 onMounted(refresh)
+
+// Re-read when this browser's stored keys change. The account key is read once,
+// on mount, so recovering a wallet's keys from the card above left this panel
+// still showing its "Set up" prompt — and the BIP-84 balance hidden — until the
+// page was reloaded. Watching the vault's version means every path that stores
+// keys fixes this panel, not just the one that was reported.
+watch(() => auth.keysVersion, refresh)
 
 function copyAddress() {
   if (!chain.value) return
