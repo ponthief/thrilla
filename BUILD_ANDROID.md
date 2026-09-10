@@ -233,8 +233,24 @@ All of them go in the same place: **Settings → Secrets and variables → Actio
 | `GOOGLE_SERVICES_JSON` | `base64 -w0 google-services.json` — switches push on |
 | `RELEASE_KEYSTORE_BASE64` | `base64 -w0 thrilla-release.keystore` |
 | `RELEASE_STORE_PASSWORD` | password for the keystore **file** (`-storepass`) |
-| `RELEASE_KEY_ALIAS` | which key inside it (`-alias`), e.g. `thrilla` |
 | `RELEASE_KEY_PASSWORD` | *usually leave unset* — see below |
+
+And one repository **variable**, not a secret (same screen, *Variables* tab):
+
+| Variable | Value |
+|---|---|
+| `RELEASE_KEY_ALIAS` | which key inside the keystore (`-alias`), e.g. `thrilla` |
+
+**Do not make the alias a secret.** It is not sensitive — it is in the
+signature block of every APK you publish — and as a secret it actively breaks
+the build output. GitHub redacts a secret's *value* wherever it appears in logs
+and job summaries, and this alias is `thrilla`, which is also the repository
+name and part of every APK filename. Held as a secret it turns the summary's
+download link into
+`github.com/ponthief/***/releases/download/…/***-signet-release.apk`, which
+404s, and fills the log with `com.***_btc.***`. The workflow still accepts a
+`RELEASE_KEY_ALIAS` secret so nothing breaks on upgrade, but it warns when the
+value came from there.
 
 That last one is the one people ask about. A keystore is a container that can
 hold several keys: the store password opens the file, the key password unlocks

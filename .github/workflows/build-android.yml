@@ -224,7 +224,21 @@ jobs:
         env:
           KEYSTORE: ${{ secrets.RELEASE_KEYSTORE_BASE64 }}
           STORE_PASSWORD: ${{ secrets.RELEASE_STORE_PASSWORD }}
-          KEY_ALIAS: ${{ secrets.RELEASE_KEY_ALIAS }}
+          # The alias is read from a VARIABLE first, and this matters more than
+          # it looks. A key alias is not sensitive — it is in the signature
+          # block of every APK ever shipped — and holding it as a secret does
+          # active harm: GitHub redacts a secret's value from logs AND job
+          # summaries wherever it appears, and the alias here is "thrilla",
+          # which is also the repository name and part of every filename. So
+          # the download link in the summary rendered as
+          # github.com/ponthief/***/releases/download/…/***-signet-release.apk
+          # and every click on it landed on a GitHub 404. Same reason the logs
+          # showed com.***_btc.*** and /home/runner/work/***/***.
+          #
+          # The secret is still honoured so nothing breaks on upgrade, but the
+          # step warns when the value came from there.
+          KEY_ALIAS: ${{ vars.RELEASE_KEY_ALIAS || secrets.RELEASE_KEY_ALIAS }}
+          ALIAS_FROM_SECRET: ${{ vars.RELEASE_KEY_ALIAS == '' && secrets.RELEASE_KEY_ALIAS != '' }}
           KEY_PASSWORD: ${{ secrets.RELEASE_KEY_PASSWORD }}
         run: |
           put() { printf '%s<<__GHENV__\n%s\n__GHENV__\n' "$1" "$2" >> "$GITHUB_ENV"; }
@@ -263,6 +277,11 @@ jobs:
               exit 1
             fi
           done
+          if [ "${ALIAS_FROM_SECRET:-}" = "true" ]; then
+            echo "ALIAS_MASKED=true" >> "$GITHUB_ENV"
+            echo "::warning::RELEASE_KEY_ALIAS is a repository SECRET. GitHub redacts a secret's value from logs and job summaries wherever it appears, and this value also occurs in the repository name and the APK filename — so the download link in this run's summary will be mangled to ponthief/***/…/***-signet-release.apk and will 404. Delete the secret and add RELEASE_KEY_ALIAS as a repository VARIABLE instead (Settings -> Secrets and variables -> Actions -> Variables). A key alias is not sensitive; it is in the signature of every published APK. The link in the release notes is unaffected either way."
+          fi
+
           # RELEASE_KEY_PASSWORD is the one that is genuinely optional, because
           # on most keystores it cannot differ from the store password. PKCS12 —
           # keytool's default since Java 9 — does not support a distinct key
@@ -467,10 +486,30 @@ jobs:
           else
             NOTE="Signed with the **debug** keystore: it installs and runs, but is not shippable and will not install over a build signed with the release key. Uninstall first if you are switching."
           fi
-          NOTES="Built from \`${GITHUB_REF_NAME}\` at \`${GITHUB_SHA:0:8}\`, ABIs \`${{ steps.params.outputs.archs }}\`.
+          # Release notes are written through the API, not printed to the log,
+          # so they are NOT subject to secret redaction — which makes them the
+          # one dependable place for the link when a secret's value happens to
+          # collide with the repository name. Also publish the size and hash:
+          # for a wallet, "did I get the whole file" should be answerable
+          # without trusting the transport.
+          URL="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/releases/download/${TAG}/${NAME}"
+          BYTES="$(stat -c%s "$NAME")"
+          SHA="$(sha256sum "$NAME" | cut -d' ' -f1)"
+
+          NOTES="**[Download ${NAME}](${URL})** — $(numfmt --to=iec --suffix=B "$BYTES" 2>/dev/null || echo "${BYTES} bytes")
+
+          Built from \`${GITHUB_REF_NAME}\` at \`${GITHUB_SHA:0:8}\`, ABIs \`${{ steps.params.outputs.archs }}\`.
 
           Signing certificate SHA-256: \`${{ steps.cert.outputs.cert }}\` (${{ steps.cert.outputs.signed }} key).
+          File SHA-256: \`${SHA}\` (\`sha256sum ${NAME}\`)
+          Size: ${BYTES} bytes.
           Push notifications: ${{ steps.firebase.outputs.push }}.
+
+          If a browser download stalls at the end, resume it instead of
+          restarting — the asset host supports range requests:
+          \`\`\`
+          curl -L -C - -O ${URL}
+          \`\`\`
 
           $NOTE"
 
@@ -491,22 +530,22 @@ jobs:
               --notes "$NOTES" || { refused; exit 1; }
           fi
 
-          # Built from the tag and filename rather than read back from the API.
-          # `gh release view --jq '.assets[0].url'` was wrong twice over: .url is
-          # the REST endpoint for the asset, which answers a browser with a 415
-          # ("Unsupported 'Accept' header") instead of the APK — the summary link
-          # was dead in every run — and .assets[0] is whichever asset happens to
-          # be first. This is the public URL, and it is the same one documented
-          # above because it is derived from the same two values.
-          URL="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/releases/download/${TAG}/${NAME}"
-
-          # Then prove it actually serves the APK, because a link nobody can
+          # URL was built above from the tag and filename rather than read back
+          # from the API. `gh release view --jq '.assets[0].url'` was wrong twice
+          # over: .url is the REST endpoint for the asset, which answers a
+          # browser with a 404 (415 if it asks for HTML only) instead of the APK
+          # — the summary link was dead in every run — and .assets[0] is
+          # whichever asset happens to be first. This is the public URL, and it
+          # matches the one documented above because both come from the same two
+          # values.
+          #
+          # Now prove it actually serves the APK, because a link nobody can
           # open is the failure mode this whole step exists to avoid and is
           # invisible from inside the job otherwise.
           #
           # "Got a 2xx" is NOT the check. The old API URL answers curl with 200
           # and 1854 bytes of JSON metadata, so a status-only test passed it
-          # while every human clicking the link got a 415. Assert the served
+          # while every human clicking the link got a 404. Assert the served
           # LENGTH instead: a one-byte range request reports the full size in
           # Content-Range (the asset host sends Accept-Ranges: bytes), which
           # must equal the APK just built. HEAD is not an option — the signed
@@ -514,7 +553,7 @@ jobs:
           #
           # Retried, so a transient blip does not fail a good build; three
           # refusals in a row is the link being wrong, not the network.
-          EXPECT_BYTES="$(stat -c%s "$NAME")"
+          EXPECT_BYTES="$BYTES"
           SERVED_BYTES=""
           for attempt in 1 2 3; do
             HDRS="$(curl -fsSL -r 0-0 -D - -o /dev/null "$URL" 2>/dev/null)" || {
@@ -540,6 +579,7 @@ jobs:
 
           echo "url=$URL" >> "$GITHUB_OUTPUT"
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "sha256=$SHA" >> "$GITHUB_OUTPUT"
 
       - name: Summary
         run: |
@@ -550,6 +590,17 @@ jobs:
               echo "Signing self-test — nothing published."
             else
               echo "**[Download the APK](${{ steps.release.outputs.url }})** — open this on the phone."
+              # A secret whose value collides with the repository name gets
+              # redacted out of this summary, turning the link above into a 404.
+              # Say so rather than leaving someone to click it. No alternative
+              # link is offered here on purpose: EVERY github.com URL for this
+              # repository contains the redacted string, so a "working link"
+              # cannot be printed on this page at all — the release notes are
+              # written through the API and are the only unredacted copy.
+              if [ "${ALIAS_MASKED:-}" = "true" ]; then
+                echo
+                echo "> ⚠️ **The link above is broken and so is every other link on this page.** \`RELEASE_KEY_ALIAS\` is a *secret* whose value also appears in this repository's name, so GitHub has redacted it to \`***\` throughout this summary. Open the repository's **Releases** tab and use the \`${{ steps.release.outputs.tag }}\` prerelease — its notes carry the real link, the size and the SHA-256. To fix this permanently, delete the \`RELEASE_KEY_ALIAS\` secret and add it as a repository **variable** (Settings → Secrets and variables → Actions → Variables); a key alias is public information, it is in the signature of every APK."
+              fi
             fi
             echo
             echo "| | |"
@@ -562,6 +613,9 @@ jobs:
             fi
             echo "| signed with | ${{ steps.cert.outputs.signed }} key |"
             echo "| certificate | \`${{ steps.cert.outputs.cert }}\` |"
+            if [ -n "${{ steps.release.outputs.sha256 }}" ]; then
+              echo "| file SHA-256 | \`${{ steps.release.outputs.sha256 }}\` |"
+            fi
             echo "| push notifications | ${{ steps.firebase.outputs.push }} |"
             echo
             echo "From a desktop instead:"
