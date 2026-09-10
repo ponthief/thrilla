@@ -1,1011 +1,134 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import {
-  ActivityIndicator,
-  Alert,
-  Linking,
-  StyleSheet,
-  Switch,
-  Text,
-  View,
-  ScrollView,
-  TextInput,
-  TouchableOpacity,
-} from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
-import { useAuthStore } from '@stores/authStore';
+import { BackHandler } from 'react-native';
 import { useAppLockStore } from '@stores/appLockStore';
+import { useAuthStore } from '@stores/authStore';
 import { useNotifyStore } from '@stores/notifyStore';
-import { usePushBanner } from '@stores/pushBanner';
-import * as api from '@services/api';
-import * as appLock from '@services/appLock';
-import * as appPin from '@services/appPin';
-import * as catchUpPref from '@services/catchUpPref';
-import {
-  ensureNotificationPermission,
-  hasNotificationPermission,
-} from '@services/push';
-import { getWalletKeys, hasWalletKeys, removeWalletKeys } from '@services/secureKeys';
-import { resetCatchUp } from '../hooks/useCatchUpScan';
-import { colors, DEVICE_TRUST_ENABLED } from '@/theme';
-import DevicesModal from '../components/DevicesModal';
-import PinSetupModal from '../components/PinSetupModal';
-import SeedRevealModal from '../components/SeedRevealModal';
-import { hasSeed } from '@services/seedVault';
+import AboutPage from './settings/AboutPage';
+import AccountPage from './settings/AccountPage';
+import NotificationsPage from './settings/NotificationsPage';
+import ScanningPage from './settings/ScanningPage';
+import SecurityPage from './settings/SecurityPage';
+import WalletPage from './settings/WalletPage';
+import { Group, NavRow, Page } from './settings/ui';
 
-// Blocks are what the scan works in; days are what the user waits. Ten minutes
-// a block, so 144 a day.
-function describeBlocks(blocks: number): string {
-  const days = blocks / 144;
-  if (days >= 7) return days === 7 ? 'a week' : `${Math.round(days)} days`;
-  if (days >= 1) return days === 1 ? '1 day' : `${Math.round(days)} days`;
-  const hours = Math.max(1, Math.round((blocks * 10) / 60));
-  return hours === 1 ? '1 hour' : `${hours} hours`;
-}
+// Settings, as a menu of six pages rather than one scroll of eight sections.
+//
+// It was one page, and the length was the problem: the recovery phrase was
+// buried under "Scanning", the dust threshold came second because it happened to
+// be written second, and finding anything meant reading everything. Each page
+// here is short enough to take in without scrolling, and the menu says what is
+// on it — with the current setting on the right where the app already knows it,
+// so checking whether the lock is on costs no taps at all.
+//
+// The app has no router (see stores/navStore), so this is a state switch, with
+// Android's back button wired to it. Rendering the menu underneath and the page
+// on top would need a stack; one at a time is what the tab bar expects.
+
+type PageKey =
+  | 'account'
+  | 'security'
+  | 'notifications'
+  | 'scanning'
+  | 'wallet'
+  | 'about';
 
 export default function SettingsScreen() {
-  const username = useAuthStore((state) => state.username);
-  const email = useAuthStore((state) => state.email);
-  const inkey = useAuthStore((state) => state.inkey);
-  const logout = useAuthStore((state) => state.logout);
-  const [devicesOpen, setDevicesOpen] = useState(false);
+  const [page, setPage] = useState<PageKey | null>(null);
 
-  // App lock (biometric / device PIN).
-  const lockEnabled = useAppLockStore((s) => s.bioEnabled);
-  const setLockEnabled = useAppLockStore((s) => s.setBioEnabled);
-  const [biometry, setBiometry] = useState<string | null>(null);
-  const [lockBusy, setLockBusy] = useState(false);
-  const [lockMsg, setLockMsg] = useState<string | null>(null);
-
-  // In-app PIN + duress PIN.
+  const username = useAuthStore((s) => s.username);
   const pinSet = useAppLockStore((s) => s.pinSet);
-  const setPinSet = useAppLockStore((s) => s.setPinSet);
-
-  // How long the app may sit unused before locking. Only offered when
-  // something actually locks — the choice is meaningless otherwise.
-  const lockAnyEnabled = useAppLockStore((s) => s.enabled);
+  const bioEnabled = useAppLockStore((s) => s.bioEnabled);
+  const lockEnabled = useAppLockStore((s) => s.enabled);
   const autoLockMs = useAppLockStore((s) => s.autoLockMs);
-  const setAutoLockMs = useAppLockStore((s) => s.setAutoLockMs);
-  const [hasDuress, setHasDuress] = useState(false);
-  const [pinModal, setPinModal] = useState<null | 'normal' | 'duress'>(null);
-
-  useEffect(() => {
-    appPin.hasDuressPin().then(setHasDuress);
-  }, [pinSet]);
-
-  const onTogglePin = useCallback(
-    (v: boolean) => {
-      if (v) {
-        setPinModal('normal');
-        return;
-      }
-      // Same rule as the biometric toggle: the last remaining lock stays.
-      if (!lockEnabled) {
-        Alert.alert(
-          'Keep your PIN',
-          "This is the only way to unlock the app. Turn on App Lock first, or sign out to stop keeping your sign-in on this device.",
-        );
-        return;
-      }
-      Alert.alert(
-        'Turn off App PIN?',
-        'This removes your PIN and any duress PIN, and returns to biometric unlock.',
-        [
-          { text: 'Cancel', style: 'cancel' },
-          {
-            text: 'Turn off',
-            style: 'destructive',
-            onPress: async () => {
-              await appPin.clearPins();
-              setPinSet(false);
-              setHasDuress(false);
-            },
-          },
-        ],
-      );
-    },
-    [setPinSet, lockEnabled],
-  );
-
-  const onPinDone = useCallback(() => {
-    setPinModal(null);
-    appPin.hasPin().then(setPinSet);
-    appPin.hasDuressPin().then(setHasDuress);
-  }, [setPinSet]);
-
-  // Payment-arrival notifications (per-device).
   const paymentAlerts = useNotifyStore((s) => s.paymentAlerts);
-  const setPaymentAlerts = useNotifyStore((s) => s.setPaymentAlerts);
-  const [alertsBusy, setAlertsBusy] = useState(false);
-  const [alertsMsg, setAlertsMsg] = useState<string | null>(null);
-  const [permBlocked, setPermBlocked] = useState(false);
 
-  // Alerts can be on in the app while the phone blocks notifications for
-  // Thrilla (permission denied, or revoked later in system settings) — say so
-  // instead of showing a switch that promises alerts the OS will drop. Checked
-  // on mount, so returning from system settings and reopening Settings picks up
-  // a fresh grant.
+  const back = useCallback(() => setPage(null), []);
+
+  // Hardware back closes the open page instead of leaving the app. Returning
+  // false on the menu hands the press back to the OS, so Settings is still an
+  // exit point the way every other tab is.
   useEffect(() => {
-    if (!paymentAlerts) {
-      setPermBlocked(false);
-      return;
-    }
-    let cancelled = false;
-    hasNotificationPermission().then((ok) => {
-      if (!cancelled) setPermBlocked(!ok);
+    const sub = BackHandler.addEventListener('hardwareBackPress', () => {
+      if (page === null) return false;
+      setPage(null);
+      return true;
     });
-    return () => {
-      cancelled = true;
-    };
-  }, [paymentAlerts]);
+    return () => sub.remove();
+  }, [page]);
 
-  // Turning alerts on needs the OS notification permission; without it the
-  // system notification would never show, so keep the switch off and point the
-  // user at their phone's settings (Android won't re-prompt after two denials).
-  // Turning them off only stores the pref — App.tsx reacts by removing this
-  // device's push token from the server.
-  const onTogglePaymentAlerts = useCallback(
-    async (value: boolean) => {
-      setAlertsBusy(true);
-      setAlertsMsg(null);
-      try {
-        if (value) {
-          if (!(await ensureNotificationPermission())) {
-            setPermBlocked(true);
-            setAlertsMsg(
-              "Notifications are blocked for Thrilla in your phone's settings. " +
-                'Allow them there, then turn this on again.',
-            );
-            return;
-          }
-          setPermBlocked(false);
-          await setPaymentAlerts(true);
-        } else {
-          setPermBlocked(false);
-          await setPaymentAlerts(false);
-          // Drop any banner already on screen so the switch takes effect now.
-          usePushBanner.getState().clear();
-        }
-      } finally {
-        setAlertsBusy(false);
-      }
-    },
-    [setPaymentAlerts],
-  );
+  if (page === 'account') return <AccountPage onBack={back} />;
+  if (page === 'security') return <SecurityPage onBack={back} />;
+  if (page === 'notifications') return <NotificationsPage onBack={back} />;
+  if (page === 'scanning') return <ScanningPage onBack={back} />;
+  if (page === 'wallet') return <WalletPage onBack={back} />;
+  if (page === 'about') return <AboutPage onBack={back} />;
 
-  const onToggleDuress = useCallback((v: boolean) => {
-    if (v) {
-      setPinModal('duress');
-      return;
-    }
-    appPin.setDuressPin(null).then(() => setHasDuress(false));
-  }, []);
-
-  // Current wallet (for background scanning + removal).
-  const [wallet, setWallet] = useState<api.SilntWallet | null>(null);
-  const bgWalletId = wallet?.id ?? null;
-  const [bgEnabled, setBgEnabled] = useState(false);
-  const [bgBusy, setBgBusy] = useState(false);
-  const [bgMsg, setBgMsg] = useState<string | null>(null);
-
-  // Whether this wallet's recovery phrase is on the device, and so whether
-  // there is anything to offer showing. Absent for wallets created before it
-  // was stored, and for anyone who chose to forget it.
-  const [seedStored, setSeedStored] = useState(false);
-  const [seedOpen, setSeedOpen] = useState(false);
-
-  // Catch-up scanning: how much this device does without asking.
-  const [catchUpBlocks, setCatchUpBlocks] = useState<number>(
-    catchUpPref.FOLLOW_SERVER,
-  );
-  const [serverThreshold, setServerThreshold] = useState(432);
-
-  useEffect(() => {
-    catchUpPref.getCatchUpBlocks().then(setCatchUpBlocks);
-  }, []);
-
-  // Only to describe what "following the server" currently means — the hook
-  // reads it again at scan time, so this is display, not the decision.
-  useEffect(() => {
-    if (!inkey) return;
-    api
-      .getBackendConfig(inkey)
-      .then((cfg) => {
-        const n = Number(cfg?.login_scan_auto_threshold);
-        if (n > 0) setServerThreshold(n);
-      })
-      .catch(() => {
-        /* leave the default in the label */
-      });
-  }, [inkey]);
-
-  const onPickCatchUp = useCallback(async (blocks: number) => {
-    // Tapping the active choice clears the override and hands the decision back
-    // to the server, which is otherwise unreachable once one is set.
-    const next =
-      blocks === catchUpBlocks ? catchUpPref.FOLLOW_SERVER : blocks;
-    setCatchUpBlocks(next);
-    if (next === catchUpPref.FOLLOW_SERVER) {
-      await catchUpPref.clearCatchUpBlocks();
-    } else {
-      await catchUpPref.setCatchUpBlocks(next);
-    }
-  }, [catchUpBlocks]);
-
-  // Remove wallet.
-  const [removing, setRemoving] = useState(false);
-  const [removeMsg, setRemoveMsg] = useState<string | null>(null);
-
-  useEffect(() => {
-    (async () => {
-      if (!inkey) return;
-      try {
-        const w = api.pickSilntWallet(await api.getSilntWallets(inkey));
-        if (!w) return;
-        setWallet(w);
-        setSeedStored(await hasSeed(w.id));
-        setBgEnabled(await api.getBackgroundScan(inkey, w.id));
-      } catch {
-        /* leave the toggle off/disabled if we can't load status */
-      }
-    })();
-  }, [inkey]);
-
-  const doRemoveWallet = useCallback(async () => {
-    if (!inkey || !wallet) return;
-    setRemoving(true);
-    setRemoveMsg(null);
-    try {
-      // Best-effort: pull this wallet's scan key off the server first so nothing
-      // lingers there if the delete itself is retried. Deleting the wallet
-      // removes its record, coins, labeled addresses, and BitMail DNS too.
-      try {
-        await api.disableBackgroundScan(inkey, wallet.id);
-      } catch {
-        /* not enabled / already gone — ignore */
-      }
-      await api.deleteSilntWallet(inkey, wallet.id);
-      // Wipe the local keys and forget the catch-up evaluation for this id.
-      await removeWalletKeys(wallet.id);
-      resetCatchUp(wallet.id);
-      setWallet(null);
-      setBgEnabled(false);
-      setRemoveMsg('Wallet removed. Create or import one on the Wallet tab.');
-    } catch (e: any) {
-      setRemoveMsg(e?.message || 'Could not remove the wallet. Please try again.');
-    } finally {
-      setRemoving(false);
-    }
-  }, [inkey, wallet]);
-
-  const onRemoveWallet = useCallback(async () => {
-    if (!inkey || !wallet) return;
-    // Only allow removal from a device that holds the wallet's keys — proof the
-    // user can recover it from their seed afterwards (mirrors the web gate).
-    if (!(await hasWalletKeys(wallet.id))) {
-      Alert.alert(
-        'Keys not on this device',
-        "This wallet's keys aren't stored on this phone, so it can't be removed " +
-          'here. Recover the wallet from its recovery phrase first (Scan tab), ' +
-          'then remove it.',
-      );
-      return;
-    }
-    Alert.alert(
-      'Remove this wallet?',
-      `This removes "${wallet.title || 'this wallet'}" from the server ` +
-        "(its address and the record of its coins) and erases its keys from " +
-        'this device. Your bitcoin stays safe on-chain — only the wallet data ' +
-        "is deleted. You can restore the wallet, and rescan its coins, from " +
-        'your recovery phrase (and passphrase, if you set one). This can’t be ' +
-        'undone here.',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        { text: 'Remove wallet', style: 'destructive', onPress: doRemoveWallet },
-      ],
-    );
-  }, [inkey, wallet, doRemoveWallet]);
-
-  const applyBackgroundScan = useCallback(
-    async (enable: boolean) => {
-      if (!inkey || !bgWalletId) return;
-      setBgBusy(true);
-      setBgMsg(null);
-      try {
-        if (enable) {
-          const keys = await getWalletKeys(bgWalletId);
-          if (!keys?.scanSecret) {
-            setBgMsg('Wallet keys are not on this device. Recover them first.');
-            return;
-          }
-          await api.enableBackgroundScan(inkey, bgWalletId, keys.scanSecret);
-          setBgEnabled(true);
-        } else {
-          await api.disableBackgroundScan(inkey, bgWalletId);
-          setBgEnabled(false);
-        }
-      } catch (e: any) {
-        setBgMsg(e?.message || 'Could not update background scanning.');
-      } finally {
-        setBgBusy(false);
-      }
-    },
-    [inkey, bgWalletId],
-  );
-
-  const onToggleBackgroundScan = useCallback(
-    (value: boolean) => {
-      if (!value) {
-        applyBackgroundScan(false);
-        return;
-      }
-      // Enabling uploads the scan key — get explicit, informed consent.
-      Alert.alert(
-        'Turn on background scanning?',
-        "This uploads this wallet's scan key to the server so it can find your " +
-          'incoming payments while the app is closed. The server will then be ' +
-          'able to see your payment history — but it can never spend your funds ' +
-          '(your spend key never leaves this device). You can turn it off anytime.',
-        [
-          { text: 'Cancel', style: 'cancel' },
-          { text: 'Turn on', onPress: () => applyBackgroundScan(true) },
-        ],
-      );
-    },
-    [applyBackgroundScan],
-  );
-
-  useEffect(() => {
-    appLock.biometryType().then(setBiometry);
-  }, []);
-
-  const onToggleLock = useCallback(
-    async (val: boolean) => {
-      setLockBusy(true);
-      setLockMsg(null);
-      try {
-        if (val) {
-          const ok = await appLock.enable();
-          setLockEnabled(ok);
-          if (!ok) {
-            setLockMsg(
-              'Could not turn on App Lock. Set up a fingerprint, face, or screen PIN on your device first.',
-            );
-          }
-        } else {
-          // The lock is what guards the stored session now that the password is
-          // not asked for on launch, so the LAST method cannot be removed. The
-          // app would otherwise bounce straight to the setup screen, which
-          // reads as a bug rather than a rule.
-          if (!pinSet) {
-            setLockMsg(
-              'This is the only way to unlock the app. Set an App PIN first, or sign out to stop keeping your sign-in on this device.',
-            );
-            return;
-          }
-          await appLock.disable();
-          setLockEnabled(false);
-        }
-      } finally {
-        setLockBusy(false);
-      }
-    },
-    [setLockEnabled, pinSet],
-  );
-
-  const lockSubtitle = biometry
-    ? `Require ${biometry} or your device PIN when reopening the app.`
-    : 'Require your device PIN or biometrics when reopening the app.';
-
-  const [prefs, setPrefs] = useState<api.UserPrefs | null>(null);
-  const [dustDraft, setDustDraft] = useState('');
-  const [loadingPrefs, setLoadingPrefs] = useState(true);
-  const [savingDust, setSavingDust] = useState(false);
-  const [dustError, setDustError] = useState<string | null>(null);
-  const [dustSaved, setDustSaved] = useState(false);
-
-  // Invite a friend by email.
-  const [inviteEmail, setInviteEmail] = useState('');
-  const [inviting, setInviting] = useState(false);
-  const [inviteMsg, setInviteMsg] = useState<string | null>(null);
-  const [inviteErr, setInviteErr] = useState<string | null>(null);
-
-  const onInvite = useCallback(async () => {
-    if (!inkey) return;
-    const email = inviteEmail.trim().toLowerCase();
-    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) {
-      setInviteErr('Enter a valid email address.');
-      setInviteMsg(null);
-      return;
-    }
-    setInviting(true);
-    setInviteErr(null);
-    setInviteMsg(null);
-    try {
-      const res = await api.sendInvite(inkey, email);
-      setInviteEmail('');
-      setInviteMsg(res?.message || `Invitation sent to ${email}.`);
-    } catch (e: any) {
-      setInviteErr(e?.message || 'Could not send the invitation.');
-    } finally {
-      setInviting(false);
-    }
-  }, [inkey, inviteEmail]);
-
-  const loadPrefs = useCallback(async () => {
-    if (!inkey) return;
-    try {
-      const p = await api.getUserPrefs(inkey);
-      setPrefs(p);
-      setDustDraft(p.dust_threshold_sats != null ? String(p.dust_threshold_sats) : '');
-    } catch {
-      /* leave unset */
-    } finally {
-      setLoadingPrefs(false);
-    }
-  }, [inkey]);
-
-  useEffect(() => {
-    loadPrefs();
-  }, [loadPrefs]);
-
-  const currentOverride =
-    prefs?.dust_threshold_sats != null ? String(prefs.dust_threshold_sats) : '';
-  const dirty = dustDraft.trim() !== currentOverride;
-
-  const saveDust = useCallback(async () => {
-    if (!inkey) return;
-    setSavingDust(true);
-    setDustError(null);
-    setDustSaved(false);
-    try {
-      const n = Number(dustDraft);
-      // Empty / 0 clears the override → back to the admin default.
-      const value = dustDraft.trim() === '' || !Number.isFinite(n) || n <= 0 ? null : n;
-      if (value != null && value > 10000) {
-        setDustError('Maximum is 10,000 sats.');
-        setSavingDust(false);
-        return;
-      }
-      const p = await api.updateUserPrefs(inkey, value);
-      setPrefs(p);
-      setDustDraft(p.dust_threshold_sats != null ? String(p.dust_threshold_sats) : '');
-      setDustSaved(true);
-    } catch (e: any) {
-      setDustError(e?.message || 'Could not save. Please try again.');
-    } finally {
-      setSavingDust(false);
-    }
-  }, [inkey, dustDraft]);
+  // What the lock is, in the two words the menu has room for. "Off" is the one
+  // worth seeing from here without opening anything.
+  const lockSummary = !lockEnabled
+    ? 'Off'
+    : pinSet
+    ? 'PIN'
+    : bioEnabled
+    ? 'Biometric'
+    : 'On';
+  const lockRowHelp = !lockEnabled
+    ? 'Nothing is guarding your wallet on this phone'
+    : autoLockMs === 0
+    ? 'Locks as soon as you leave the app'
+    : 'Unlocking, auto-lock, duress PIN, recovery phrase';
 
   return (
-    <SafeAreaView style={styles.container}>
-      <ScrollView style={styles.content}>
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Account</Text>
-          <View style={styles.item}>
-            <Text style={styles.itemLabel}>Username</Text>
-            <Text style={styles.itemValue}>{username || '—'}</Text>
-          </View>
-          <View style={styles.item}>
-            <Text style={styles.itemLabel}>Email</Text>
-            <Text style={styles.itemValue} numberOfLines={1}>{email || '—'}</Text>
-          </View>
-        </View>
-
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Coin control</Text>
-          <View style={styles.column}>
-            <Text style={styles.itemLabel}>Dust threshold (sats)</Text>
-            <Text style={styles.help}>
-              Coins at or below this from other people are flagged as dust so you
-              can freeze them. Your own change is never flagged. Leave blank to use
-              the server default
-              {prefs ? ` (${prefs.admin_default_dust} sats)` : ''}.
-            </Text>
-            {loadingPrefs ? (
-              <ActivityIndicator style={{ marginTop: 12 }} color={colors.primary} />
-            ) : (
-              <>
-                <View style={styles.inputRow}>
-                  <TextInput
-                    style={styles.input}
-                    value={dustDraft}
-                    onChangeText={(t) => {
-                      setDustDraft(t.replace(/[^0-9]/g, ''));
-                      setDustSaved(false);
-                      setDustError(null);
-                    }}
-                    keyboardType="number-pad"
-                    placeholder={
-                      prefs ? String(prefs.admin_default_dust) : 'default'
-                    }
-                    placeholderTextColor={colors.faint}
-                  />
-                  <TouchableOpacity
-                    style={[styles.saveBtn, (!dirty || savingDust) && styles.saveDisabled]}
-                    onPress={saveDust}
-                    disabled={!dirty || savingDust}>
-                    {savingDust ? (
-                      <ActivityIndicator color={colors.onPrimary} />
-                    ) : (
-                      <Text style={styles.saveText}>Save</Text>
-                    )}
-                  </TouchableOpacity>
-                </View>
-                {dustError ? <Text style={styles.dustError}>{dustError}</Text> : null}
-                {dustSaved ? (
-                  <Text style={styles.dustSaved}>✓ Saved</Text>
-                ) : null}
-                {prefs ? (
-                  <Text style={styles.effective}>
-                    Currently using {prefs.effective_dust_threshold} sats
-                    {prefs.dust_threshold_sats == null ? ' (server default)' : ' (your override)'}
-                  </Text>
-                ) : null}
-              </>
-            )}
-          </View>
-        </View>
-
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Security</Text>
-
-          <View style={styles.column}>
-            <View style={styles.switchRow}>
-              <Text style={styles.itemLabel}>App Lock</Text>
-              {lockBusy ? (
-                <ActivityIndicator color={colors.primary} />
-              ) : (
-                <Switch
-                  value={lockEnabled}
-                  onValueChange={onToggleLock}
-                  trackColor={{ true: colors.primary }}
-                />
-              )}
-            </View>
-            <Text style={styles.help}>{lockSubtitle}</Text>
-            {lockMsg ? <Text style={styles.dustError}>{lockMsg}</Text> : null}
-
-            {/* Only meaningful once something locks. Shown under the toggle it
-                qualifies, rather than as a separate row that reads as unrelated. */}
-            {lockAnyEnabled ? (
-              <>
-                <Text style={styles.itemLabel}>Ask to unlock</Text>
-                <View style={styles.choiceRow}>
-                  {appLock.AUTO_LOCK_CHOICES.map((opt) => {
-                    const on = autoLockMs === opt.ms;
-                    return (
-                      <TouchableOpacity
-                        key={opt.ms}
-                        style={[styles.choice, on && styles.choiceOn]}
-                        onPress={() => setAutoLockMs(opt.ms)}>
-                        <Text style={[styles.choiceText, on && styles.choiceTextOn]}>
-                          {opt.label.replace('After ', '')}
-                        </Text>
-                      </TouchableOpacity>
-                    );
-                  })}
-                </View>
-                <Text style={styles.help}>
-                  {autoLockMs === 0
-                    ? 'Locks the moment you leave the app, so switching away to check something means unlocking on the way back.'
-                    : 'Time in another app counts towards this, so a quick glance elsewhere and back does not ask again.'}
-                </Text>
-              </>
-            ) : null}
-
-            <View style={styles.divider} />
-
-            <View style={styles.switchRow}>
-              <Text style={styles.itemLabel}>App PIN</Text>
-              <Switch
-                value={pinSet}
-                onValueChange={onTogglePin}
-                trackColor={{ true: colors.primary }}
-              />
-            </View>
-            <Text style={styles.help}>
-              Unlock with a 6-digit PIN. When on, it replaces biometrics as the
-              unlock method and enables a duress PIN.
-            </Text>
-            {pinSet ? (
-              <TouchableOpacity
-                style={[styles.switchRow, { marginTop: 12 }]}
-                onPress={() => setPinModal('normal')}
-                accessibilityRole="button">
-                <Text style={styles.itemLabel}>Change PIN</Text>
-                <Text style={styles.itemValue}>Change ›</Text>
-              </TouchableOpacity>
-            ) : null}
-
-            {pinSet ? (
-              <>
-                <View style={[styles.switchRow, { marginTop: 14 }]}>
-                  <Text style={styles.itemLabel}>Duress PIN</Text>
-                  <Switch
-                    value={hasDuress}
-                    onValueChange={onToggleDuress}
-                    trackColor={{ true: colors.primary }}
-                  />
-                </View>
-                <Text style={styles.help}>
-                  A second PIN that, entered at the lock screen, wipes this
-                  device's wallet keys, turns off server-side scanning, and signs
-                  you out. Funds can't be spent from here; they stay safe on-chain
-                  and recover from your seed. Use it if you're ever forced to
-                  unlock.
-                </Text>
-              </>
-            ) : null}
-          </View>
-
-          {DEVICE_TRUST_ENABLED ? (
-            <TouchableOpacity
-              style={[styles.item, { marginTop: 8 }]}
-              onPress={() => setDevicesOpen(true)}>
-              <Text style={styles.itemLabel}>Trusted devices</Text>
-              <Text style={styles.itemValue}>Manage ›</Text>
-            </TouchableOpacity>
-          ) : null}
-        </View>
-
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Scanning</Text>
-          <View style={styles.column}>
-            <View style={styles.switchRow}>
-              <Text style={styles.itemLabel}>Background scanning</Text>
-              {bgBusy ? (
-                <ActivityIndicator color={colors.primary} />
-              ) : (
-                <Switch
-                  value={bgEnabled}
-                  onValueChange={onToggleBackgroundScan}
-                  disabled={!bgWalletId}
-                  trackColor={{ true: colors.primary }}
-                />
-              )}
-            </View>
-            <Text style={styles.help}>
-              Keep this wallet caught up on the server while you're away, so you
-              don't face a long scan when you return. Uploads your scan key
-              (detection only — it can never spend your funds).
-              {'\n\n'}
-              Turning this off doesn't stop the app scanning: opening the wallet
-              still catches it up, using the key on this device without sending
-              it anywhere. What this controls is whether the server holds that
-              key and scans on its own.
-            </Text>
-
-            <View style={styles.divider} />
-
-            {/* Only offered when the phrase is actually on this device. Showing
-                a dead button for older wallets would suggest a second copy
-                exists somewhere, which is the belief that loses coins. */}
-            {seedStored ? (
-              <>
-                <TouchableOpacity
-                  style={styles.rowBtn}
-                  onPress={() => setSeedOpen(true)}>
-                  <Text style={styles.itemLabel}>Show recovery phrase</Text>
-                  <Text style={styles.rowChevron}>›</Text>
-                </TouchableOpacity>
-                <Text style={styles.help}>
-                  Asks for your {pinSet ? 'PIN' : 'fingerprint or device PIN'}{' '}
-                  first. Your passphrase, if you set one, is not stored on this
-                  device and is not shown.
-                </Text>
-                <View style={styles.divider} />
-              </>
-            ) : null}
-
-            {/* The catch-up limit. It used to be a single admin number applied
-                to every client at once — chosen for browsers, inherited by
-                phones on mobile data. This device can now say how much it will
-                do quietly; leaving it alone follows the server as before. */}
-            <Text style={styles.itemLabel}>Catch up automatically</Text>
-            <View style={styles.choiceRow}>
-              {catchUpPref.CATCH_UP_CHOICES.map((opt) => {
-                const on = catchUpBlocks === opt.blocks;
-                return (
-                  <TouchableOpacity
-                    key={opt.blocks}
-                    style={[styles.choice, on && styles.choiceOn]}
-                    onPress={() => onPickCatchUp(opt.blocks)}>
-                    <Text style={[styles.choiceText, on && styles.choiceTextOn]}>
-                      {opt.label}
-                    </Text>
-                  </TouchableOpacity>
-                );
-              })}
-            </View>
-            <Text style={styles.help}>
-              {catchUpBlocks === catchUpPref.FOLLOW_SERVER
-                ? `Following the server's setting (${describeBlocks(serverThreshold)}). Pick one above to decide for this device.`
-                : catchUpBlocks === catchUpPref.ALWAYS_ASK
-                ? 'Opening the wallet will always ask before scanning, however little there is to catch up on.'
-                : `Gaps under ${describeBlocks(catchUpBlocks)} are scanned quietly when you open the wallet. Anything longer asks first, since it is a wait.`}
-            </Text>
-            {bgMsg ? <Text style={styles.dustError}>{bgMsg}</Text> : null}
-          </View>
-        </View>
-
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Notifications</Text>
-          <View style={styles.column}>
-            <View style={styles.switchRow}>
-              <Text style={styles.itemLabel}>Payment alerts</Text>
-              {alertsBusy ? (
-                <ActivityIndicator color={colors.primary} />
-              ) : (
-                <Switch
-                  value={paymentAlerts}
-                  onValueChange={onTogglePaymentAlerts}
-                  trackColor={{ true: colors.primary }}
-                />
-              )}
-            </View>
-            <Text style={styles.help}>
-              Be told when a payment arrives — a notification while the app is
-              closed (needs background scanning) and a banner while it's open.
-              Turn this off for silent receiving: coins still arrive and show up
-              in your balance and history. This setting applies to this phone
-              only.
-            </Text>
-            {alertsMsg ? (
-              <Text style={styles.dustError}>{alertsMsg}</Text>
-            ) : permBlocked ? (
-              <Text style={styles.dustError}>
-                Your phone is blocking notifications for Thrilla, so payment
-                alerts won't appear while the app is closed. Allow them in system
-                settings.
-              </Text>
-            ) : null}
-            {permBlocked ? (
-              <TouchableOpacity
-                style={[styles.switchRow, { marginTop: 12 }]}
-                onPress={() => Linking.openSettings().catch(() => {})}
-                accessibilityRole="button">
-                <Text style={styles.itemLabel}>Notification permission</Text>
-                <Text style={[styles.itemValue, styles.link]}>
-                  Open system settings ›
-                </Text>
-              </TouchableOpacity>
-            ) : null}
-          </View>
-        </View>
-
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Invite a friend</Text>
-          <View style={styles.column}>
-            <Text style={styles.help}>
-              Send someone an email invite to join Thrilla. We email them a
-              sign-up link — their address is used only for this invite, not
-              stored.
-            </Text>
-            <View style={styles.inputRow}>
-              <TextInput
-                style={styles.input}
-                value={inviteEmail}
-                onChangeText={(t) => {
-                  setInviteEmail(t);
-                  setInviteErr(null);
-                  setInviteMsg(null);
-                }}
-                placeholder="friend@email.com"
-                placeholderTextColor={colors.faint}
-                keyboardType="email-address"
-                autoCapitalize="none"
-                autoCorrect={false}
-              />
-              <TouchableOpacity
-                style={[
-                  styles.saveBtn,
-                  (inviting || !inviteEmail.trim()) && styles.saveDisabled,
-                ]}
-                onPress={onInvite}
-                disabled={inviting || !inviteEmail.trim()}>
-                {inviting ? (
-                  <ActivityIndicator color={colors.onPrimary} />
-                ) : (
-                  <Text style={styles.saveText}>Send</Text>
-                )}
-              </TouchableOpacity>
-            </View>
-            {inviteErr ? <Text style={styles.dustError}>{inviteErr}</Text> : null}
-            {inviteMsg ? <Text style={styles.dustSaved}>✓ {inviteMsg}</Text> : null}
-          </View>
-        </View>
-
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Wallet</Text>
-          <View style={styles.column}>
-            <Text style={styles.help}>
-              Remove this wallet from the server (its address and the record of
-              its coins) and erase its keys from this device. Your bitcoin stays
-              safe on-chain — only the wallet data is deleted. You can restore the
-              wallet, and rescan its coins, from your recovery phrase (and
-              passphrase, if set).
-            </Text>
-            <TouchableOpacity
-              style={[
-                styles.removeBtn,
-                (!wallet || removing) && styles.saveDisabled,
-              ]}
-              onPress={onRemoveWallet}
-              disabled={!wallet || removing}>
-              {removing ? (
-                <ActivityIndicator color={colors.danger} />
-              ) : (
-                <Text style={styles.removeText}>Remove wallet</Text>
-              )}
-            </TouchableOpacity>
-            {removeMsg ? <Text style={styles.help}>{removeMsg}</Text> : null}
-          </View>
-        </View>
-
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>About</Text>
-          <View style={styles.item}>
-            <Text style={styles.itemLabel}>Version</Text>
-            <Text style={styles.itemValue}>0.1.0</Text>
-          </View>
-          <TouchableOpacity
-            style={styles.item}
-            onPress={() =>
-              Linking.openURL('https://github.com/ponthief/thrilla').catch(
-                () => {},
-              )
-            }
-            accessibilityRole="link">
-            <Text style={styles.itemLabel}>Source code</Text>
-            <Text style={[styles.itemValue, styles.link]}>
-              github.com/ponthief/thrilla ›
-            </Text>
-          </TouchableOpacity>
-        </View>
-
-        <TouchableOpacity style={styles.logout} onPress={() => logout()}>
-          <Text style={styles.logoutText}>Log Out</Text>
-        </TouchableOpacity>
-      </ScrollView>
-
-      {DEVICE_TRUST_ENABLED ? (
-        <DevicesModal
-          visible={devicesOpen}
-          onClose={() => setDevicesOpen(false)}
+    <Page title="Settings" subtitle={username ? `Signed in as ${username}` : undefined}>
+      <Group title="You">
+        <NavRow
+          first
+          title="Account"
+          help="Username, email, invites, signing out"
+          value={username || undefined}
+          onPress={() => setPage('account')}
         />
-      ) : null}
+      </Group>
 
-      {wallet ? (
-        <SeedRevealModal
-          visible={seedOpen}
-          walletId={wallet.id}
-          onClose={() => setSeedOpen(false)}
-          onForgotten={() => setSeedStored(false)}
+      <Group title="This phone">
+        <NavRow
+          first
+          title="Security"
+          help={lockRowHelp}
+          value={lockSummary}
+          danger={!lockEnabled}
+          onPress={() => setPage('security')}
         />
-      ) : null}
+        <NavRow
+          title="Notifications"
+          help="Whether payments announce themselves"
+          value={paymentAlerts ? 'On' : 'Off'}
+          onPress={() => setPage('notifications')}
+        />
+      </Group>
 
-      <PinSetupModal
-        visible={pinModal !== null}
-        mode={pinModal === 'duress' ? 'duress' : 'normal'}
-        onClose={() => setPinModal(null)}
-        onDone={onPinDone}
-      />
-    </SafeAreaView>
+      <Group title="Wallet">
+        <NavRow
+          first
+          title="Scanning"
+          help="Background scanning, and how much catches up quietly"
+          onPress={() => setPage('scanning')}
+        />
+        <NavRow
+          title="Wallet"
+          help="Dust threshold, and removing this wallet"
+          onPress={() => setPage('wallet')}
+        />
+      </Group>
+
+      <Group title="App">
+        <NavRow
+          first
+          title="About"
+          help="Version and source code"
+          onPress={() => setPage('about')}
+        />
+      </Group>
+    </Page>
   );
 }
-
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: colors.bg },
-  content: { flex: 1, padding: 16 },
-  section: { marginBottom: 20 },
-  sectionTitle: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: colors.muted,
-    marginBottom: 8,
-    textTransform: 'uppercase',
-  },
-  item: {
-    backgroundColor: colors.surface,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: colors.border,
-    borderRadius: 8,
-    padding: 12,
-    marginBottom: 8,
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  column: {
-    backgroundColor: colors.surface,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: colors.border,
-    borderRadius: 8,
-    padding: 14,
-  },
-  switchRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  itemLabel: { fontSize: 14, color: colors.text, fontWeight: '500' },
-  itemValue: {
-    fontSize: 12,
-    color: colors.faint,
-    flex: 1,
-    textAlign: 'right',
-    marginLeft: 8,
-  },
-  link: { color: colors.primary, fontWeight: '600' },
-  help: { fontSize: 12, color: colors.faint, marginTop: 4, lineHeight: 17 },
-  divider: {
-    height: StyleSheet.hairlineWidth,
-    backgroundColor: colors.border,
-    marginVertical: 16,
-  },
-  // Wraps: five options do not fit one row on a narrow phone, and truncating
-  // them would leave the user guessing which delay they had picked.
-  rowBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingVertical: 4,
-  },
-  rowChevron: { fontSize: 22, color: colors.faint },
-  choiceRow: { flexDirection: 'row', flexWrap: 'wrap', marginTop: 10 },
-  choice: {
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: 8,
-    paddingVertical: 7,
-    paddingHorizontal: 12,
-    marginRight: 8,
-    marginBottom: 8,
-  },
-  choiceOn: { borderColor: colors.primary, backgroundColor: colors.surfaceAlt },
-  choiceText: { fontSize: 13, color: colors.muted },
-  choiceTextOn: { color: colors.primary, fontWeight: '600' },
-  effective: { fontSize: 12, color: colors.muted, marginTop: 10, fontWeight: '600' },
-  dustError: { fontSize: 13, color: colors.danger, marginTop: 10 },
-  dustSaved: { fontSize: 13, color: colors.green, marginTop: 10, fontWeight: '600' },
-  inputRow: { flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 12 },
-  input: {
-    flex: 1,
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: 8,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    fontSize: 16,
-    color: colors.text,
-    backgroundColor: colors.surfaceAlt,
-  },
-  saveBtn: {
-    backgroundColor: colors.primary,
-    borderRadius: 8,
-    paddingHorizontal: 18,
-    paddingVertical: 11,
-  },
-  saveDisabled: { opacity: 0.5 },
-  saveText: { color: colors.onPrimary, fontSize: 14, fontWeight: '600' },
-  removeBtn: {
-    borderWidth: 1,
-    borderColor: colors.danger,
-    borderRadius: 8,
-    paddingVertical: 12,
-    alignItems: 'center',
-    marginTop: 14,
-  },
-  removeText: { color: colors.danger, fontSize: 15, fontWeight: '600' },
-  logout: {
-    backgroundColor: colors.surface,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: colors.border,
-    borderRadius: 8,
-    padding: 14,
-    alignItems: 'center',
-    marginTop: 8,
-  },
-  logoutText: { color: colors.danger, fontSize: 15, fontWeight: '600' },
-});

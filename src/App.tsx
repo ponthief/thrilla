@@ -41,7 +41,7 @@ import { usePlainWatch } from './hooks/usePlainWatch';
 import { useNavStore, TabKey as NavTabKey } from '@stores/navStore';
 import { useTxLabelStore } from '@stores/txLabelStore';
 import { usePlainHistory } from '@stores/plainHistoryStore';
-import { colors, DEVICE_TRUST_ENABLED } from '@/theme';
+import { colors, fonts, DEVICE_TRUST_ENABLED } from '@/theme';
 
 // Scan lives inside Receive now (Address / Scan toggle), so it's no longer a tab.
 // Defined in the nav store so screens can navigate without importing App.
@@ -379,9 +379,13 @@ const styles = StyleSheet.create({
   tabIcon: {
     fontSize: 20,
   },
+  // The one piece of text on every screen, so it sets the app's font before
+  // anything else does. fontFamily carries the weight — see theme.ts on why
+  // fontWeight must not appear beside a bundled family.
   tabLabel: {
+    fontFamily: fonts.sansSemi,
     fontSize: 11,
-    fontWeight: '600',
+    letterSpacing: 0.4,
   },
 });
 
