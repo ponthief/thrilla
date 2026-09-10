@@ -234,24 +234,26 @@ All of them go in the same place: **Settings → Secrets and variables → Actio
 | `RELEASE_KEYSTORE_BASE64` | `base64 -w0 thrilla-release.keystore` |
 | `RELEASE_STORE_PASSWORD` | password for the keystore **file** (`-storepass`) |
 | `RELEASE_KEY_ALIAS` | which key inside it (`-alias`), e.g. `thrilla` |
-| `RELEASE_KEY_PASSWORD` | password for that **key** (`-keypass`) |
+| `RELEASE_KEY_PASSWORD` | *usually leave unset* — see below |
 
-The last two often confuse people. A keystore is a container that can hold
-several keys: the store password opens the file, the key password unlocks one
-entry inside it. Whether they can differ depends on the format:
+That last one is the one people ask about. A keystore is a container that can
+hold several keys: the store password opens the file, the key password unlocks
+one entry inside it. Whether they can differ at all depends on the format:
 
 ```bash
 keytool -list -keystore thrilla-release.keystore -storepass <pw> | grep 'Keystore type'
 ```
 
-- **PKCS12** — keytool's default since Java 9 — *cannot* have a separate key
-  password. It ignores `-keypass` entirely, so the key password **is** the store
-  password; put the same string in both secrets.
+- **PKCS12** — keytool's default since Java 9, so almost certainly what you
+  have — *cannot* have a separate key password. It ignores `-keypass` entirely,
+  so the key password **is** the store password. **Leave
+  `RELEASE_KEY_PASSWORD` unset**; the build uses the store password for both.
 - **JKS** — only if created with an explicit `-storetype JKS` — supports and
-  enforces a distinct one.
+  enforces a distinct one. Set the secret then, to that password.
 
 The build checks both before starting Gradle, so a wrong one fails in seconds
-with a message naming which.
+with a message naming which. A JKS whose key really does have its own password
+is not papered over by the fallback: it fails and tells you to set the secret.
 
 (`-w0` just puts it on one line, which pastes more reliably; wrapped base64
 decodes fine either way. On macOS use `base64 -i <file>`.)
@@ -287,6 +289,21 @@ secret — a certificate fingerprint is public and is in every APK) to have the
 build additionally fail if the certificate is not the one you expect. That turns
 a swapped or regenerated keystore into a failed build rather than a release
 nobody can install over.
+
+**Which fingerprint.** Three different hex strings get published around a
+release and only one belongs here: the **APK signing certificate** SHA-256.
+Not the `SHA256SUMS` line for an APK (that is a hash of the file, and changes
+with every build), and not the GPG key fingerprint from
+`thrilla-signing-key.asc`. Read the right one from the keystore, or from an
+APK it already signed:
+
+```bash
+keytool -list -v -keystore thrilla-release.keystore -alias thrilla | grep 'SHA256:'
+apksigner verify --print-certs thrilla.apk | grep -i 'SHA-256 digest'
+```
+
+Colons or no colons, upper or lower case — the check normalises before
+comparing, so paste it however it comes out.
 
 > **The release key in CI is a real exposure.** It can ship an update to every
 > phone with Thrilla installed, and for a wallet that means an update that can
