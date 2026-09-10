@@ -121,6 +121,48 @@ check(
   'it is a tab destination — a back link there points at itself',
 );
 
+// ── row layout ──────────────────────────────────────────────────────────────
+// A row is two or three Texts side by side. Nothing separates them unless the
+// style says so, and "one of the children happens to have flex: 1" is not a
+// rule — it is what InfoRow did not have, which is why "Name" rendered flush
+// against the wallet's name. Every flex row must declare a gap or a
+// justifyContent of its own.
+console.log('\nrow layout');
+{
+  const ui = read(`${SETTINGS_DIR}/ui.tsx`);
+  const sheet = ui.slice(ui.indexOf('const styles = StyleSheet.create({'));
+  const rows = [];
+  for (const m of sheet.matchAll(/^ {2}(\w+): \{/gm)) {
+    let depth = 0;
+    let end = m.index + m[0].length - 1;
+    for (let j = end; j < sheet.length; j++) {
+      if (sheet[j] === '{') depth++;
+      else if (sheet[j] === '}' && --depth === 0) {
+        end = j;
+        break;
+      }
+    }
+    const body = sheet.slice(m.index, end + 1);
+    if (/flexDirection: 'row'/.test(body)) {
+      rows.push([m[1], /\bgap:/.test(body) || /justifyContent/.test(body)]);
+    }
+  }
+  check('there are flex rows to check', rows.length >= 4, `${rows.length}`);
+  for (const [name, separated] of rows) {
+    check(
+      `${name} separates its children`,
+      separated,
+      'no gap and no justifyContent — adjacent Texts will render flush',
+    );
+  }
+  // InfoRow is only a label and a value, so it needs the value to take the
+  // remaining width. This is the specific shape that broke.
+  check(
+    'InfoRow gives its value the remaining width',
+    /infoValue: \{ flex: 1 \}/.test(ui) && /styles\.infoValue/.test(ui),
+  );
+}
+
 // ── the type system ─────────────────────────────────────────────────────────
 console.log('\ntypography');
 const families = [...theme.matchAll(/'(IBMPlex[A-Za-z-]+)'/g)].map((m) => m[1]);
