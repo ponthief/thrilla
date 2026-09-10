@@ -165,20 +165,43 @@ console.log('\nrow layout');
 
 // ── the type system ─────────────────────────────────────────────────────────
 console.log('\ntypography');
-const families = [...theme.matchAll(/'(IBMPlex[A-Za-z-]+)'/g)].map((m) => m[1]);
-check('theme names some IBM Plex faces', families.length >= 4, `${families.length}`);
+// Read the families out of the `fonts` token rather than matching a face name,
+// so changing typeface does not mean editing this file — it means the new
+// families get checked instead.
+const FONT_DIR = 'android/app/src/main/assets/fonts';
+const fontBlock = theme.slice(
+  theme.indexOf('export const fonts = {'),
+  theme.indexOf('};', theme.indexOf('export const fonts = {')),
+);
+const families = [...fontBlock.matchAll(/^\s*\w+:\s*'([^']+)'/gm)].map((m) => m[1]);
+check('the theme names a set of faces', families.length >= 4, `${families.length}`);
 for (const fam of [...new Set(families)]) {
   check(
     `${fam}.ttf is bundled`,
-    fs.existsSync(path.join(root, 'android/app/src/main/assets/fonts', `${fam}.ttf`)),
+    fs.existsSync(path.join(root, FONT_DIR, `${fam}.ttf`)),
     'Android resolves an asset font by filename, so this would fall back to the system face',
   );
 }
 check(
   'the font licence ships with them',
-  fs.existsSync(path.join(root, 'android/app/src/main/assets/fonts/OFL.txt')),
-  'IBM Plex is SIL OFL 1.1 — the licence has to travel with the files',
+  fs.existsSync(path.join(root, FONT_DIR, 'OFL.txt')),
+  'these are OFL 1.1 faces — the licence has to travel with the files',
 );
+// The other direction: a face left in the assets directory that nothing
+// references is dead weight in the APK, and after a typeface swap it is the
+// easiest thing in the world to forget.
+{
+  const bundled = fs
+    .readdirSync(path.join(root, FONT_DIR))
+    .filter((f) => f.endsWith('.ttf'))
+    .map((f) => f.replace('.ttf', ''));
+  const orphans = bundled.filter((f) => !families.includes(f));
+  check(
+    'no unreferenced faces are shipped',
+    orphans.length === 0,
+    `${orphans.join(', ')} in ${FONT_DIR} but not named by the theme`,
+  );
+}
 // The rule from theme.ts: a bundled family carries its own weight, so pairing
 // one with fontWeight makes Android synthesise a bold of an already-bold file.
 check(
