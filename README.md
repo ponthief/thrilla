@@ -140,10 +140,37 @@ apksigner verify --print-certs thrilla.apk | grep -i 'SHA-256 digest'
 **2. A GPG signature over the checksums.** This covers the download itself,
 before it is ever installed. One signature over a `SHA256SUMS` file covers
 every artifact — the layout Bitcoin Core and Tor use, so the steps are ones
-people may already know:
+people may already know.
+
+CI builds and release-signs the APKs but cannot do this part: the GPG key is
+deliberately not on the build machine, since a key CI can reach is a key
+everyone with push access can reach. So one command finishes a release from
+the machine that holds the key:
 
 ```bash
-scripts/sign-release.sh                    # → SHA256SUMS + SHA256SUMS.asc
+scripts/cut-release.sh v0.1.1              # fetch the CI builds, sign, publish
+scripts/cut-release.sh v0.1.1 main.apk signet.apk   # or sign local builds
+THRILLA_DRY_RUN=1 scripts/cut-release.sh v0.1.1     # stop before publishing
+```
+
+It refuses to publish APKs signed by two different keys, or by the debug key —
+Gradle falls back to the debug keystore silently, and a debug-signed build
+installs and runs, which is what makes it dangerous: nothing properly signed
+can ever replace it. Set `THRILLA_RELEASE_CERT_SHA256` and it also refuses
+anything not signed by the key you expect.
+
+The assets get **stable names** — `thrilla-mainnet.apk`, `thrilla-signet.apk`,
+`SHA256SUMS`, `SHA256SUMS.asc` — and the release is not a prerelease. That is
+what lets the download page link to
+`releases/latest/download/thrilla-mainnet.apk` and never need editing: GitHub
+resolves `latest` to the newest non-prerelease release, so the rolling `ci-*`
+builds from Actions are skipped and only a signed release is ever offered to a
+user.
+
+`sign-release.sh` does the checksum-and-sign step alone, if you want it:
+
+```bash
+scripts/sign-release.sh path/to/*.apk      # → SHA256SUMS + SHA256SUMS.asc
 THRILLA_GPG_KEY=<key-id> scripts/sign-release.sh    # pick a specific key
 ```
 
@@ -162,7 +189,7 @@ Then publish, per release:
 
 - `SHA256SUMS` and `SHA256SUMS.asc` next to the APKs
 - `thrilla-signing-key.asc` on the site (once)
-- the key fingerprint in `verify.html` on thrilla.me
+- the key fingerprint in `download.html` on thrilla.me (the `#fp` div, in the siLNt repo)
 
 **Publish the fingerprint somewhere other than the download page too** — the
 GitHub profile, X, the Telegram channel. Someone who can serve a fake APK from
