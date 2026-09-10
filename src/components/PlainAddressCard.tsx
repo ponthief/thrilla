@@ -127,9 +127,15 @@ export default function PlainAddressCard({ wallet }: Props) {
     }
   }, [inkey, wallet.id, wallet.network]);
 
+  // Re-walk when something asks for it, not only when the wallet changes. The
+  // account key is read inside refresh(), so recovering this wallet's keys
+  // elsewhere in the app would otherwise leave the card showing its "set up"
+  // prompt — and the plain balance hidden — until it was remounted.
+  const refreshTick = usePlainStatus((s) => s.refreshTick);
+
   useEffect(() => {
     refresh();
-  }, [refresh]);
+  }, [refresh, refreshTick]);
 
   const onCopy = useCallback(() => {
     if (!chain) return;

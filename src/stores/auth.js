@@ -167,6 +167,17 @@ export const useAuthStore = defineStore('auth', () => {
   // synchronous existence check (hasWalletKeys) without an async decrypt.
   const _keyIndex = ref([])
 
+  // Bumped whenever this browser's stored keys change, so anything already on
+  // screen that READ a key can know to read it again.
+  //
+  // _keyIndex is not enough for that. It answers "does this wallet have keys",
+  // which does not change when keys are re-stored for a wallet that already had
+  // them — and it says nothing about WHICH keys, so a component holding the
+  // BIP-84 account key has no way to notice one arriving. That is what left the
+  // plain-address panel showing its "Set up" prompt after Recover Keys until the
+  // page was reloaded: it reads sweepAccount once, on mount.
+  const keysVersion = ref(0)
+
   function _keyMaterial() {
     return (adminkey.value || '') + '|' + (inkey.value || '') + '|thrilla_v1'
   }
@@ -218,6 +229,7 @@ export const useAuthStore = defineStore('auth', () => {
       } catch (e) {
         console.error('[storeWalletKeys] bridge failed:', e)
       }
+      keysVersion.value += 1
       return true
     }
     try {
@@ -230,6 +242,10 @@ export const useAuthStore = defineStore('auth', () => {
         console.error('[storeWalletKeys] verification FAILED for', walletId)
         return false
       }
+      // Announced only once the round-trip proves the keys are really readable.
+      // Waking readers for a write that failed verification would send them to
+      // fetch a key that is not there.
+      keysVersion.value += 1
       return true
     } catch (e) {
       console.error('[storeWalletKeys] failed for', walletId, e)
@@ -266,11 +282,16 @@ export const useAuthStore = defineStore('auth', () => {
   async function removeWalletKeys(walletId) {
     if (typeof window.ThrillaBridge !== 'undefined') {
       try { window.ThrillaBridge.removeWalletKeys(walletId) } catch { /* ignore */ }
+      keysVersion.value += 1
       return
     }
     await vaultDelete(walletId)
     markVault(walletId, false)
     _keyIndex.value = vaultIndexList()
+    // Keys going away matters to readers as much as keys arriving: a panel
+    // holding an account key for a wallet whose keys were just removed should
+    // stop offering to send from it.
+    keysVersion.value += 1
   }
 
   // Best-effort purge of pre-vault key material. The old scheme AES-encrypted
@@ -295,5 +316,5 @@ export const useAuthStore = defineStore('auth', () => {
   return { token, adminkey, inkey, walletId, username, email, error, loading, lastFailureKind, isLoggedIn, hasCredentials, login, logout,
            touchActivity, isSessionExpired, logoutIfExpired, IDLE_TIMEOUT_MS,
            storeWalletKeys, getWalletKeys, getRefundAddress, removeWalletKeys,
-           hasWalletKeys, refreshKeyIndex }
+           hasWalletKeys, refreshKeyIndex, keysVersion }
 })
