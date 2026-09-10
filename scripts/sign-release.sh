@@ -129,10 +129,11 @@ echo "Signing key (publish this, and say it somewhere other than the download pa
 gpg --fingerprint "$fpr" | sed 's/^/  /'
 
 # Regrouped into gpg's usual 4-char blocks with the double space at the halfway
-# mark, which is the form verify.html displays.
+# mark, which is the form download.html displays.
 spaced="$(echo "$fpr" | sed -E 's/(.{4})/\1 /g; s/ $//; s/^(.{24})/\1 /')"
 echo
-echo "Paste this into verify.html (the #fp div — the only line to change there):"
+echo "Paste this into the siLNt repo's download.html (the #fp div — the only line"
+echo "to change there; there is no verify.html, despite what this script used to say):"
 echo "  $spaced"
 
 # The Android side. Not a GPG matter, but it belongs in the same release notes:
@@ -153,4 +154,4 @@ fi
 
 echo
 echo "Next: publish SHA256SUMS and SHA256SUMS.asc alongside the APKs,"
-echo "and make sure the fingerprint above matches the one on thrilla.me/verify.html."
+echo "and make sure the fingerprint above matches the one on thrilla.me/download.html."
