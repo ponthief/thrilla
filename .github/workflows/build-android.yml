@@ -491,7 +491,54 @@ jobs:
               --notes "$NOTES" || { refused; exit 1; }
           fi
 
-          echo "url=$(gh release view "$TAG" --json assets --jq '.assets[0].url')" >> "$GITHUB_OUTPUT"
+          # Built from the tag and filename rather than read back from the API.
+          # `gh release view --jq '.assets[0].url'` was wrong twice over: .url is
+          # the REST endpoint for the asset, which answers a browser with a 415
+          # ("Unsupported 'Accept' header") instead of the APK — the summary link
+          # was dead in every run — and .assets[0] is whichever asset happens to
+          # be first. This is the public URL, and it is the same one documented
+          # above because it is derived from the same two values.
+          URL="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/releases/download/${TAG}/${NAME}"
+
+          # Then prove it actually serves the APK, because a link nobody can
+          # open is the failure mode this whole step exists to avoid and is
+          # invisible from inside the job otherwise.
+          #
+          # "Got a 2xx" is NOT the check. The old API URL answers curl with 200
+          # and 1854 bytes of JSON metadata, so a status-only test passed it
+          # while every human clicking the link got a 415. Assert the served
+          # LENGTH instead: a one-byte range request reports the full size in
+          # Content-Range (the asset host sends Accept-Ranges: bytes), which
+          # must equal the APK just built. HEAD is not an option — the signed
+          # asset URL answers it with a 401.
+          #
+          # Retried, so a transient blip does not fail a good build; three
+          # refusals in a row is the link being wrong, not the network.
+          EXPECT_BYTES="$(stat -c%s "$NAME")"
+          SERVED_BYTES=""
+          for attempt in 1 2 3; do
+            HDRS="$(curl -fsSL -r 0-0 -D - -o /dev/null "$URL" 2>/dev/null)" || {
+              echo "Download URL did not answer (attempt $attempt)."
+              sleep $((attempt * 5)); continue
+            }
+            # bytes 0-0/36719097 -> 36719097; fall back to Content-Length for a
+            # server that ignores the range and sends the whole body.
+            SERVED_BYTES="$(printf '%s' "$HDRS" | tr -d '\r' \
+              | awk 'tolower($1)=="content-range:"{split($NF,a,"/"); print a[2]}' | tail -1)"
+            [ -n "$SERVED_BYTES" ] || SERVED_BYTES="$(printf '%s' "$HDRS" | tr -d '\r' \
+              | awk 'tolower($1)=="content-length:"{print $2}' | tail -1)"
+            [ "$SERVED_BYTES" = "$EXPECT_BYTES" ] && break
+            echo "Download URL served $SERVED_BYTES bytes, expected $EXPECT_BYTES (attempt $attempt)."
+            SERVED_BYTES=""
+            sleep $((attempt * 5))
+          done
+          if [ "$SERVED_BYTES" != "$EXPECT_BYTES" ]; then
+            echo "::error::The APK was published but $URL does not serve it (expected $EXPECT_BYTES bytes). The file is still attached to the release and to this run's artifacts; the link is what is broken."
+            exit 1
+          fi
+          echo "Download URL serves the APK: $EXPECT_BYTES bytes at $URL"
+
+          echo "url=$URL" >> "$GITHUB_OUTPUT"
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
 
       - name: Summary
