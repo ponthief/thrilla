@@ -111,6 +111,26 @@ android {
         // NOT exist — BuildConfig is generated under the namespace. Pin the
         // lookup to the namespace so Config.* resolves for every flavor.
         resValue "string", "build_config_package", "com.thrilla_btc.thrilla"
+
+        // reactNativeArchitectures alone does NOT control what lands in the APK.
+        // It filters React Native's own native build — RN and Hermes — and
+        // nothing else. Every prebuilt AAR in the tree (Firebase, the MLKit
+        // barcode scanner) ships .so files for every ABI it supports, and those
+        // get packaged whatever that property says. Inspecting a CI-built APK
+        // showed five ABIs in it (arm64-v8a, armeabi, armeabi-v7a, x86, x86_64)
+        // despite a build that asked for two.
+        //
+        // abiFilters is the switch that actually applies to all of them. Driven
+        // off the same property so there is still one place to say it:
+        //   ./gradlew assembleSignetRelease -PreactNativeArchitectures=x86_64
+        ndk {
+            abiFilters.clear()
+            abiFilters.addAll(
+                (project.findProperty('reactNativeArchitectures')
+                    ?: 'arm64-v8a,armeabi-v7a')
+                    .toString().split(',').collect { it.trim() }.findAll { it }
+            )
+        }
     }
 
     // One flavor per network. Each maps to its own env file (envConfigFiles
