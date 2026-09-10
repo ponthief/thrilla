@@ -184,6 +184,159 @@ browser. Usual causes: the JSON not served over HTTPS, served with the wrong
 content type, behind a redirect, or listing a fingerprint that doesn't match the
 certificate the installed APK was actually signed with.
 
+## Easiest: let CI build it
+
+Building locally means Gradle, a Kotlin compiler daemon, Metro and your editor
+all competing for the same RAM. On a 16GB machine that is enough to take the
+editor down mid-build, and the APK is not something you need a local toolchain
+for.
+
+`.github/workflows/build-android.yml` builds it on a GitHub runner instead:
+
+1. **Actions** → **Build Android APK** → **Run workflow**
+2. pick the branch, the flavour (`signet` / `mainnet`) and `release`
+3. when it finishes, download the APK from the run's **Artifacts**
+4. `adb install -r thrilla-signet-release-*.apk`
+
+Or from the CLI:
+
+```bash
+gh workflow run build-android.yml -f flavor=signet -f buildType=release
+gh run watch                     # then download from the run page
+```
+
+It also publishes the raw `.apk` as a rolling **prerelease** per flavour, so
+there is a fixed URL you can open on the phone itself:
+
+```
+https://github.com/ponthief/thrilla/releases/download/ci-signet-release/thrilla-signet-release.apk
+```
+
+> The prerelease step needs **Settings → Actions → General → Workflow
+> permissions** set to *Read and write permissions*, and no ruleset restricting
+> tag or release creation. Without it the build still succeeds and the APK is
+> still attached to the run as an artifact — only the fixed download URL is
+> skipped, with a 403 explaining which setting to change.
+
+### What CI produces depends on two optional secrets
+
+With neither set it builds a debug-signed APK with no push — fine for looking at
+a change on your own phone, not shippable. An APK signed with a different key
+will not install over one signed with the real key, so uninstall first when
+switching.
+
+All of them go in the same place: **Settings → Secrets and variables → Actions
+→ New repository secret**. Nothing goes in the repository itself.
+
+| Secret | Value |
+|---|---|
+| `GOOGLE_SERVICES_JSON` | `base64 -w0 google-services.json` — switches push on |
+| `RELEASE_KEYSTORE_BASE64` | `base64 -w0 thrilla-release.keystore` |
+| `RELEASE_STORE_PASSWORD` | password for the keystore **file** (`-storepass`) |
+| `RELEASE_KEY_PASSWORD` | *usually leave unset* — see below |
+
+And one repository **variable**, not a secret (same screen, *Variables* tab):
+
+| Variable | Value |
+|---|---|
+| `RELEASE_KEY_ALIAS` | which key inside the keystore (`-alias`), e.g. `thrilla` |
+
+**Do not make the alias a secret.** It is not sensitive — it is in the
+signature block of every APK you publish — and as a secret it actively breaks
+the build output. GitHub redacts a secret's *value* wherever it appears in logs
+and job summaries, and this alias is `thrilla`, which is also the repository
+name and part of every APK filename. Held as a secret it turns the summary's
+download link into
+`github.com/ponthief/***/releases/download/…/***-signet-release.apk`, which
+404s, and fills the log with `com.***_btc.***`. The workflow still accepts a
+`RELEASE_KEY_ALIAS` secret so nothing breaks on upgrade, but it warns when the
+value came from there.
+
+That last one is the one people ask about. A keystore is a container that can
+hold several keys: the store password opens the file, the key password unlocks
+one entry inside it. Whether they can differ at all depends on the format:
+
+```bash
+keytool -list -keystore thrilla-release.keystore -storepass <pw> | grep 'Keystore type'
+```
+
+- **PKCS12** — keytool's default since Java 9, so almost certainly what you
+  have — *cannot* have a separate key password. It ignores `-keypass` entirely,
+  so the key password **is** the store password. **Leave
+  `RELEASE_KEY_PASSWORD` unset**; the build uses the store password for both.
+- **JKS** — only if created with an explicit `-storetype JKS` — supports and
+  enforces a distinct one. Set the secret then, to that password.
+
+The build checks both before starting Gradle, so a wrong one fails in seconds
+with a message naming which. A JKS whose key really does have its own password
+is not papered over by the fallback: it fails and tells you to set the secret.
+
+(`-w0` just puts it on one line, which pastes more reliably; wrapped base64
+decodes fine either way. On macOS use `base64 -i <file>`.)
+
+### One google-services.json or two?
+
+A Firebase project's `google-services.json` lists a client for **every** Android
+app registered in that project, so with `com.thrilla_btc.thrilla` and
+`com.thrilla_btc.thrilla.signet` both registered in one project, one file covers
+both flavours and one secret is enough. Check what a file actually contains:
+
+```bash
+jq -r '.client[].client_info.android_client_info.package_name' google-services.json
+```
+
+If that prints both package names, use the single `GOOGLE_SERVICES_JSON` above.
+If you have two files from two separate Firebase projects, use these instead —
+each overrides the shared secret for its flavour:
+
+| Secret | Value |
+|---|---|
+| `GOOGLE_SERVICES_JSON_SIGNET` | base64 of the file whose client is `…thrilla.signet` |
+| `GOOGLE_SERVICES_JSON_MAINNET` | base64 of the file whose client is `…thrilla` |
+
+Either way the build checks that the file it ends up with actually covers the
+flavour being built, and fails with the missing package name if not — rather
+than letting the google-services plugin produce a "No matching client found".
+
+Every run reports the signing certificate's SHA-256 and whether push is on, in
+the job summary and the prerelease notes, so which key was used is never a
+guess. Set a **`RELEASE_CERT_SHA256`** repository *variable* (a variable, not a
+secret — a certificate fingerprint is public and is in every APK) to have the
+build additionally fail if the certificate is not the one you expect. That turns
+a swapped or regenerated keystore into a failed build rather than a release
+nobody can install over.
+
+**Which fingerprint.** Three different hex strings get published around a
+release and only one belongs here: the **APK signing certificate** SHA-256.
+Not the `SHA256SUMS` line for an APK (that is a hash of the file, and changes
+with every build), and not the GPG key fingerprint from
+`thrilla-signing-key.asc`. Read the right one from the keystore, or from an
+APK it already signed:
+
+```bash
+keytool -list -v -keystore thrilla-release.keystore -alias thrilla | grep 'SHA256:'
+apksigner verify --print-certs thrilla.apk | grep -i 'SHA-256 digest'
+```
+
+Colons or no colons, upper or lower case — the check normalises before
+comparing, so paste it however it comes out.
+
+> **The release key in CI is a real exposure.** It can ship an update to every
+> phone with Thrilla installed, and for a wallet that means an update that can
+> move funds. In Actions secrets it is reachable by anyone with push access to
+> this repository — log masking is trivially defeated by base64-ing twice — and
+> by anyone who compromises the account. The alternative is keeping it on one
+> machine: let CI build, then sign the downloaded APK locally with `apksigner`,
+> which takes seconds and no Gradle. Signing only requires the cheap half of the
+> work, which is why the expensive half being in CI does not force the key to
+> follow it.
+>
+> Note also that with the secrets set, *every* CI build is release-signed —
+> including branch builds published to the public prerelease URL above. For
+> `signet` that cannot overwrite a mainnet install (different applicationId),
+> but a `mainnet` branch build is a genuinely installable update to real users'
+> wallets. Prefer signet for testing, or remove the secrets between releases.
+
 ## Build a debug APK
 
 ```bash
@@ -204,6 +357,49 @@ ENVFILE=.env.mainnet ./gradlew assembleRelease
 
 > The release build is signed with the debug keystore by default. Generate your
 > own keystore before publishing — see https://reactnative.dev/docs/signed-apk-android.
+
+## Building locally on a machine with 16GB or less
+
+Use the flavour scripts rather than `assembleRelease`, and the `:lowmem`
+variants when the machine is also running an editor:
+
+```bash
+npm run apk:signet:lowmem     # or apk:mainnet:lowmem
+```
+
+Those pass `-PreactNativeArchitectures=arm64-v8a` (one ABI instead of two) and
+`--no-daemon`, so nothing keeps a 2GB JVM alive after the build finishes — which
+is usually what makes the *next* thing on the machine fall over rather than the
+build itself.
+
+`android/gradle.properties` already caps the Kotlin compiler daemon at 1.5GB and
+holds Gradle to two workers, for the same reason. If your machine has more to
+spare, raise them in `~/.gradle/gradle.properties` (which overrides the
+committed file, so your local tuning stays out of git):
+
+```properties
+org.gradle.jvmargs=-Xmx4g -XX:MaxMetaspaceSize=1g
+kotlin.daemon.jvmargs=-Xmx3g
+org.gradle.workers.max=4
+org.gradle.parallel=true
+```
+
+Two habits that matter more than any of the above:
+
+- **Do not run Metro (`npm start`) during a release build.** A release build
+  bundles the JS itself; a Metro server running alongside is another Node
+  process holding the whole module graph for nothing.
+- **Close the editor's TypeScript server, or the editor.** `tsc`/tsserver on
+  this project sits at 1–2GB, and it is idle while Gradle works. Run
+  `npm run apk:signet:lowmem` from a plain terminal.
+
+If a build dies with `Java heap space` or the machine starts swapping, stop the
+daemons before retrying — a crashed build leaves them behind:
+
+```bash
+cd android && ./gradlew --stop
+pkill -f KotlinCompileDaemon    # only if ./gradlew --stop left one running
+```
 
 ## Run on a connected device / emulator
 
