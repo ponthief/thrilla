@@ -119,6 +119,7 @@ jobs:
       # Absent, the build carries on: app/build.gradle only applies the
       # google-services plugin when the file exists, so the APK simply has no
       # push. That is why this step reports which it was.
+      #
       # Two ways to supply it, because Firebase can leave you with either:
       #
       #   GOOGLE_SERVICES_JSON           one file covering both applicationIds.
@@ -271,6 +272,21 @@ jobs:
           if ! grep -qi -- "^${KEY_ALIAS}," /tmp/ks.txt && ! grep -qi -- "Alias name: ${KEY_ALIAS}$" /tmp/ks.txt; then
             echo "::error::The keystore has no key aliased '${KEY_ALIAS}'. Aliases present are listed in the log above."
             grep -iE '^[^,]+,|Alias name:' /tmp/ks.txt || true
+            exit 1
+          fi
+
+          # keytool -list only proves the STORE password. A JKS keystore can
+          # carry a separate password per key entry, and a wrong RELEASE_KEY_
+          # PASSWORD would sail through the check above and then fail four
+          # minutes later inside Gradle. -certreq is the cheapest read-only
+          # operation that actually needs the private key, so it is the one that
+          # tells us. (A PKCS12 keystore — keytool's default since Java 9 —
+          # cannot have a distinct key password at all: it ignores -keypass, so
+          # this always passes there, which is correct rather than lenient.)
+          if ! keytool -certreq -keystore android/app/release.keystore \
+                       -alias "$KEY_ALIAS" -storepass "$STORE_PASSWORD" \
+                       -keypass "$KEY_PASSWORD" >/dev/null 2>&1; then
+            echo "::error::RELEASE_KEY_PASSWORD does not unlock the key '${KEY_ALIAS}'. On a JKS keystore the key can have its own password; on PKCS12 it is always the same as the store password, so try RELEASE_STORE_PASSWORD's value. Check with: keytool -list -keystore <ks> -storepass <pw> | grep 'Keystore type'"
             exit 1
           fi
           rm -f /tmp/ks.txt

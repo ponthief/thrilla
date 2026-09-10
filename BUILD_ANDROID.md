@@ -232,9 +232,26 @@ All of them go in the same place: **Settings → Secrets and variables → Actio
 |---|---|
 | `GOOGLE_SERVICES_JSON` | `base64 -w0 google-services.json` — switches push on |
 | `RELEASE_KEYSTORE_BASE64` | `base64 -w0 thrilla-release.keystore` |
-| `RELEASE_STORE_PASSWORD` | the keystore password |
-| `RELEASE_KEY_ALIAS` | e.g. `thrilla` |
-| `RELEASE_KEY_PASSWORD` | the key password (often the same as the store's) |
+| `RELEASE_STORE_PASSWORD` | password for the keystore **file** (`-storepass`) |
+| `RELEASE_KEY_ALIAS` | which key inside it (`-alias`), e.g. `thrilla` |
+| `RELEASE_KEY_PASSWORD` | password for that **key** (`-keypass`) |
+
+The last two often confuse people. A keystore is a container that can hold
+several keys: the store password opens the file, the key password unlocks one
+entry inside it. Whether they can differ depends on the format:
+
+```bash
+keytool -list -keystore thrilla-release.keystore -storepass <pw> | grep 'Keystore type'
+```
+
+- **PKCS12** — keytool's default since Java 9 — *cannot* have a separate key
+  password. It ignores `-keypass` entirely, so the key password **is** the store
+  password; put the same string in both secrets.
+- **JKS** — only if created with an explicit `-storetype JKS` — supports and
+  enforces a distinct one.
+
+The build checks both before starting Gradle, so a wrong one fails in seconds
+with a message naming which.
 
 (`-w0` just puts it on one line, which pastes more reliably; wrapped base64
 decodes fine either way. On macOS use `base64 -i <file>`.)
