@@ -1,53 +1,141 @@
 name: Build Android APK
 
+# Build the APK here instead of on a desktop.
+#
+# The previous version of this file never ran: it triggered on `main` (this repo
+# uses `master`) and, having been written before the React Native migration,
+# built the Capacitor project — `npx cap add android`, `assembleDebug` — which
+# is not what this app is any more. So every APK has been built by hand, on a
+# machine where Gradle, the Kotlin daemon, Metro and an editor competing for
+# 16GB is enough to take the editor down.
+#
+# A GitHub runner has 16GB to itself and no editor on it. Run this from the
+# Actions tab (or `gh workflow run`), pick the flavour, and download the APK
+# from the run's artifacts.
+#
+# It signs with the committed debug keystore, because the release signing
+# properties are not in CI (see android/app/build.gradle: release falls back to
+# the debug config when THRILLA_STORE_FILE is absent). That is installable and
+# fine for testing a change on your own phone; it is NOT shippable. Publishing
+# still means a local `npm run apk:mainnet` with the real key in
+# ~/.gradle/gradle.properties.
+
 on:
-  push:
-    branches: [ main ]
   workflow_dispatch:
+    inputs:
+      flavor:
+        description: Which backend the app talks to
+        type: choice
+        options: [signet, mainnet]
+        default: signet
+      buildType:
+        description: >-
+          release is what you want for a phone (minified, one APK). debug is
+          faster and keeps the dev menu, but expects a Metro server.
+        type: choice
+        options: [release, debug]
+        default: release
+      architectures:
+        description: >-
+          Comma-separated ABIs. arm64-v8a covers every phone made since about
+          2016; add armeabi-v7a for older hardware, x86_64 only for an emulator.
+        type: string
+        default: arm64-v8a,armeabi-v7a
+  push:
+    branches: [master]
+
+# A second push supersedes the first; there is no point finishing a build of a
+# commit nobody is going to install.
+concurrency:
+  group: apk-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   build:
     runs-on: ubuntu-latest
-
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
+      - uses: actions/setup-node@v4
         with:
           node-version: '20'
-          cache: 'npm'
+          cache: npm
 
-      - name: Setup Java
-        uses: actions/setup-java@v4
+      # JDK 17, not 21: RN 0.73.6 pins AGP 8.1.1, which fails on 21 with a
+      # JdkImageTransform/jlink error (see BUILD_ANDROID.md).
+      - uses: actions/setup-java@v4
         with:
           java-version: '17'
-          distribution: 'temurin'
+          distribution: temurin
 
-      - name: Setup Android SDK
-        uses: android-actions/setup-android@v3
+      - uses: android-actions/setup-android@v3
+
+      # Caches ~/.gradle across runs, so a rebuild is a few minutes rather than
+      # a cold one every time.
+      - uses: gradle/actions/setup-gradle@v3
 
       - name: Install dependencies
         run: npm ci
 
-      - name: Build Vue app
-        run: npm run build
-
-      - name: Add Android platform
+      - name: Resolve build parameters
+        id: params
         run: |
-          npx cap add android || true
-          npx cap sync android
+          FLAVOR="${{ inputs.flavor || 'signet' }}"
+          TYPE="${{ inputs.buildType || 'release' }}"
+          ARCHS="${{ inputs.architectures || 'arm64-v8a,armeabi-v7a' }}"
+          # Gradle task names capitalise the flavour: assembleSignetRelease.
+          CAP="$(printf '%s' "${FLAVOR:0:1}" | tr '[:lower:]' '[:upper:]')${FLAVOR:1}"
+          CAPTYPE="$(printf '%s' "${TYPE:0:1}" | tr '[:lower:]' '[:upper:]')${TYPE:1}"
+          echo "flavor=$FLAVOR"   >> "$GITHUB_OUTPUT"
+          echo "type=$TYPE"       >> "$GITHUB_OUTPUT"
+          echo "archs=$ARCHS"     >> "$GITHUB_OUTPUT"
+          echo "task=assemble${CAP}${CAPTYPE}" >> "$GITHUB_OUTPUT"
 
-      - name: Make gradlew executable
-        run: chmod +x android/gradlew
+      - name: Build ${{ steps.params.outputs.task }}
+        working-directory: android
+        run: |
+          chmod +x gradlew
+          # The committed gradle.properties is sized for a desktop that is also
+          # running an editor. A runner has its 16GB to itself, so undo that
+          # here rather than in the file everyone shares. Quoted as one property
+          # value — unquoted, the space would hand -XX to the client JVM instead.
+          ./gradlew ${{ steps.params.outputs.task }} \
+            -PreactNativeArchitectures=${{ steps.params.outputs.archs }} \
+            -Dorg.gradle.jvmargs="-Xmx5g -XX:MaxMetaspaceSize=1g" \
+            -Pkotlin.daemon.jvmargs=-Xmx3g \
+            -Porg.gradle.workers.max=4 \
+            --stacktrace
 
-      - name: Build debug APK
-        run: cd android && ./gradlew assembleDebug
+      - name: Locate the APK
+        id: apk
+        run: |
+          # The output path depends on flavour and build type, so find it rather
+          # than hardcoding one and failing silently on the other.
+          APK="$(find android/app/build/outputs/apk -name '*.apk' -print | head -1)"
+          test -n "$APK" || { echo "no APK produced"; exit 1; }
+          ls -l "$APK"
+          echo "path=$APK" >> "$GITHUB_OUTPUT"
 
-      - name: Upload APK
-        uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v4
         with:
-          name: thrilla-debug-apk
-          path: android/app/build/outputs/apk/debug/app-debug.apk
-          retention-days: 7
+          name: thrilla-${{ steps.params.outputs.flavor }}-${{ steps.params.outputs.type }}-${{ github.sha }}
+          path: ${{ steps.apk.outputs.path }}
+          retention-days: 14
+
+      - name: Summary
+        run: |
+          {
+            echo "### APK built"
+            echo
+            echo "| | |"
+            echo "|---|---|"
+            echo "| task | \`${{ steps.params.outputs.task }}\` |"
+            echo "| ABIs | \`${{ steps.params.outputs.archs }}\` |"
+            echo "| size | $(du -h '${{ steps.apk.outputs.path }}' | cut -f1) |"
+            echo "| signed with | debug keystore — installable, not shippable |"
+            echo
+            echo "Download it from the Artifacts section of this run, then:"
+            echo '```'
+            echo "adb install -r <the .apk>"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
