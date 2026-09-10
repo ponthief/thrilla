@@ -51,6 +51,12 @@ command -v gpg >/dev/null 2>&1 || die "gpg not found; this script exists to GPG-
 # works without the GitHub CLI installed at all.
 need_gh() {
   command -v gh >/dev/null 2>&1 || die "gh not found ($1). Install the GitHub CLI, or use THRILLA_DRY_RUN=1 with two local APK paths and attach the files from $repo_root/release/ by hand."
+  # Authentication is checked separately, because an unauthenticated gh fails
+  # every command with "could not find any host configurations" — which, caught
+  # by a download, reads as "the asset is missing" and sends you to rebuild
+  # something that was never the problem.
+  gh auth status >/dev/null 2>&1 \
+    || die "gh is installed but not signed in ($1). Run: gh auth login"
 }
 
 work="$repo_root/release"
@@ -73,7 +79,7 @@ elif [ "$#" -eq 0 ]; then
     note "downloading the ci-$net-release build…"
     gh release download "ci-$net-release" \
        --pattern "thrilla-$net-release.apk" --dir "$work" --clobber \
-      || die "could not download the ci-$net-release asset. Run the Build Android APK workflow for the $net flavour first."
+      || die "could not download thrilla-$net-release.apk from the ci-$net-release release. Either that release does not exist yet — run the Build Android APK workflow for the $net flavour — or this account cannot read it. Check with: gh release view ci-$net-release"
     mv "$work/thrilla-$net-release.apk" "$work/thrilla-$net.apk"
   done
 else
