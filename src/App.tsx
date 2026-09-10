@@ -35,11 +35,9 @@ import {
   unregisterForPush,
 } from '@services/push';
 import PushBanner from './components/PushBanner';
-import SpendAlertBanner from './components/SpendAlertBanner';
 import BitcoinSign from './components/BitcoinSign';
 import { useSendConfirmations } from './hooks/useSendConfirmations';
 import { usePlainWatch } from './hooks/usePlainWatch';
-import { useSpendWatch } from './hooks/useSpendWatch';
 import { useNavStore, TabKey as NavTabKey } from '@stores/navStore';
 import { useTxLabelStore } from '@stores/txLabelStore';
 import { usePlainHistory } from '@stores/plainHistoryStore';
@@ -124,10 +122,6 @@ function Shell() {
   // Coins arriving on the plain bech32 chain: nothing else would notice them,
   // since they are not Silent Payments outputs the scanner finds.
   usePlainWatch();
-  // Coins leaving the wallet in a transaction it did not send. Mounted here
-  // rather than at the App level so the warning only appears over the wallet
-  // itself — its "Move my funds" button needs the tabs to exist.
-  useSpendWatch();
   // Device-only transaction labels: read once from the keystore so the wallet
   // list can render them synchronously.
   const loadTxLabels = useTxLabelStore((s) => s.load);
@@ -147,10 +141,6 @@ function Shell() {
         <ActiveScreen />
       </View>
       <TabBar active={active} onSelect={setActive} />
-      {/* Above everything on the wallet, and it stays there: unlike a payment
-          notice this one does not time out, it is dismissed by the user once
-          they have acted on it. */}
-      <SpendAlertBanner />
     </View>
   );
 }
