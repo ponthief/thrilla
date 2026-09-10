@@ -60,9 +60,15 @@ on:
 
 # A second push supersedes the first; there is no point finishing a build of a
 # commit nobody is going to install.
+#
+# But only for pushes. Cancelling on dispatch is wrong: the runs are asked for
+# individually, often with different inputs — a self-test and an ordinary build,
+# say — and the second silently killing the first is a verification you think
+# you have and do not. It happened: run 5 was checking a build.gradle fix and
+# was cancelled four minutes in by run 6.
 concurrency:
   group: apk-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'push' }}
 
 jobs:
   build:
