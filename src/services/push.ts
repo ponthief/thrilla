@@ -11,7 +11,6 @@ import { PermissionsAndroid, Platform } from 'react-native';
 import messaging from '@react-native-firebase/messaging';
 import * as api from './api';
 import { usePushBanner } from '@stores/pushBanner';
-import { useSpendAlerts } from '@stores/spendAlertStore';
 import { paymentAlertsOn } from '@stores/notifyStore';
 
 let unsubscribeRefresh: (() => void) | null = null;
@@ -22,16 +21,6 @@ let unsubscribeMessage: (() => void) | null = null;
 // a payment that lands with the app open would be silent.
 function handleForegroundMessage(msg: any): void {
   try {
-    // An unexpected spend has its own, permanent banner (SpendAlertBanner), so
-    // this asks the watcher to look now rather than at its next poll — a
-    // six-second notice would be the wrong weight for it, and would be the one
-    // left on screen. Handled ABOVE the payment-alerts check on purpose: this
-    // is not a payment alert, and a compromise is not something to sit on
-    // because notifications happen to be switched off.
-    if (msg?.data?.type === 'unexpected_spend') {
-      useSpendAlerts.getState().requestRefresh();
-      return;
-    }
     // Payment alerts turned off in Settings → stay quiet. The token is also
     // unregistered in that case, so this is just belt and braces for a message
     // that was already in flight (or a removal that failed while offline).
