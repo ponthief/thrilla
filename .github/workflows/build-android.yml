@@ -433,7 +433,9 @@ jobs:
             echo "| task | \`${{ steps.params.outputs.task }}\` |"
             echo "| ABIs | \`${{ steps.params.outputs.archs }}\` |"
             echo "| size | $(du -h '${{ steps.apk.outputs.path }}' | cut -f1) |"
-            echo "| release tag | \`${{ steps.release.outputs.tag }}\` (rolling, prerelease) |"
+            if [ -n "${{ steps.release.outputs.tag }}" ]; then
+              echo "| release tag | \`${{ steps.release.outputs.tag }}\` (rolling, prerelease) |"
+            fi
             echo "| signed with | ${{ steps.cert.outputs.signed }} key |"
             echo "| certificate | \`${{ steps.cert.outputs.cert }}\` |"
             echo "| push notifications | ${{ steps.firebase.outputs.push }} |"
