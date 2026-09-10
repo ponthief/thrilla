@@ -205,12 +205,55 @@ gh workflow run build-android.yml -f flavor=signet -f buildType=release
 gh run watch                     # then download from the run page
 ```
 
-It signs with the committed debug keystore, because the release key is not in
-CI. That installs and runs fine — it is the right way to look at a change on
-your own phone — but it is **not shippable**: a Play/zapstore release still
-needs a local build with the real key (see below). An APK signed with a
-different key will not install over one signed with the real key, so uninstall
-first if you are switching between them.
+It also publishes the raw `.apk` as a rolling **prerelease** per flavour, so
+there is a fixed URL you can open on the phone itself:
+
+```
+https://github.com/ponthief/thrilla/releases/download/ci-signet-release/thrilla-signet-release.apk
+```
+
+### What CI produces depends on two optional secrets
+
+With neither set it builds a debug-signed APK with no push — fine for looking at
+a change on your own phone, not shippable. An APK signed with a different key
+will not install over one signed with the real key, so uninstall first when
+switching.
+
+| Secret | Effect |
+|---|---|
+| `GOOGLE_SERVICES_JSON` | base64 of `android/app/google-services.json`. Switches push notifications on. |
+| `RELEASE_KEYSTORE_BASE64` + `RELEASE_STORE_PASSWORD` + `RELEASE_KEY_ALIAS` + `RELEASE_KEY_PASSWORD` | Signs with the real key, making the APK publishable. |
+
+```bash
+base64 -w0 android/app/google-services.json     # Linux  (-i on macOS)
+base64 -w0 path/to/thrilla-release.keystore
+```
+
+Settings → Secrets and variables → Actions → New repository secret.
+
+Every run reports the signing certificate's SHA-256 and whether push is on, in
+the job summary and the prerelease notes, so which key was used is never a
+guess. Set a **`RELEASE_CERT_SHA256`** repository *variable* (a variable, not a
+secret — a certificate fingerprint is public and is in every APK) to have the
+build additionally fail if the certificate is not the one you expect. That turns
+a swapped or regenerated keystore into a failed build rather than a release
+nobody can install over.
+
+> **The release key in CI is a real exposure.** It can ship an update to every
+> phone with Thrilla installed, and for a wallet that means an update that can
+> move funds. In Actions secrets it is reachable by anyone with push access to
+> this repository — log masking is trivially defeated by base64-ing twice — and
+> by anyone who compromises the account. The alternative is keeping it on one
+> machine: let CI build, then sign the downloaded APK locally with `apksigner`,
+> which takes seconds and no Gradle. Signing only requires the cheap half of the
+> work, which is why the expensive half being in CI does not force the key to
+> follow it.
+>
+> Note also that with the secrets set, *every* CI build is release-signed —
+> including branch builds published to the public prerelease URL above. For
+> `signet` that cannot overwrite a mainnet install (different applicationId),
+> but a `mainnet` branch build is a genuinely installable update to real users'
+> wallets. Prefer signet for testing, or remove the secrets between releases.
 
 ## Build a debug APK
 
