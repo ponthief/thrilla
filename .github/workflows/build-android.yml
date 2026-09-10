@@ -170,7 +170,10 @@ jobs:
       # The passwords go in through ORG_GRADLE_PROJECT_*, which Gradle reads as
       # project properties, rather than -P flags. A -P password is visible in
       # the process list and can be echoed by any plugin that logs its
-      # arguments; an environment variable is not.
+      # arguments; an environment variable is not. They are exported from this
+      # step into $GITHUB_ENV, and only when a keystore was actually decoded —
+      # see the note there for why setting them unconditionally broke the
+      # build.
       - name: Decode the release keystore, if the secrets are set
         id: signing
         env:
@@ -207,6 +210,21 @@ jobs:
             exit 1
           fi
           rm -f /tmp/ks.txt
+
+          # Exported here rather than as an env: block on the build step,
+          # because an env: value that interpolates to "" is not absent —
+          # Gradle defines the property with an empty value, and
+          # signingConfigs.release then called file('') and failed the build.
+          # Setting them only on this branch means they genuinely do not exist
+          # when there is no keystore.
+          #
+          # The delimiter form, so a password containing anything exotic still
+          # arrives intact. GitHub masks these values in logs.
+          put() { printf '%s<<__GHENV__\n%s\n__GHENV__\n' "$1" "$2" >> "$GITHUB_ENV"; }
+          put ORG_GRADLE_PROJECT_THRILLA_STORE_FILE     release.keystore
+          put ORG_GRADLE_PROJECT_THRILLA_STORE_PASSWORD "$STORE_PASSWORD"
+          put ORG_GRADLE_PROJECT_THRILLA_KEY_ALIAS      "$KEY_ALIAS"
+          put ORG_GRADLE_PROJECT_THRILLA_KEY_PASSWORD   "$KEY_PASSWORD"
           echo "mode=release" >> "$GITHUB_OUTPUT"
 
       - name: Resolve build parameters
@@ -225,19 +243,6 @@ jobs:
 
       - name: Build ${{ steps.params.outputs.task }}
         working-directory: android
-        env:
-          # Gradle reads ORG_GRADLE_PROJECT_x as project property x, so these
-          # satisfy build.gradle's hasProperty('THRILLA_STORE_FILE') check
-          # without any password reaching a command line. Empty when the secrets
-          # are unset, and Gradle ignores empty ones, so the debug fallback in
-          # build.gradle still applies.
-          #
-          # Relative, because signingConfigs.release calls file(THRILLA_STORE_FILE)
-          # from inside the app module, so it resolves against android/app.
-          ORG_GRADLE_PROJECT_THRILLA_STORE_FILE: ${{ steps.signing.outputs.mode == 'release' && 'release.keystore' || '' }}
-          ORG_GRADLE_PROJECT_THRILLA_STORE_PASSWORD: ${{ secrets.RELEASE_STORE_PASSWORD }}
-          ORG_GRADLE_PROJECT_THRILLA_KEY_ALIAS: ${{ secrets.RELEASE_KEY_ALIAS }}
-          ORG_GRADLE_PROJECT_THRILLA_KEY_PASSWORD: ${{ secrets.RELEASE_KEY_PASSWORD }}
         run: |
           chmod +x gradlew
           # The committed gradle.properties is sized for a desktop that is also
