@@ -119,11 +119,38 @@ jobs:
       # Absent, the build carries on: app/build.gradle only applies the
       # google-services plugin when the file exists, so the APK simply has no
       # push. That is why this step reports which it was.
+      # Two ways to supply it, because Firebase can leave you with either:
+      #
+      #   GOOGLE_SERVICES_JSON           one file covering both applicationIds.
+      #                                  This is the normal case — a project's
+      #                                  google-services.json lists a client for
+      #                                  every Android app registered in it.
+      #   GOOGLE_SERVICES_JSON_SIGNET    a file per flavour, for when the two
+      #   GOOGLE_SERVICES_JSON_MAINNET   live in separate Firebase projects.
+      #
+      # The per-flavour secret wins when set, so you can start with the shared
+      # one and split later without touching this file. To find out which case
+      # you are in, look at what a file actually lists:
+      #
+      #   jq -r '.client[].client_info.android_client_info.package_name' \
+      #     google-services.json
+      #
+      # If that prints both com.thrilla_btc.thrilla and
+      # com.thrilla_btc.thrilla.signet, one shared secret is all you need.
       - name: Configure Firebase, if the secret is set
         id: firebase
         env:
-          GOOGLE_SERVICES_JSON: ${{ secrets.GOOGLE_SERVICES_JSON }}
+          SHARED: ${{ secrets.GOOGLE_SERVICES_JSON }}
+          PER_SIGNET: ${{ secrets.GOOGLE_SERVICES_JSON_SIGNET }}
+          PER_MAINNET: ${{ secrets.GOOGLE_SERVICES_JSON_MAINNET }}
         run: |
+          if [ "${{ inputs.flavor || 'signet' }}" = "signet" ]; then
+            GOOGLE_SERVICES_JSON="${PER_SIGNET:-$SHARED}"
+            [ -n "${PER_SIGNET:-}" ] && echo "Using GOOGLE_SERVICES_JSON_SIGNET."
+          else
+            GOOGLE_SERVICES_JSON="${PER_MAINNET:-$SHARED}"
+            [ -n "${PER_MAINNET:-}" ] && echo "Using GOOGLE_SERVICES_JSON_MAINNET."
+          fi
           if [ -z "${GOOGLE_SERVICES_JSON:-}" ]; then
             echo "GOOGLE_SERVICES_JSON not set — building without push notifications."
             echo "push=off" >> "$GITHUB_OUTPUT"

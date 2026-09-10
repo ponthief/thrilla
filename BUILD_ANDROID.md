@@ -219,17 +219,43 @@ a change on your own phone, not shippable. An APK signed with a different key
 will not install over one signed with the real key, so uninstall first when
 switching.
 
-| Secret | Effect |
+All of them go in the same place: **Settings → Secrets and variables → Actions
+→ New repository secret**. Nothing goes in the repository itself.
+
+| Secret | Value |
 |---|---|
-| `GOOGLE_SERVICES_JSON` | base64 of `android/app/google-services.json`. Switches push notifications on. |
-| `RELEASE_KEYSTORE_BASE64` + `RELEASE_STORE_PASSWORD` + `RELEASE_KEY_ALIAS` + `RELEASE_KEY_PASSWORD` | Signs with the real key, making the APK publishable. |
+| `GOOGLE_SERVICES_JSON` | `base64 -w0 google-services.json` — switches push on |
+| `RELEASE_KEYSTORE_BASE64` | `base64 -w0 thrilla-release.keystore` |
+| `RELEASE_STORE_PASSWORD` | the keystore password |
+| `RELEASE_KEY_ALIAS` | e.g. `thrilla` |
+| `RELEASE_KEY_PASSWORD` | the key password (often the same as the store's) |
+
+(`-w0` just puts it on one line, which pastes more reliably; wrapped base64
+decodes fine either way. On macOS use `base64 -i <file>`.)
+
+### One google-services.json or two?
+
+A Firebase project's `google-services.json` lists a client for **every** Android
+app registered in that project, so with `com.thrilla_btc.thrilla` and
+`com.thrilla_btc.thrilla.signet` both registered in one project, one file covers
+both flavours and one secret is enough. Check what a file actually contains:
 
 ```bash
-base64 -w0 android/app/google-services.json     # Linux  (-i on macOS)
-base64 -w0 path/to/thrilla-release.keystore
+jq -r '.client[].client_info.android_client_info.package_name' google-services.json
 ```
 
-Settings → Secrets and variables → Actions → New repository secret.
+If that prints both package names, use the single `GOOGLE_SERVICES_JSON` above.
+If you have two files from two separate Firebase projects, use these instead —
+each overrides the shared secret for its flavour:
+
+| Secret | Value |
+|---|---|
+| `GOOGLE_SERVICES_JSON_SIGNET` | base64 of the file whose client is `…thrilla.signet` |
+| `GOOGLE_SERVICES_JSON_MAINNET` | base64 of the file whose client is `…thrilla` |
+
+Either way the build checks that the file it ends up with actually covers the
+flavour being built, and fails with the missing package name if not — rather
+than letting the google-services plugin produce a "No matching client found".
 
 Every run reports the signing certificate's SHA-256 and whether push is on, in
 the job summary and the prerelease notes, so which key was used is never a
