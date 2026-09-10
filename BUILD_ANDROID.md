@@ -184,6 +184,34 @@ browser. Usual causes: the JSON not served over HTTPS, served with the wrong
 content type, behind a redirect, or listing a fingerprint that doesn't match the
 certificate the installed APK was actually signed with.
 
+## Easiest: let CI build it
+
+Building locally means Gradle, a Kotlin compiler daemon, Metro and your editor
+all competing for the same RAM. On a 16GB machine that is enough to take the
+editor down mid-build, and the APK is not something you need a local toolchain
+for.
+
+`.github/workflows/build-android.yml` builds it on a GitHub runner instead:
+
+1. **Actions** → **Build Android APK** → **Run workflow**
+2. pick the branch, the flavour (`signet` / `mainnet`) and `release`
+3. when it finishes, download the APK from the run's **Artifacts**
+4. `adb install -r thrilla-signet-release-*.apk`
+
+Or from the CLI:
+
+```bash
+gh workflow run build-android.yml -f flavor=signet -f buildType=release
+gh run watch                     # then download from the run page
+```
+
+It signs with the committed debug keystore, because the release key is not in
+CI. That installs and runs fine — it is the right way to look at a change on
+your own phone — but it is **not shippable**: a Play/zapstore release still
+needs a local build with the real key (see below). An APK signed with a
+different key will not install over one signed with the real key, so uninstall
+first if you are switching between them.
+
 ## Build a debug APK
 
 ```bash
@@ -204,6 +232,49 @@ ENVFILE=.env.mainnet ./gradlew assembleRelease
 
 > The release build is signed with the debug keystore by default. Generate your
 > own keystore before publishing — see https://reactnative.dev/docs/signed-apk-android.
+
+## Building locally on a machine with 16GB or less
+
+Use the flavour scripts rather than `assembleRelease`, and the `:lowmem`
+variants when the machine is also running an editor:
+
+```bash
+npm run apk:signet:lowmem     # or apk:mainnet:lowmem
+```
+
+Those pass `-PreactNativeArchitectures=arm64-v8a` (one ABI instead of two) and
+`--no-daemon`, so nothing keeps a 2GB JVM alive after the build finishes — which
+is usually what makes the *next* thing on the machine fall over rather than the
+build itself.
+
+`android/gradle.properties` already caps the Kotlin compiler daemon at 1.5GB and
+holds Gradle to two workers, for the same reason. If your machine has more to
+spare, raise them in `~/.gradle/gradle.properties` (which overrides the
+committed file, so your local tuning stays out of git):
+
+```properties
+org.gradle.jvmargs=-Xmx4g -XX:MaxMetaspaceSize=1g
+kotlin.daemon.jvmargs=-Xmx3g
+org.gradle.workers.max=4
+org.gradle.parallel=true
+```
+
+Two habits that matter more than any of the above:
+
+- **Do not run Metro (`npm start`) during a release build.** A release build
+  bundles the JS itself; a Metro server running alongside is another Node
+  process holding the whole module graph for nothing.
+- **Close the editor's TypeScript server, or the editor.** `tsc`/tsserver on
+  this project sits at 1–2GB, and it is idle while Gradle works. Run
+  `npm run apk:signet:lowmem` from a plain terminal.
+
+If a build dies with `Java heap space` or the machine starts swapping, stop the
+daemons before retrying — a crashed build leaves them behind:
+
+```bash
+cd android && ./gradlew --stop
+pkill -f KotlinCompileDaemon    # only if ./gradlew --stop left one running
+```
 
 ## Run on a connected device / emulator
 
