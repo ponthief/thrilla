@@ -212,6 +212,12 @@ there is a fixed URL you can open on the phone itself:
 https://github.com/ponthief/thrilla/releases/download/ci-signet-release/thrilla-signet-release.apk
 ```
 
+> The prerelease step needs **Settings → Actions → General → Workflow
+> permissions** set to *Read and write permissions*, and no ruleset restricting
+> tag or release creation. Without it the build still succeeds and the APK is
+> still attached to the run as an artifact — only the fixed download URL is
+> skipped, with a 403 explaining which setting to change.
+
 ### What CI produces depends on two optional secrets
 
 With neither set it builds a debug-signed APK with no push — fine for looking at

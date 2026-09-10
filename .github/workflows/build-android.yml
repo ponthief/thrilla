@@ -405,42 +405,62 @@ jobs:
           path: ${{ steps.apk.outputs.path }}
           retention-days: 14
 
-      # A run artifact is a login-gated zip, which is awkward when the device you
-      # want it on is the phone. This puts the raw .apk behind a fixed URL you
-      # can open in the phone's browser and install straight from Downloads:
+      # A run artifact is a login-gated zip, which is the wrong shape when the
+      # device you want the APK on is the phone. This puts the raw .apk behind a
+      # fixed URL you can open in the phone's browser and install straight from
+      # Downloads:
       #
       #   github.com/<repo>/releases/download/ci-<flavor>-<type>/thrilla-<flavor>-<type>.apk
       #
-      # Deliberately a PRERELEASE, and deliberately deleted and recreated each
-      # time rather than having its asset swapped: a prerelease is never "latest"
-      # so nothing consuming real releases picks it up, and recreating keeps the
-      # tag pointing at the commit that actually produced the file rather than at
-      # whatever the first build happened to be.
+      # Deliberately a PRERELEASE, so nothing consuming real releases picks it up.
+      #
+      # It used to delete the release and recreate it, to keep the tag pointing at
+      # the commit that produced the file. That was the wrong trade and it broke
+      # exactly as you would expect: run 7 deleted a working release, then the
+      # create was refused with a 403, and the download URL was simply gone. The
+      # asset is now replaced in place instead — the release is only created when
+      # it does not exist, so a failure here can no longer destroy the download
+      # that was already there. The commit the file came from is in the notes,
+      # which is where it actually gets read.
       - name: Publish a rolling prerelease
         id: release
         if: steps.signing.outputs.mode != 'selftest'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          TAG="ci-${{ steps.params.outputs.flavor }}-${{ steps.params.outputs.type }}"
+          NAME="thrilla-${{ steps.params.outputs.flavor }}-${{ steps.params.outputs.type }}.apk"
+          cp "${{ steps.apk.outputs.path }}" "$NAME"
+
           if [ "${{ steps.cert.outputs.signed }}" = "release" ]; then
             NOTE="Signed with the real release key, so this is publishable and installs over an existing Thrilla."
           else
             NOTE="Signed with the **debug** keystore: it installs and runs, but is not shippable and will not install over a build signed with the release key. Uninstall first if you are switching."
           fi
-          TAG="ci-${{ steps.params.outputs.flavor }}-${{ steps.params.outputs.type }}"
-          NAME="thrilla-${{ steps.params.outputs.flavor }}-${{ steps.params.outputs.type }}.apk"
-          cp "${{ steps.apk.outputs.path }}" "$NAME"
-          gh release delete "$TAG" --yes --cleanup-tag 2>/dev/null || true
-          gh release create "$TAG" "$NAME" \
-            --prerelease \
-            --target "$GITHUB_SHA" \
-            --title "CI build — ${{ steps.params.outputs.flavor }} ${{ steps.params.outputs.type }}" \
-            --notes "Built from \`${GITHUB_REF_NAME}\` at \`${GITHUB_SHA:0:8}\`, ABIs \`${{ steps.params.outputs.archs }}\`.
+          NOTES="Built from \`${GITHUB_REF_NAME}\` at \`${GITHUB_SHA:0:8}\`, ABIs \`${{ steps.params.outputs.archs }}\`.
 
           Signing certificate SHA-256: \`${{ steps.cert.outputs.cert }}\` (${{ steps.cert.outputs.signed }} key).
           Push notifications: ${{ steps.firebase.outputs.push }}.
 
           $NOTE"
+
+          refused() {
+            echo "::error::Publishing the APK was refused with a 403. The APK itself is fine and is attached to this run as an artifact. Check Settings -> Actions -> General -> Workflow permissions is 'Read and write permissions', and that no ruleset restricts creating tags or releases. Nothing was deleted: the previous download URL, if there was one, still works."
+          }
+
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "Updating the existing $TAG release in place."
+            gh release upload "$TAG" "$NAME" --clobber || { refused; exit 1; }
+            gh release edit "$TAG" --notes "$NOTES" --prerelease || { refused; exit 1; }
+          else
+            echo "Creating the $TAG release."
+            gh release create "$TAG" "$NAME" \
+              --prerelease \
+              --target "$GITHUB_SHA" \
+              --title "CI build — ${{ steps.params.outputs.flavor }} ${{ steps.params.outputs.type }}" \
+              --notes "$NOTES" || { refused; exit 1; }
+          fi
+
           echo "url=$(gh release view "$TAG" --json assets --jq '.assets[0].url')" >> "$GITHUB_OUTPUT"
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
 
