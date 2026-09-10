@@ -19,7 +19,9 @@ name: Build Android APK
 #
 #   GOOGLE_SERVICES_JSON      switches push notifications on
 #   RELEASE_KEYSTORE_BASE64   signs with the real key, making it publishable
-#     + RELEASE_STORE_PASSWORD, RELEASE_KEY_ALIAS, RELEASE_KEY_PASSWORD
+#     + RELEASE_STORE_PASSWORD and RELEASE_KEY_ALIAS
+#     + RELEASE_KEY_PASSWORD only if the keystore is a JKS whose key has its
+#       own password; unset, the store password is used (PKCS12 has no other)
 #
 # See the steps below for how to produce each, and — for the keystore — what
 # putting it here exposes. "Verify what signed it" reports the certificate on
@@ -191,14 +193,14 @@ jobs:
           PY
           echo "push=on" >> "$GITHUB_OUTPUT"
 
-      # Release signing with the real key, when the four secrets are set:
+      # Release signing with the real key, when the secrets are set:
       #
       #   RELEASE_KEYSTORE_BASE64   base64 -w0 thrilla-release.keystore
       #   RELEASE_STORE_PASSWORD
       #   RELEASE_KEY_ALIAS
-      #   RELEASE_KEY_PASSWORD
+      #   RELEASE_KEY_PASSWORD      optional — JKS with a per-key password only
       #
-      # Without all four, the build falls back to the committed debug keystore
+      # Without the keystore, the build falls back to the committed debug one
       # exactly as before (app/build.gradle only uses the release config when
       # THRILLA_STORE_FILE is set).
       #
@@ -252,14 +254,26 @@ jobs:
             echo "mode=debug" >> "$GITHUB_OUTPUT"
             exit 0
           fi
-          # All or nothing. A keystore with no password would fail deep inside
-          # Gradle with a null-property error that says nothing useful.
-          for v in STORE_PASSWORD KEY_ALIAS KEY_PASSWORD; do
+          # A keystore with no store password or no alias would fail deep inside
+          # Gradle with a null-property error that says nothing useful, so
+          # require those here.
+          for v in STORE_PASSWORD KEY_ALIAS; do
             if [ -z "$(eval "printf '%s' \"\${$v:-}\"")" ]; then
-              echo "::error::RELEASE_KEYSTORE_BASE64 is set but RELEASE_$v is not. All four secrets are needed."
+              echo "::error::RELEASE_KEYSTORE_BASE64 is set but RELEASE_$v is not. It is needed too."
               exit 1
             fi
           done
+          # RELEASE_KEY_PASSWORD is the one that is genuinely optional, because
+          # on most keystores it cannot differ from the store password. PKCS12 —
+          # keytool's default since Java 9 — does not support a distinct key
+          # password and ignores -keypass outright. Only JKS can carry one. So
+          # an unset secret is the common case, not a misconfiguration: fall
+          # back to the store password, which is the right value there, and let
+          # the -certreq check below decide whether it actually opens the key.
+          if [ -z "${KEY_PASSWORD:-}" ]; then
+            echo "RELEASE_KEY_PASSWORD not set — using RELEASE_STORE_PASSWORD for the key too (correct for a PKCS12 keystore; set the secret if yours is a JKS with a separate key password)."
+            KEY_PASSWORD="$STORE_PASSWORD"
+          fi
           printf '%s' "$KEYSTORE" | base64 -d > android/app/release.keystore
           # A truncated or line-wrapped secret decodes to something that is not a
           # keystore. Prove it opens with the password given, here, rather than
@@ -286,7 +300,7 @@ jobs:
           if ! keytool -certreq -keystore android/app/release.keystore \
                        -alias "$KEY_ALIAS" -storepass "$STORE_PASSWORD" \
                        -keypass "$KEY_PASSWORD" >/dev/null 2>&1; then
-            echo "::error::RELEASE_KEY_PASSWORD does not unlock the key '${KEY_ALIAS}'. On a JKS keystore the key can have its own password; on PKCS12 it is always the same as the store password, so try RELEASE_STORE_PASSWORD's value. Check with: keytool -list -keystore <ks> -storepass <pw> | grep 'Keystore type'"
+            echo "::error::The key password does not unlock the key '${KEY_ALIAS}'. This is a JKS keystore with its own password on that key: set RELEASE_KEY_PASSWORD to it (unset, the store password is used, which is what PKCS12 requires). Check which format you have with: keytool -list -keystore <ks> -storepass <pw> | grep 'Keystore type'"
             exit 1
           fi
           rm -f /tmp/ks.txt
