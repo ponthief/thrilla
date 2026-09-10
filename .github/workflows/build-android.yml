@@ -46,6 +46,15 @@ on:
           2016; add armeabi-v7a for older hardware, x86_64 only for an emulator.
         type: string
         default: arm64-v8a,armeabi-v7a
+      selfTestSigning:
+        description: >-
+          Prove the release-signing path works using a throwaway key generated
+          in this run. Ignores the real secrets, and publishes nothing — no
+          artifact, no prerelease — so the throwaway-signed APK cannot escape.
+          Run this after changing anything about signing, and before trusting
+          the path with a real key.
+        type: boolean
+        default: false
   push:
     branches: [master]
 
@@ -182,6 +191,28 @@ jobs:
           KEY_ALIAS: ${{ secrets.RELEASE_KEY_ALIAS }}
           KEY_PASSWORD: ${{ secrets.RELEASE_KEY_PASSWORD }}
         run: |
+          put() { printf '%s<<__GHENV__\n%s\n__GHENV__\n' "$1" "$2" >> "$GITHUB_ENV"; }
+
+          # Self-test: exercise the release path with a key that is worth
+          # nothing. Deliberately ahead of the real-secret branch and ignoring
+          # it — the point is to test the machinery, and testing it with the
+          # production key would be both unnecessary and a way to accidentally
+          # publish something signed by it.
+          if [ "${{ inputs.selfTestSigning }}" = "true" ]; then
+            echo "Generating a throwaway keystore to test the release-signing path."
+            keytool -genkeypair -keystore android/app/release.keystore \
+              -alias selftest -storepass selftest -keypass selftest \
+              -keyalg RSA -keysize 2048 -validity 1 \
+              -dname "CN=Thrilla CI self-test, OU=throwaway" >/dev/null 2>&1 \
+              || { echo "::error::could not generate the throwaway keystore"; exit 1; }
+            put ORG_GRADLE_PROJECT_THRILLA_STORE_FILE     release.keystore
+            put ORG_GRADLE_PROJECT_THRILLA_STORE_PASSWORD selftest
+            put ORG_GRADLE_PROJECT_THRILLA_KEY_ALIAS      selftest
+            put ORG_GRADLE_PROJECT_THRILLA_KEY_PASSWORD   selftest
+            echo "mode=selftest" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
           if [ -z "${KEYSTORE:-}" ]; then
             echo "RELEASE_KEYSTORE_BASE64 not set — signing with the debug keystore."
             echo "mode=debug" >> "$GITHUB_OUTPUT"
@@ -220,7 +251,6 @@ jobs:
           #
           # The delimiter form, so a password containing anything exotic still
           # arrives intact. GitHub masks these values in logs.
-          put() { printf '%s<<__GHENV__\n%s\n__GHENV__\n' "$1" "$2" >> "$GITHUB_ENV"; }
           put ORG_GRADLE_PROJECT_THRILLA_STORE_FILE     release.keystore
           put ORG_GRADLE_PROJECT_THRILLA_STORE_PASSWORD "$STORE_PASSWORD"
           put ORG_GRADLE_PROJECT_THRILLA_KEY_ALIAS      "$KEY_ALIAS"
@@ -307,9 +337,18 @@ jobs:
               echo "::error::The release secrets are set, but this APK is signed with the DEBUG key. Do not publish it."
               exit 1
             fi
+            if [ "${{ steps.signing.outputs.mode }}" = "selftest" ]; then
+              echo "::error::SELF-TEST FAILED. A throwaway keystore was generated and handed to Gradle, but the APK came out debug-signed — so the release-signing path does not work, and adding real secrets would produce an unpublishable APK too."
+              exit 1
+            fi
             echo "::notice::Debug-signed — fine for testing, not shippable."
           else
             echo "signed=release" >> "$GITHUB_OUTPUT"
+            if [ "${{ steps.signing.outputs.mode }}" = "selftest" ]; then
+              echo "::notice::SELF-TEST PASSED. Gradle signed with the supplied keystore rather than the debug one, so the release path works. Nothing was published."
+              echo "cert=$APK_CERT" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
             if [ -n "${EXPECTED:-}" ]; then
               WANT="$(printf '%s' "$EXPECTED" | tr -d ':' | tr 'A-F' 'a-f')"
               if [ "$APK_CERT" != "$WANT" ]; then
@@ -324,6 +363,10 @@ jobs:
           echo "cert=$APK_CERT" >> "$GITHUB_OUTPUT"
 
       - uses: actions/upload-artifact@v4
+        # A self-test APK is signed by a key generated seconds earlier and
+        # thrown away. Publishing it would put something nobody can ever update
+        # into circulation, so the test publishes nothing at all.
+        if: steps.signing.outputs.mode != 'selftest'
         with:
           name: thrilla-${{ steps.params.outputs.flavor }}-${{ steps.params.outputs.type }}-${{ github.sha }}
           path: ${{ steps.apk.outputs.path }}
@@ -342,6 +385,7 @@ jobs:
       # whatever the first build happened to be.
       - name: Publish a rolling prerelease
         id: release
+        if: steps.signing.outputs.mode != 'selftest'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -372,7 +416,11 @@ jobs:
           {
             echo "### APK built"
             echo
-            echo "**[Download the APK](${{ steps.release.outputs.url }})** — open this on the phone."
+            if [ "${{ steps.signing.outputs.mode }}" = "selftest" ]; then
+              echo "Signing self-test — nothing published."
+            else
+              echo "**[Download the APK](${{ steps.release.outputs.url }})** — open this on the phone."
+            fi
             echo
             echo "| | |"
             echo "|---|---|"
