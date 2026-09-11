@@ -44,7 +44,13 @@ on:
         options: [development, ad-hoc, app-store]
         default: development
   push:
-    branches: [master]
+    # The bring-up branch is here TEMPORARILY. GitHub only offers
+    # workflow_dispatch for workflows already on the default branch, so a brand
+    # new workflow cannot be triggered at all until it is merged — and merging
+    # an iOS project that has never compiled anywhere, to get the ability to
+    # find out whether it compiles, is the wrong order. Remove this branch once
+    # the build is green.
+    branches: [master, claude/thrilla-disable-payment-notification-8vywkq]
     paths:
       # Only when something that can break the iOS build changes. A JS-only
       # commit cannot fail this, and macOS runner minutes are billed at ten
