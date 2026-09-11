@@ -118,7 +118,12 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ios/Pods
-          key: pods-${{ runner.os }}-${{ hashFiles('ios/Podfile', 'package-lock.json') }}
+          # react-native.config.js belongs in the key: it decides which packages
+          # use_native_modules! links, so a change to it changes the Pods tree.
+          # Left out, a restored cache can keep pods that have since been
+          # excluded — which is exactly the CapacitorCordova that broke the
+          # first build.
+          key: pods-${{ runner.os }}-${{ hashFiles('ios/Podfile', 'package-lock.json', 'react-native.config.js') }}
           restore-keys: pods-${{ runner.os }}-
 
       - name: pod install
