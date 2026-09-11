@@ -1,0 +1,56 @@
+# Resolve react_native_pods.rb with node to allow for hoisting
+require Pod::Executable.execute_command('node', ['-p',
+  'require.resolve(
+    "react-native/scripts/react_native_pods.rb",
+    {paths: [process.argv[1]]},
+  )', __dir__]).strip
+
+platform :ios, min_ios_version_supported
+prepare_react_native_project!
+
+# Firebase's iOS SDK ships as static frameworks and will not link into a
+# CocoaPods static-library build, so the whole Pods project has to be built as
+# frameworks. Both lines are required together: the global flag tells
+# react-native-firebase to expect it, and use_frameworks! applies it.
+#
+# The knock-on effect is Flipper, which does not work under use_frameworks! —
+# the RN template says so itself. That costs nothing here: Flipper is a debug
+# inspector, and the reason this project exists is CI producing an .ipa.
+$RNFirebaseAsStaticFramework = true
+use_frameworks! :linkage => :static
+
+target 'Thrilla' do
+  config = use_native_modules!
+
+  use_react_native!(
+    :path => config[:reactNativePath],
+    :flipper_configuration => FlipperConfiguration.disabled,
+    # An absolute path to your application root.
+    :app_path => "#{Pod::Config.instance.installation_root}/.."
+  )
+
+  target 'ThrillaTests' do
+    inherit! :complete
+  end
+
+  post_install do |installer|
+    # https://github.com/facebook/react-native/blob/main/packages/react-native/scripts/react_native_pods.rb#L197-L202
+    react_native_post_install(
+      installer,
+      config[:reactNativePath],
+      :mac_catalyst_enabled => false
+    )
+
+    installer.pods_project.targets.each do |target|
+      target.build_configurations.each do |cfg|
+        # Every pod must agree with the app on the deployment target, or the
+        # linker warns for each one and Xcode 15 turns some of those into
+        # errors. min_ios_version_supported is RN's own floor for this version.
+        cfg.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = min_ios_version_supported
+        # Simulator builds on Apple silicon runners: without this, pods that
+        # still declare an arm64 simulator exclusion fail to link.
+        cfg.build_settings['EXCLUDED_ARCHS[sdk=iphonesimulator*]'] = ''
+      end
+    end
+  end
+end
