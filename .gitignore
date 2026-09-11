@@ -15,3 +15,18 @@ dist/
 !.env.signet
 
 thrilla-src.zip
+
+# iOS. The Xcode project IS committed; everything CocoaPods and Xcode generate
+# from it is not. Pods/ in particular is hundreds of megabytes and is rebuilt
+# from the Podfile + package-lock.json on every machine and in CI.
+ios/Pods/
+ios/build/
+ios/Thrilla.xcworkspace/
+ios/*.xcworkspace/
+*.xcuserstate
+xcuserdata/
+ios/Thrilla/GoogleService-Info.plist
+*.mobileprovision
+*.p12
+*.ipa
+*.xcarchive

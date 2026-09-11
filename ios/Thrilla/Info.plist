@@ -1,0 +1,81 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>CFBundleDevelopmentRegion</key>
+	<string>en</string>
+	<!-- Driven from the build configuration so the signet build shows up as
+	     "Thrilla Signet" on the home screen, the way the Android signet flavor
+	     does via resValue app_name. -->
+	<key>CFBundleDisplayName</key>
+	<string>$(THRILLA_DISPLAY_NAME)</string>
+	<key>CFBundleExecutable</key>
+	<string>$(EXECUTABLE_NAME)</string>
+	<key>CFBundleIdentifier</key>
+	<string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
+	<key>CFBundleInfoDictionaryVersion</key>
+	<string>6.0</string>
+	<key>CFBundleName</key>
+	<string>$(PRODUCT_NAME)</string>
+	<key>CFBundlePackageType</key>
+	<string>APPL</string>
+	<key>CFBundleShortVersionString</key>
+	<string>$(MARKETING_VERSION)</string>
+	<key>CFBundleSignature</key>
+	<string>????</string>
+	<key>CFBundleVersion</key>
+	<string>$(CURRENT_PROJECT_VERSION)</string>
+	<key>LSRequiresIPhoneOS</key>
+	<true/>
+	<key>NSAppTransportSecurity</key>
+	<dict>
+		<!-- Do not change NSAllowsArbitraryLoads to true, or you will risk app rejection! -->
+		<key>NSAllowsArbitraryLoads</key>
+		<false/>
+		<key>NSAllowsLocalNetworking</key>
+		<true/>
+	</dict>
+
+	<!-- Permission strings. iOS shows these verbatim in the prompt and, unlike
+	     Android, refuses to launch the feature at all when the key is missing —
+	     and App Review rejects an empty or boilerplate one. Say what the app
+	     does with the thing, not that it needs it.
+
+	     The template's NSLocationWhenInUseUsageDescription is deliberately gone
+	     rather than left empty: nothing here asks for location, and declaring a
+	     permission the app never uses invites questions at review. -->
+	<key>NSCameraUsageDescription</key>
+	<string>Thrilla uses the camera only to scan payment QR codes. Nothing is recorded or sent anywhere.</string>
+	<key>NSFaceIDUsageDescription</key>
+	<string>Thrilla uses Face ID to unlock the app and to confirm before revealing your recovery phrase.</string>
+
+	<!-- Bundled fonts have to be declared by FILENAME here and added to the
+	     target's Copy Bundle Resources, or iOS ignores them and every Geist
+	     style falls back to the system font — silently, with no build error.
+	     Android resolves the same files by filename from assets/fonts. -->
+	<key>UIAppFonts</key>
+	<array>
+		<string>Geist-Regular.ttf</string>
+		<string>Geist-Medium.ttf</string>
+		<string>Geist-SemiBold.ttf</string>
+		<string>GeistMono-Regular.ttf</string>
+		<string>GeistMono-SemiBold.ttf</string>
+	</array>
+
+	<key>UILaunchStoryboardName</key>
+	<string>LaunchScreen</string>
+	<!-- The template says armv7, which no supported iOS device has been since
+	     iOS 11. Left as-is it is merely stale; arm64 is the truthful value. -->
+	<key>UIRequiredDeviceCapabilities</key>
+	<array>
+		<string>arm64</string>
+	</array>
+	<!-- Portrait only, matching the Android manifest. -->
+	<key>UISupportedInterfaceOrientations</key>
+	<array>
+		<string>UIInterfaceOrientationPortrait</string>
+	</array>
+	<key>UIViewControllerBasedStatusBarAppearance</key>
+	<false/>
+</dict>
+</plist>

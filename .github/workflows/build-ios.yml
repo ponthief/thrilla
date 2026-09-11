@@ -1,0 +1,343 @@
+name: Build iOS
+
+# Builds the iOS app on a macOS runner. Two modes, and which one you get
+# depends entirely on whether the Apple signing secrets exist:
+#
+#   no secrets  → compiles for the SIMULATOR and stops. Proves the project and
+#                 every pod build, which is the thing that actually breaks, and
+#                 needs no Apple Developer account at all.
+#   secrets set → archives and exports a signed .ipa you can install on a
+#                 registered device.
+#
+# The simulator path is not a consolation prize: unlike Android, an iOS build
+# cannot be signed with a throwaway key, so without Apple credentials there is
+# no such thing as an installable artifact. A green compile is the whole of
+# what CI can honestly assert in that case, and it is worth having.
+#
+# Secrets, when you want the .ipa (see BUILD_IOS.md for how to produce each):
+#
+#   APPLE_CERTIFICATE_P12         base64 of an exported Apple Distribution or
+#                                 Development certificate (.p12)
+#   APPLE_CERTIFICATE_PASSWORD    its export password
+#   APPLE_PROVISIONING_PROFILE    base64 of the matching .mobileprovision
+#   APPLE_TEAM_ID                 10-character team id
+#
+# GOOGLE_SERVICES_PLIST_IOS is separate and optional: base64 of
+# GoogleService-Info.plist. Without it the app builds without push, exactly as
+# the Android workflow does without google-services.json.
+
+on:
+  workflow_dispatch:
+    inputs:
+      flavor:
+        description: Which backend the app talks to
+        type: choice
+        options: [signet, mainnet]
+        default: signet
+      exportMethod:
+        description: >-
+          How to export the .ipa. development installs on devices in your
+          provisioning profile; ad-hoc is the same but for a distribution
+          profile; app-store produces something only App Store Connect accepts.
+          Ignored when the signing secrets are absent.
+        type: choice
+        options: [development, ad-hoc, app-store]
+        default: development
+  push:
+    branches: [master]
+    paths:
+      # Only when something that can break the iOS build changes. A JS-only
+      # commit cannot fail this, and macOS runner minutes are billed at ten
+      # times the Linux rate on private repositories.
+      - 'ios/**'
+      - 'package.json'
+      - 'package-lock.json'
+      - '.github/workflows/build-ios.yml'
+
+concurrency:
+  group: ios-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'push' }}
+
+jobs:
+  build:
+    runs-on: macos-14
+    timeout-minutes: 60
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      # macos-14 images carry several Xcodes; the default is not always the
+      # newest. Pin it so a runner-image update cannot silently change the
+      # toolchain under a wallet build.
+      - name: Select Xcode
+        run: |
+          ls /Applications | grep -i '^Xcode' || true
+          sudo xcode-select -s /Applications/Xcode_15.4.app/Contents/Developer \
+            || sudo xcode-select -s /Applications/Xcode.app/Contents/Developer
+          xcodebuild -version
+
+      - run: npm ci
+
+      # Optional, and deliberately before pod install: the Firebase pods are
+      # already in the Podfile via package.json, so the plist only decides
+      # whether push works at runtime, not whether the app links.
+      - name: Configure Firebase, if the secret is set
+        id: firebase
+        env:
+          PLIST: ${{ secrets.GOOGLE_SERVICES_PLIST_IOS }}
+        run: |
+          if [ -z "${PLIST:-}" ]; then
+            echo "GOOGLE_SERVICES_PLIST_IOS not set — building without push notifications."
+            echo "push=off" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          printf '%s' "$PLIST" | base64 -d > ios/Thrilla/GoogleService-Info.plist
+          # A mangled secret must fail here rather than at runtime, where it
+          # shows up as push silently never arriving.
+          plutil -lint ios/Thrilla/GoogleService-Info.plist \
+            || { echo "::error::GOOGLE_SERVICES_PLIST_IOS did not base64-decode to a valid plist — most likely a truncated paste."; exit 1; }
+          BUNDLE="$(plutil -extract BUNDLE_ID raw ios/Thrilla/GoogleService-Info.plist 2>/dev/null || echo '')"
+          echo "GoogleService-Info.plist is for bundle id: ${BUNDLE:-unknown}"
+          echo "push=on" >> "$GITHUB_OUTPUT"
+          # NOTE this file still has to be a member of the Xcode target to be
+          # copied into the app. That is tracked in BUILD_IOS.md; decoding it
+          # here is necessary but not by itself sufficient.
+
+      - name: Cache Pods
+        uses: actions/cache@v4
+        with:
+          path: ios/Pods
+          key: pods-${{ runner.os }}-${{ hashFiles('ios/Podfile', 'package-lock.json') }}
+          restore-keys: pods-${{ runner.os }}-
+
+      - name: pod install
+        working-directory: ios
+        run: |
+          pod install --repo-update 2>&1 | tail -40
+          test -d Thrilla.xcworkspace || { echo "::error::pod install produced no workspace."; exit 1; }
+
+      # Is there anything to sign with? Everything downstream branches on this.
+      - name: Import the signing certificate, if the secrets are set
+        id: signing
+        env:
+          CERT: ${{ secrets.APPLE_CERTIFICATE_P12 }}
+          CERT_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          PROFILE: ${{ secrets.APPLE_PROVISIONING_PROFILE }}
+          TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          if [ -z "${CERT:-}" ]; then
+            echo "::notice::No Apple signing secrets — compiling for the simulator only. No installable .ipa is possible without them."
+            echo "mode=simulator" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          # Named explicitly rather than derived from the variable name: a
+          # clever ${v#CERT_} expansion turned APPLE_CERTIFICATE_PASSWORD into
+          # "APPLE_PASSWORD" in the error message, sending you to look for a
+          # secret that does not exist.
+          check() { [ -n "$2" ] || { echo "::error::APPLE_CERTIFICATE_P12 is set but $1 is not. Signing needs the certificate, its password, a matching provisioning profile and the team id."; exit 1; }; }
+          check APPLE_CERTIFICATE_PASSWORD "${CERT_PASSWORD:-}"
+          check APPLE_PROVISIONING_PROFILE  "${PROFILE:-}"
+          check APPLE_TEAM_ID               "${TEAM_ID:-}"
+
+          # A throwaway keychain, not the login one: it is created here,
+          # unlocked with a password that exists only for this job, and thrown
+          # away at the end. Nothing persists on the runner.
+          KEYCHAIN="$RUNNER_TEMP/signing.keychain-db"
+          KEYCHAIN_PASSWORD="$(uuidgen)"
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          security set-keychain-settings -lut 3600 "$KEYCHAIN"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+
+          printf '%s' "$CERT" | base64 -d > "$RUNNER_TEMP/cert.p12"
+          security import "$RUNNER_TEMP/cert.p12" -P "$CERT_PASSWORD" \
+            -A -t cert -f pkcs12 -k "$KEYCHAIN" \
+            || { echo "::error::Could not import the certificate. Usually APPLE_CERTIFICATE_PASSWORD is wrong; failing that, APPLE_CERTIFICATE_P12 is a truncated paste or is not a .p12 export."; exit 1; }
+          # Without this, codesign blocks on a GUI prompt that no one can
+          # answer and the job hangs until it times out.
+          security set-key-partition-list -S apple-tool:,apple:,codesign: \
+            -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN" >/dev/null
+          security list-keychain -d user -s "$KEYCHAIN" login.keychain-db
+          rm -f "$RUNNER_TEMP/cert.p12"
+
+          echo "Identities available to codesign:"
+          security find-identity -v -p codesigning "$KEYCHAIN" | sed 's/^/  /'
+          # find-identity always ends with "N valid identities found", so
+          # matching that phrase matches success too — an earlier version of
+          # this check failed every signed build. Match the zero.
+          if security find-identity -v -p codesigning "$KEYCHAIN" | grep -qE '^[[:space:]]*0 valid identities found'; then
+            echo "::error::The certificate imported but no valid codesigning identity resulted. An Apple *certificate* on its own is not enough: the .p12 must contain its private key. Re-export from Keychain Access with both the certificate AND the key selected."
+            exit 1
+          fi
+
+          mkdir -p "$HOME/Library/MobileDevice/Provisioning Profiles"
+          printf '%s' "$PROFILE" | base64 -d > "$RUNNER_TEMP/profile.mobileprovision"
+          # The profile's UUID is the name Xcode looks it up by.
+          UUID="$(security cms -D -i "$RUNNER_TEMP/profile.mobileprovision" 2>/dev/null \
+                  | plutil -extract UUID raw - 2>/dev/null || echo '')"
+          if [ -z "$UUID" ]; then
+            echo "::error::Could not read a UUID from APPLE_PROVISIONING_PROFILE — it is probably not a .mobileprovision, or the paste is truncated."
+            exit 1
+          fi
+          cp "$RUNNER_TEMP/profile.mobileprovision" \
+             "$HOME/Library/MobileDevice/Provisioning Profiles/$UUID.mobileprovision"
+
+          NAME="$(security cms -D -i "$RUNNER_TEMP/profile.mobileprovision" 2>/dev/null | plutil -extract Name raw - 2>/dev/null || echo '')"
+          APPID="$(security cms -D -i "$RUNNER_TEMP/profile.mobileprovision" 2>/dev/null | plutil -extract Entitlements.application-identifier raw - 2>/dev/null || echo '')"
+          echo "Provisioning profile: ${NAME:-?}  ($UUID)"
+          echo "Covers application-identifier: ${APPID:-?}"
+          # The profile must actually cover the bundle id being built, or the
+          # export fails late with a message that names neither.
+          case "$APPID" in
+            *com.thrilla-btc.thrilla|*'*') : ;;
+            *) echo "::warning::The profile covers '$APPID', which does not obviously match com.thrilla-btc.thrilla. If the export fails, this is why." ;;
+          esac
+
+          {
+            echo "SIGNING_KEYCHAIN=$KEYCHAIN"
+            echo "PROFILE_UUID=$UUID"
+            echo "PROFILE_NAME=$NAME"
+            echo "APPLE_TEAM_ID=$TEAM_ID"
+          } >> "$GITHUB_ENV"
+          echo "mode=signed" >> "$GITHUB_OUTPUT"
+
+      - name: Resolve build parameters
+        id: params
+        run: |
+          FLAVOR="${{ inputs.flavor || 'signet' }}"
+          echo "flavor=$FLAVOR" >> "$GITHUB_OUTPUT"
+          echo "ENVFILE=.env.$FLAVOR" >> "$GITHUB_ENV"
+          echo "Building the $FLAVOR flavour."
+          # Exported now, but NOT yet effective. On Android the flavour picks
+          # its env file through envConfigFiles in build.gradle; on iOS
+          # react-native-config reads ENVFILE from a build phase that this
+          # project does not have yet, so both flavours currently compile with
+          # whatever the default is. Wiring that up, and giving signet its own
+          # bundle id so the two can sit side by side, is the next step — see
+          # BUILD_IOS.md. Until then, treat the flavour input as a label.
+          echo "::warning::The flavour input does not yet change what is built on iOS: react-native-config's build phase is not wired up. See BUILD_IOS.md."
+
+      # ---- unsigned path: prove it compiles -------------------------------
+      - name: Build for the simulator
+        if: steps.signing.outputs.mode == 'simulator'
+        working-directory: ios
+        run: |
+          set -o pipefail
+          xcodebuild \
+            -workspace Thrilla.xcworkspace \
+            -scheme Thrilla \
+            -configuration Release \
+            -sdk iphonesimulator \
+            -destination 'generic/platform=iOS Simulator' \
+            -derivedDataPath build \
+            CODE_SIGNING_ALLOWED=NO \
+            build 2>&1 | tail -60
+          APP="$(find build -name 'Thrilla.app' -maxdepth 6 | head -1)"
+          test -n "$APP" || { echo "::error::the build reported success but produced no Thrilla.app"; exit 1; }
+          echo "Built $APP"
+          echo "Bundled fonts in the app:"
+          ls "$APP" | grep -i '\.ttf' || echo "  (none — fonts are not in Copy Bundle Resources yet; see BUILD_IOS.md)"
+
+      # ---- signed path: archive and export an .ipa ------------------------
+      - name: Archive
+        if: steps.signing.outputs.mode == 'signed'
+        working-directory: ios
+        run: |
+          set -o pipefail
+          xcodebuild \
+            -workspace Thrilla.xcworkspace \
+            -scheme Thrilla \
+            -configuration Release \
+            -sdk iphoneos \
+            -destination 'generic/platform=iOS' \
+            -archivePath build/Thrilla.xcarchive \
+            -derivedDataPath build \
+            DEVELOPMENT_TEAM="$APPLE_TEAM_ID" \
+            PROVISIONING_PROFILE_SPECIFIER="$PROFILE_NAME" \
+            CODE_SIGN_STYLE=Manual \
+            archive 2>&1 | tail -60
+          test -d build/Thrilla.xcarchive || { echo "::error::archive step produced no .xcarchive"; exit 1; }
+
+      - name: Export the .ipa
+        if: steps.signing.outputs.mode == 'signed'
+        working-directory: ios
+        run: |
+          set -o pipefail
+          cat > build/export.plist <<EOF
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+            <key>method</key><string>${{ inputs.exportMethod || 'development' }}</string>
+            <key>teamID</key><string>$APPLE_TEAM_ID</string>
+            <key>signingStyle</key><string>manual</string>
+            <key>provisioningProfiles</key>
+            <dict>
+              <key>com.thrilla-btc.thrilla</key><string>$PROFILE_NAME</string>
+            </dict>
+            <key>compileBitcode</key><false/>
+            <key>stripSwiftSymbols</key><true/>
+          </dict>
+          </plist>
+          EOF
+          xcodebuild -exportArchive \
+            -archivePath build/Thrilla.xcarchive \
+            -exportPath build/export \
+            -exportOptionsPlist build/export.plist 2>&1 | tail -40
+          IPA="$(find build/export -name '*.ipa' | head -1)"
+          test -n "$IPA" || { echo "::error::export produced no .ipa"; exit 1; }
+          echo "ipa=$IPA" >> "$GITHUB_ENV"
+          ls -lh "$IPA"
+
+      - name: Report what signed it
+        if: steps.signing.outputs.mode == 'signed'
+        working-directory: ios
+        run: |
+          APP="$(find build/Thrilla.xcarchive/Products/Applications -maxdepth 1 -name '*.app' | head -1)"
+          echo "Code signature:"
+          codesign -dv --verbose=2 "$APP" 2>&1 | sed 's/^/  /' || true
+          echo "Entitlements:"
+          codesign -d --entitlements :- "$APP" 2>/dev/null | plutil -p - 2>/dev/null | sed 's/^/  /' || true
+
+      - uses: actions/upload-artifact@v4
+        if: steps.signing.outputs.mode == 'signed'
+        with:
+          name: thrilla-ios-${{ steps.params.outputs.flavor }}-${{ github.sha }}
+          path: ios/${{ env.ipa }}
+          retention-days: 14
+
+      - name: Summary
+        if: always()
+        run: |
+          {
+            echo "### iOS build"
+            echo
+            if [ "${{ steps.signing.outputs.mode }}" = "signed" ]; then
+              echo "Signed \`.ipa\` attached to this run, exported as **${{ inputs.exportMethod || 'development' }}**."
+              echo
+              echo "Install it with Apple Configurator, or \`xcrun devicectl device install app --device <udid> <ipa>\`. The device must be in the provisioning profile."
+            else
+              echo "**Simulator build only — nothing installable was produced.**"
+              echo
+              echo "This run proves the Xcode project and every CocoaPod compile. An iOS build cannot be signed with a throwaway key the way an Android one can, so an installable artifact requires real Apple credentials: add \`APPLE_CERTIFICATE_P12\`, \`APPLE_CERTIFICATE_PASSWORD\`, \`APPLE_PROVISIONING_PROFILE\` and \`APPLE_TEAM_ID\`. See \`BUILD_IOS.md\`."
+            fi
+            echo
+            echo "| | |"
+            echo "|---|---|"
+            echo "| flavour | ${{ steps.params.outputs.flavor }} |"
+            echo "| mode | ${{ steps.signing.outputs.mode }} |"
+            echo "| push notifications | ${{ steps.firebase.outputs.push }} |"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Remove the keychain and profile
+        if: always()
+        run: |
+          if [ -n "${SIGNING_KEYCHAIN:-}" ]; then
+            security delete-keychain "$SIGNING_KEYCHAIN" 2>/dev/null || true
+          fi
+          rm -f "$HOME/Library/MobileDevice/Provisioning Profiles/${PROFILE_UUID:-none}.mobileprovision"
+          rm -f ios/Thrilla/GoogleService-Info.plist
