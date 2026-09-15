@@ -156,9 +156,9 @@ onUnmounted(() => clearInterval(lockTimer))
     <div class="login-inner">
       <div class="header">
         <div class="header-icon">
-          <img src="/icon.png" alt="Thrilla" />
+          <img src="/icon.png" alt="WhiSPa Wallet" />
         </div>
-        <h1>Thrilla</h1>
+        <h1>WhiSPa</h1>
         <p>Self custody · BitMail · Private payments</p>
       </div>
 
@@ -207,7 +207,7 @@ onUnmounted(() => clearInterval(lockTimer))
             </div>
 
             <div v-if="accountClosed" class="alert alert-success" style="margin-bottom:16px">
-              ✓ Your account has been closed. Thank you for using Thrilla.
+              ✓ Your account has been closed. Thank you for using WhiSPa.
             </div>
 
             <div v-if="justVerified" class="alert alert-success" style="margin-bottom:16px">
@@ -231,7 +231,7 @@ onUnmounted(() => clearInterval(lockTimer))
             <button class="btn btn-primary w-full" type="submit" :disabled="!canSubmit">
               <span v-if="auth.loading" class="spinner" style="border-top-color:#000"></span>
               <span v-else-if="isLocked">🔒 LOCKED — {{ lockRemaining }}</span>
-              <span v-else>{{ auth.loading ? 'AUTHENTICATING…' : 'THRILL ME' }}</span>
+              <span v-else>{{ auth.loading ? 'AUTHENTICATING…' : 'SIGN IN' }}</span>
             </button>
 
             <div class="login-links">
@@ -242,7 +242,7 @@ onUnmounted(() => clearInterval(lockTimer))
         </div>
       </div>
 
-      <p class="footer-note"><span class="text-orange">Thrilla</span></p>
+      <p class="footer-note"><span class="text-orange">WhiSPa</span></p>
     </div>
   </div>
 </template>

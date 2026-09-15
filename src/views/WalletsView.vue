@@ -668,7 +668,7 @@ watch(swapCompletedAt, () => {
     <div v-else-if="!wallets.length" class="card">
       <div class="card-body" style="text-align:center;padding:48px 24px">
         <div style="font-size:32px;margin-bottom:12px;opacity:.3">◈</div>
-        <p class="text-dim">No wallet yet. Create your Thrilla wallet to get started.</p>
+        <p class="text-dim">No wallet yet. Create your WhiSPa wallet to get started.</p>
         <button v-if="!atWalletLimit" class="btn btn-primary" style="margin-top:20px" @click="showCreate = true; loadTipHeight()">＋ New Wallet</button>
       </div>
     </div>
@@ -848,7 +848,7 @@ watch(swapCompletedAt, () => {
               <label>12-word Mnemonic</label>
               <SeedInput v-model="createForm.mnemonic" :rows="3" placeholder="word1 word2 word3 …" />
               <span class="text-dim text-xs">
-                Type your 12-word recovery phrase, separated by spaces. Import only a Silent Payments wallet's phrase — Thrilla derives keys at the BIP-352 path (m/352′), so a regular Bitcoin wallet phrase won't recover those coins here (it starts a new, empty SP wallet).
+                Type your 12-word recovery phrase, separated by spaces. Import only a Silent Payments wallet's phrase — WhiSPa derives keys at the BIP-352 path (m/352′), so a regular Bitcoin wallet phrase won't recover those coins here (it starts a new, empty SP wallet).
               </span>
             </div>
 

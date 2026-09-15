@@ -36,10 +36,10 @@ const error         = ref('')
 // same seed sweeps it in any wallet, not just this one. Falls back to manual
 // entry when this device doesn't hold the wallet's keys.
 //
-// Thrilla can't spend that address itself: the key for it lives in the seed,
+// WhiSPa can't spend that address itself: the key for it lives in the seed,
 // and only the Silent Payments scan/spend keys are kept on the device. So the
 // path is surfaced wherever the address is — restoring the same 12 words in any
-// BIP-84 wallet (Sparrow, Electrum) sweeps a refund without Thrilla involved.
+// BIP-84 wallet (Sparrow, Electrum) sweeps a refund without WhiSPa involved.
 const refundPath = computed(() => refundDerivationPath(NETWORK))
 
 const refundIsSp = computed(() => /^(sp1|tsp1)/i.test((refundAddress.value || '').trim()))
@@ -467,7 +467,7 @@ onBeforeUnmount(() => {
             <div class="text-xs text-dim" style="margin-top:4px">
               Your own wallet's address, derived from this wallet's seed at
               <code>{{ refundPath }}</code> — the same 12 words recover it, so
-              there's nothing extra to back up. Thrilla can't spend it (only your
+              there's nothing extra to back up. WhiSPa can't spend it (only your
               Silent Payments keys are kept on this device), so a refund that
               lands here is swept by restoring your seed in any BIP-84 wallet.
               <button type="button" class="btn btn-ghost btn-sm" @click="useDifferentRefund">Use a different address</button>

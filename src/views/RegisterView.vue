@@ -4,10 +4,10 @@
       <div class="card-body">
         <div class="login-header">
           <div class="header-icon">
-            <img src="/icon.png" alt="Thrilla" />
+            <img src="/icon.png" alt="WhiSPa Wallet" />
           </div>
           <h1>Create Account</h1>
-          <p class="text-dim">Register for Thrilla</p>
+          <p class="text-dim">Register for WhiSPa</p>
         </div>
 
         <!-- Verification email sent — replaces the form -->

@@ -1,5 +1,5 @@
 <script setup>
-const appName = import.meta.env.VITE_APP_NAME || 'Thrilla'
+const appName = import.meta.env.VITE_APP_NAME || 'WhiSPa'
 import { computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
@@ -343,7 +343,7 @@ function _isSwapPayment(p) {
   // Swap invoices are tagged 'silnt_swap'. Be robust to LNbits field shapes:
   // top-level tag, extra as an object, OR extra as a JSON *string* (LNbits often
   // returns extra stringified, in which case p.extra.tag would silently be
-  // undefined). Memo is a last-resort fallback ("Thrilla swap-in …").
+  // undefined). Memo is a last-resort fallback ("WhiSPa swap-in …").
   if (p.tag === 'silnt_swap') return true
   let ex = p.extra
   if (typeof ex === 'string') {
@@ -599,7 +599,7 @@ function logout() {
       <nav class="sidebar">
         <div class="sidebar-logo">
           <div class="logo-icon">
-            <img src="/icon.png" alt="Thrilla" />
+            <img src="/icon.png" alt="WhiSPa Wallet" />
           </div>
           <div>
             <div class="logo-title">{{ appName }}</div>
@@ -641,9 +641,9 @@ function logout() {
         <div class="mobile-header">
           <div class="mobile-logo">
             <div class="logo-icon-sm">
-              <img src="/icon.png" alt="Thrilla" />
+              <img src="/icon.png" alt="WhiSPa Wallet" />
             </div>
-            <span class="mobile-logo-text">Thrilla</span>
+            <span class="mobile-logo-text">{{ appName }}</span>
           </div>
           <div class="mobile-header-actions">
             <span

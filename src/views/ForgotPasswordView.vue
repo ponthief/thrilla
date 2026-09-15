@@ -4,7 +4,7 @@
       <div class="card-body">
         <div class="login-header">
           <div class="header-icon">
-            <img src="/icon.png" alt="Thrilla" />
+            <img src="/icon.png" alt="WhiSPa Wallet" />
           </div>
           <h1>Forgot Password</h1>
           <p class="text-dim">Reset your password via email</p>

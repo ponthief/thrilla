@@ -4,7 +4,7 @@
       <div class="card-body" style="text-align:center">
         <div class="login-header">
           <div class="header-icon">
-            <img src="/icon.png" alt="Thrilla" />
+            <img src="/icon.png" alt="WhiSPa Wallet" />
           </div>
         </div>
 
@@ -19,7 +19,7 @@
           <h2 style="margin-bottom:8px">Account activated!</h2>
           <p class="text-dim" style="margin-bottom:8px">Welcome,</p>
           <p class="mono text-orange" style="margin-bottom:24px;font-size:14px">{{ username }}</p>
-          <p class="text-dim text-sm" style="margin-bottom:24px">You can now sign in to Thrilla.</p>
+          <p class="text-dim text-sm" style="margin-bottom:24px">You can now sign in to WhiSPa.</p>
           <!-- Carries the username through, so the sign-in form arrives with it
                filled in. This page is usually opened from a mail client, in a
                different tab or browser from the one that registered, so nothing
