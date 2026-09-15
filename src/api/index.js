@@ -29,8 +29,11 @@ export function getDeviceId() {
 // ── Core request helper ───────────────────────────────────────────────────────
 async function req(url, options = {}) {
   // credentials: 'include' so the silnt_device_id cookie is sent on every request.
-  // X-Thrilla-Client marks this as the Thrilla SPA so the backend enforces device
+  // X-Thrilla-Client marks this as the WhiSPa SPA so the backend enforces device
   // trust here (the LNbits-native extension page omits it and uses LNbits auth).
+  // The header name stays X-Thrilla-Client through the rebrand: siLNt's
+  // device_auth.py compares against that exact string, so renaming it here
+  // without shipping the backend at the same moment turns device trust off.
   const devId = getDeviceId()
   const devHeader = devId ? { 'X-Silnt-Device': devId } : {}
   const resp = await fetch(BASE + url, {

@@ -12,7 +12,7 @@ export default defineConfig(({ mode }) => {
 
   // DIAGNOSTIC: print what Vite actually resolved for the backend URL at build
   // time, so a mis-set env is obvious in the build log.
-  console.log(`[thrilla build] mode=${mode}  VITE_LNBITS_URL=${JSON.stringify(env.VITE_LNBITS_URL)}  VITE_NETWORK_LOCK=${JSON.stringify(env.VITE_NETWORK_LOCK)}`)
+  console.log(`[whispa build] mode=${mode}  VITE_LNBITS_URL=${JSON.stringify(env.VITE_LNBITS_URL)}  VITE_NETWORK_LOCK=${JSON.stringify(env.VITE_NETWORK_LOCK)}`)
 
   // connect-src must allow the backend origin. For web builds the API is
   // same-origin (Caddy proxies /api on the same host) so 'self' suffices. For

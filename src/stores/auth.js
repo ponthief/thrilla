@@ -10,6 +10,16 @@ import {
 } from '@/stores/keyvault'
 
 export const useAuthStore = defineStore('auth', () => {
+  // NOTE ON THE thrilla_* KEYS BELOW — do not rename them.
+  // The app is branded WhiSPa, but these strings are storage addresses, not
+  // copy. Renaming one does not migrate the value: it points the app at an
+  // empty slot and silently abandons what is already in the browser. For
+  // sessionStorage that logs everyone out; for the localStorage wallet keys,
+  // the vault and the labels it orphans a user's encrypted material with no way
+  // back. The same goes for window.ThrillaBridge (the native host injects that
+  // exact name) and the X-Thrilla-Client header (siLNt's device_auth.py tests
+  // for that exact string). Rebranding them needs a read-old/write-new
+  // migration, not a find-and-replace.
   // Auth lives in sessionStorage so two different users in two tabs of the same
   // browser each keep their own session (localStorage would be shared and the
   // second login would clobber the first). Wallet keys stay in localStorage

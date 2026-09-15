@@ -550,7 +550,7 @@ onUnmounted(() => { _stopPoll(); _stopContactPoll() })
         <div class="card-header">Add a connection</div>
         <div class="card-body">
           <p class="text-dim text-sm">
-            Connect with another user by their <b>Thrilla username</b>. They
+            Connect with another user by their <b>WhiSPa username</b>. They
             approve the request, then you can request payments from or pay each
             other.
           </p>
