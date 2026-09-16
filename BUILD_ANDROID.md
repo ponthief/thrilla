@@ -69,16 +69,26 @@ Android's verification simply fails, the link opens in a browser, and the web
 
 | flavor | verifyHost | applicationId |
 | --- | --- | --- |
-| mainnet | `signet.thrilla.me` | `com.thrilla_btc.thrilla` |
-| signet | `signet.thrilla.me` | `com.thrilla_btc.thrilla.signet` |
+| mainnet | `signet.whispawallet.com` | `com.thrilla_btc.thrilla` |
+| signet | `signet.whispawallet.com` | `com.thrilla_btc.thrilla.signet` |
+
+The applicationIds keep the old name on purpose: they are the app's identity to
+Play and to every device that already has it installed, and changing one ships a
+second app that will not update over the first.
 
 Each must equal the host of `SILNT_FRONTEND_URL` on the LNbits instance that
 flavor talks to, because that is the host the backend puts in verification
 emails. A mismatch is silent — Android never verifies the link and it keeps
 opening in a browser.
 
-Both are `signet.thrilla.me` because that is what both backends are currently
-configured with.
+Both are `signet.whispawallet.com` because that is what both backends are
+currently configured with, after the WhiSPa rename.
+
+> **This is not verifying today.** `https://signet.whispawallet.com/.well-known/assetlinks.json`
+> returns the app's HTML, not JSON — the file has never been deployed, on the
+> old host either. So App Links have never been verified and verification
+> emails open in a browser, which works. Section 3 below is what makes the link
+> open the app instead.
 
 > **A mainnet backend pointing at the signet frontend cannot complete a
 > registration.** The token is encrypted with `settings.auth_secret_key`
@@ -115,8 +125,10 @@ keytool -list -v -keystore android/app/debug.keystore \
 
 At `https://<verifyHost>/.well-known/assetlinks.json`, as `application/json`,
 over HTTPS with no redirect. One statement per applicationId that should claim
-the URL — both flavors point at `signet.thrilla.me` today, so both belong in
-this one file:
+the URL — both flavors point at `signet.whispawallet.com` today, so both belong
+in this one file. Putting it in the web app's `public/.well-known/` is the
+simplest way to get it served, because Vite copies `public/` into `dist/`
+verbatim and that host serves the web app:
 
 ```json
 [
@@ -176,7 +188,7 @@ adb shell pm verify-app-links --re-verify com.thrilla_btc.thrilla
 
 # test the intent directly, without waiting for an email
 adb shell am start -a android.intent.action.VIEW \
-  -d "https://signet.thrilla.me/verify?token=test"
+  -d "https://signet.whispawallet.com/verify?token=test"
 ```
 
 If the host shows anything other than `verified`, the link keeps opening in the
@@ -191,12 +203,21 @@ all competing for the same RAM. On a 16GB machine that is enough to take the
 editor down mid-build, and the APK is not something you need a local toolchain
 for.
 
-`.github/workflows/build-android.yml` builds it on a GitHub runner instead:
+`.github/workflows/build-android.yml` builds it on a GitHub runner instead.
+
+**A push to `master` builds both flavours** — signet and mainnet — as two
+parallel jobs, each publishing its own rolling prerelease. `fail-fast` is off,
+so a mainnet failure does not cancel a signet build that was fine.
+
+To build one on demand:
 
 1. **Actions** → **Build Android APK** → **Run workflow**
 2. pick the branch, the flavour (`signet` / `mainnet`) and `release`
 3. when it finishes, download the APK from the run's **Artifacts**
 4. `adb install -r thrilla-signet-release-*.apk`
+
+A manual run builds only the flavour you pick, so asking for one does not cost
+you two. There is no iOS workflow — CI builds APKs only.
 
 Or from the CLI:
 
