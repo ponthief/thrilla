@@ -16,6 +16,16 @@ dist/
 
 thrilla-src.zip
 
+# Build output, not source. Two 74MB universal APKs and their SHA256SUMS were
+# committed at the repo root once and sat there stale for weeks — every clone
+# paid for them, and nothing read them: the download page fetches the sums from
+# /releases/latest/download/. The real artifacts live in GitHub releases, and
+# cut-release.sh assembles them under release/.
+*.apk
+/release/
+/SHA256SUMS
+/SHA256SUMS.asc
+
 # iOS. The Xcode project IS committed; everything CocoaPods and Xcode generate
 # from it is not. Pods/ in particular is hundreds of megabytes and is rebuilt
 # from the Podfile + package-lock.json on every machine and in CI.

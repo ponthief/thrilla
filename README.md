@@ -134,7 +134,7 @@ is protected whether or not they check anything. Publish the fingerprint so
 they *can* check:
 
 ```bash
-apksigner verify --print-certs thrilla.apk | grep -i 'SHA-256 digest'
+apksigner verify --print-certs whispa-mainnet.apk | grep -i 'SHA-256 digest'
 ```
 
 **2. A GPG signature over the checksums.** This covers the download itself,
@@ -159,7 +159,7 @@ installs and runs, which is what makes it dangerous: nothing properly signed
 can ever replace it. Set `THRILLA_RELEASE_CERT_SHA256` and it also refuses
 anything not signed by the key you expect.
 
-The assets get **stable names** — `thrilla-mainnet.apk`, `thrilla-signet.apk`,
+The assets get **stable names** — `whispa-mainnet.apk`, `whispa-signet.apk`,
 `SHA256SUMS`, `SHA256SUMS.asc` — and the release is not a prerelease. That is
 what lets the download page link to
 `releases/latest/download/thrilla-mainnet.apk` and never need editing: GitHub

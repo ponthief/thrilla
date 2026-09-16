@@ -18,8 +18,7 @@
 # download itself, before it is ever installed.
 #
 # Usage:
-#   scripts/sign-release.sh                       # sign the repo-root APKs
-#   scripts/sign-release.sh path/to/*.apk         # sign specific files
+#   scripts/sign-release.sh path/to/*.apk         # the APKs are required
 #   THRILLA_GPG_KEY=ABCD1234 scripts/sign-release.sh
 #
 # Env:
@@ -46,12 +45,17 @@ else
   die "neither sha256sum nor shasum found."
 fi
 
-# Default to the two APKs committed at the repo root.
-if [ "$#" -gt 0 ]; then
-  apks=("$@")
-else
-  apks=("$repo_root/thrilla.apk" "$repo_root/thrilla-signet.apk")
+# This used to default to two APKs committed at the repo root. Those are gone —
+# they were a stale manual build, superseded by the GitHub releases — so the
+# paths are now required. Silently signing whatever happened to be lying at the
+# repo root was the wrong default anyway: the whole point of this script is to
+# state exactly which bytes were signed, and cut-release.sh has always passed
+# the paths explicitly.
+if [ "$#" -eq 0 ]; then
+  die "pass the APKs to sign, e.g.: scripts/sign-release.sh release/whispa-mainnet.apk release/whispa-signet.apk
+(scripts/cut-release.sh does this for you.)"
 fi
+apks=("$@")
 
 for apk in "${apks[@]}"; do
   [ -f "$apk" ] || die "APK not found: $apk"
