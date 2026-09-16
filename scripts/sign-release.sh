@@ -13,7 +13,7 @@
 #
 # It also prints the APK signing certificate fingerprint. That is a DIFFERENT
 # and complementary check: Android enforces it on every update (an APK signed
-# by another key cannot replace an installed Thrilla), so it protects users who
+# by another key cannot replace an installed WhiSPa), so it protects users who
 # never verify anything by hand — which is most of them. GPG protects the
 # download itself, before it is ever installed.
 #

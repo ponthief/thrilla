@@ -181,7 +181,7 @@ sha256sum --ignore-missing -c SHA256SUMS
 
 APK signing certificate SHA-256: \`$main_cert\`
 Android enforces this on every update, so an APK signed by any other key cannot
-replace an installed Thrilla.
+replace an installed WhiSPa.
 
 \`\`\`
 $(cat "$work/SHA256SUMS")
@@ -203,7 +203,7 @@ gh release create "$tag" \
   "$work/whispa-signet.apk" \
   "$work/SHA256SUMS" \
   "$work/SHA256SUMS.asc" \
-  --title "Thrilla $tag" \
+  --title "WhiSPa $tag" \
   --notes "$notes" \
   || die "gh release create failed. The signed files are in $work — you can attach them by hand."
 
