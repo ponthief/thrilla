@@ -336,7 +336,7 @@ APK it already signed:
 
 ```bash
 keytool -list -v -keystore thrilla-release.keystore -alias thrilla | grep 'SHA256:'
-apksigner verify --print-certs thrilla.apk | grep -i 'SHA-256 digest'
+apksigner verify --print-certs whispa-mainnet.apk | grep -i 'SHA-256 digest'
 ```
 
 Colons or no colons, upper or lower case — the check normalises before
