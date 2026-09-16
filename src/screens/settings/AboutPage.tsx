@@ -8,7 +8,7 @@ export default function AboutPage({ onBack }: { onBack: () => void }) {
   return (
     <Page title="About" onBack={onBack}>
       <Group title="Version">
-        <InfoRow first title="WhiSPa" value="0.1.0" />
+        <InfoRow first title="WhiSPa" value="0.2.0" />
       </Group>
 
       <Group title="Source">

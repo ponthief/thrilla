@@ -33,8 +33,15 @@ does not block development signing onto your own device.
 
 ## What CI does today
 
-`.github/workflows/build-ios.yml`, on a `macos-14` runner. It has two modes and
-picks between them by whether the Apple secrets exist:
+**Nothing.** There is no iOS workflow: CI builds Android APKs only, both
+flavours, and `.github/workflows/build-ios.yml` was removed. The Xcode project
+in `ios/` is still here and still builds locally on a Mac — see the sections
+below — but nothing builds it automatically, so a change that breaks the iOS
+build will not be caught until someone opens Xcode.
+
+The rest of this file describes the workflow as it was, and is kept because it
+is what to restore if iOS comes back. It had two modes, chosen by whether the
+Apple secrets exist:
 
 - **No secrets → simulator build.** Compiles the app and every CocoaPod, then
   stops. This is the honest ceiling without Apple credentials: unlike Android,
@@ -107,7 +114,7 @@ Listed plainly, because each is a real gap rather than polish:
 4. **No push entitlement or associated domains.** Push needs an
    `aps-environment` entitlement and an APNs key uploaded to Firebase;
    Universal Links (the iOS counterpart of the Android App Links to
-   `signet.thrilla.me`) need an `associated-domains` entitlement and an
+   `signet.whispawallet.com`) need an `associated-domains` entitlement and an
    `apple-app-site-association` file served by that host.
 5. **Nothing has run on a real device.** The app has iOS branches throughout —
    `KeyboardAvoidingView` behaviour, Menlo fallbacks — so it was written with

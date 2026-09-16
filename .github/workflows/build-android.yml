@@ -13,6 +13,11 @@ name: Build Android APK
 # Actions tab (or `gh workflow run`), pick the flavour, and download the APK
 # from the run's artifacts.
 #
+# A push to master builds BOTH flavours — signet and mainnet — as two parallel
+# jobs, each publishing its own rolling prerelease (ci-signet-release and
+# ci-mainnet-release). A manual run still builds only the flavour you pick, so
+# asking for one does not cost you two.
+#
 # Two secrets change what comes out, and both are optional — with neither, this
 # builds a debug-signed APK with no push, which is fine for testing a change on
 # your own phone and is not shippable:
@@ -74,6 +79,16 @@ concurrency:
 
 jobs:
   build:
+    # On a push there is no `inputs`, so the matrix is both flavours. On a
+    # manual run it is the single flavour asked for. fromJSON of a string built
+    # by the ternary is the only way to make a matrix depend on the event.
+    strategy:
+      # A mainnet failure must not cancel the signet build that was fine — they
+      # share nothing but this file.
+      fail-fast: false
+      matrix:
+        flavor: ${{ fromJSON(github.event_name == 'push' && '["signet","mainnet"]' || format('["{0}"]', inputs.flavor || 'signet')) }}
+    name: ${{ matrix.flavor }} ${{ inputs.buildType || 'release' }}
     runs-on: ubuntu-latest
     # Needed only by the rolling prerelease at the end, which is what makes the
     # APK downloadable from a phone.
@@ -147,7 +162,7 @@ jobs:
           PER_SIGNET: ${{ secrets.GOOGLE_SERVICES_JSON_SIGNET }}
           PER_MAINNET: ${{ secrets.GOOGLE_SERVICES_JSON_MAINNET }}
         run: |
-          if [ "${{ inputs.flavor || 'signet' }}" = "signet" ]; then
+          if [ "${{ matrix.flavor }}" = "signet" ]; then
             GOOGLE_SERVICES_JSON="${PER_SIGNET:-$SHARED}"
             [ -n "${PER_SIGNET:-}" ] && echo "Using GOOGLE_SERVICES_JSON_SIGNET."
           else
@@ -174,7 +189,7 @@ jobs:
           # here with the package name to add, instead of leaving a Gradle
           # "No matching client found" to be deciphered.
           PKG="com.thrilla_btc.thrilla"
-          [ "${{ inputs.flavor || 'signet' }}" = "signet" ] && PKG="$PKG.signet"
+          [ "${{ matrix.flavor }}" = "signet" ] && PKG="$PKG.signet"
           python3 - "$PKG" <<'PY' || exit 1
           import json, sys
           pkg = sys.argv[1]
@@ -342,7 +357,7 @@ jobs:
       - name: Resolve build parameters
         id: params
         run: |
-          FLAVOR="${{ inputs.flavor || 'signet' }}"
+          FLAVOR="${{ matrix.flavor }}"
           TYPE="${{ inputs.buildType || 'release' }}"
           ARCHS="${{ inputs.architectures || 'arm64-v8a,armeabi-v7a' }}"
           # Gradle task names capitalise the flavour: assembleSignetRelease.

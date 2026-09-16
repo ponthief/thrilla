@@ -101,8 +101,13 @@ android {
         applicationId "com.thrilla_btc.thrilla"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 1
-        versionName "1.0"
+        // versionCode must strictly increase for Android to accept an update;
+        // it sat at 1 through every release so far, so an install over an
+        // existing build was a reinstall rather than an upgrade. versionName is
+        // what a user sees and now matches package.json and the About page,
+        // instead of the "1.0" left over from the React Native template.
+        versionCode 2
+        versionName "0.2.0"
 
         // react-native-config resolves Config.* at runtime from
         // "<package>.BuildConfig" using getPackageName() (the applicationId).
