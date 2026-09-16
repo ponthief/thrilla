@@ -15,7 +15,7 @@ normal reused address, and without running an interactive server to hand out
 fresh addresses.
 
 - **Reusable, shareable address.** Publish your `sp1…` address (QR, link, or a
-  memorable **BitMail** name like `you@thrilla.me` via
+  memorable **BitMail** name like `you@whispawallet.com` via
   [BIP-353](https://github.com/bitcoin/bips/blob/master/bip-0353.mediawiki)).
 - **Self-custodial.** Keys are derived **on-device** from a BIP-39 seed at the
   BIP-352 path (`m/352'`). Your **spend key never leaves the phone**. The scan
@@ -182,14 +182,14 @@ First time only, create a signing key and export the public half:
 
 ```bash
 gpg --quick-generate-key "Thrilla <you@example.com>" ed25519 sign 3y
-gpg --armor --export "you@example.com" > thrilla-signing-key.asc
+gpg --armor --export "you@example.com" > whispa-signing-key.asc
 ```
 
 Then publish, per release:
 
 - `SHA256SUMS` and `SHA256SUMS.asc` next to the APKs
-- `thrilla-signing-key.asc` on the site (once)
-- the key fingerprint in `download.html` on thrilla.me (the `#fp` div, in the siLNt repo)
+- `whispa-signing-key.asc` on the site (once)
+- the key fingerprint in `download.html` on whispawallet.com (the `#fp` div, in the siLNt repo)
 
 **Publish the fingerprint somewhere other than the download page too** — the
 GitHub profile, X, the Telegram channel. Someone who can serve a fake APK from

@@ -9,7 +9,7 @@
 #
 # Signing the checksum file rather than each APK is deliberate: one signature
 # covers every artifact, and it's the layout Bitcoin Core and Tor use, so the
-# verification steps on thrilla.me are the ones people may already know.
+# verification steps on whispawallet.com are the ones people may already know.
 #
 # It also prints the APK signing certificate fingerprint. That is a DIFFERENT
 # and complementary check: Android enforces it on every update (an APK signed
@@ -81,7 +81,7 @@ if [ -z "$gpg_key" ]; then
   if [ "${secret_count:-0}" -gt 1 ]; then
     echo "Note: $secret_count secret keys in this keyring and no THRILLA_GPG_KEY set —"
     echo "gpg will use its default. Check the fingerprint printed below is the one"
-    echo "published on thrilla.me, or re-run with THRILLA_GPG_KEY=<key-id>."
+    echo "published on whispawallet.com, or re-run with THRILLA_GPG_KEY=<key-id>."
     echo
   fi
 fi
@@ -154,4 +154,4 @@ fi
 
 echo
 echo "Next: publish SHA256SUMS and SHA256SUMS.asc alongside the APKs,"
-echo "and make sure the fingerprint above matches the one on thrilla.me/download.html."
+echo "and make sure the fingerprint above matches the one on whispawallet.com/download.html."

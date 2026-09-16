@@ -219,7 +219,7 @@ jobs:
 
       # Release signing with the real key, when the secrets are set:
       #
-      #   RELEASE_KEYSTORE_BASE64   base64 -w0 thrilla-release.keystore
+      #   RELEASE_KEYSTORE_BASE64   base64 -w0 <your>-release.keystore
       #   RELEASE_STORE_PASSWORD
       #   RELEASE_KEY_ALIAS
       #   RELEASE_KEY_PASSWORD      optional — JKS with a per-key password only
@@ -474,7 +474,7 @@ jobs:
         # into circulation, so the test publishes nothing at all.
         if: steps.signing.outputs.mode != 'selftest'
         with:
-          name: thrilla-${{ steps.params.outputs.flavor }}-${{ steps.params.outputs.type }}-${{ github.sha }}
+          name: whispa-${{ steps.params.outputs.flavor }}-${{ steps.params.outputs.type }}-${{ github.sha }}
           path: ${{ steps.apk.outputs.path }}
           retention-days: 14
 
@@ -483,7 +483,7 @@ jobs:
       # fixed URL you can open in the phone's browser and install straight from
       # Downloads:
       #
-      #   github.com/<repo>/releases/download/ci-<flavor>-<type>/thrilla-<flavor>-<type>.apk
+      #   github.com/<repo>/releases/download/ci-<flavor>-<type>/whispa-<flavor>-<type>.apk
       #
       # Deliberately a PRERELEASE, so nothing consuming real releases picks it up.
       #
@@ -502,11 +502,11 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           TAG="ci-${{ steps.params.outputs.flavor }}-${{ steps.params.outputs.type }}"
-          NAME="thrilla-${{ steps.params.outputs.flavor }}-${{ steps.params.outputs.type }}.apk"
+          NAME="whispa-${{ steps.params.outputs.flavor }}-${{ steps.params.outputs.type }}.apk"
           cp "${{ steps.apk.outputs.path }}" "$NAME"
 
           if [ "${{ steps.cert.outputs.signed }}" = "release" ]; then
-            NOTE="Signed with the real release key, so this is publishable and installs over an existing Thrilla."
+            NOTE="Signed with the real release key, so this is publishable and installs over an existing WhiSPa."
           else
             NOTE="Signed with the **debug** keystore: it installs and runs, but is not shippable and will not install over a build signed with the release key. Uninstall first if you are switching."
           fi
@@ -545,6 +545,18 @@ jobs:
             echo "Updating the existing $TAG release in place."
             gh release upload "$TAG" "$NAME" --clobber || { refused; exit 1; }
             gh release edit "$TAG" --notes "$NOTES" --prerelease || { refused; exit 1; }
+            # These releases are rolling, and the asset was called
+            # thrilla-<flavor>-<type>.apk until the WhiSPa rename. --clobber
+            # only replaces a file of the SAME name, so the old one would sit
+            # here forever behind a URL that still resolves — handing whoever
+            # has it a build from before the rename, indefinitely. Remove it.
+            LEGACY="thrilla-${{ steps.params.outputs.flavor }}-${{ steps.params.outputs.type }}.apk"
+            if gh release view "$TAG" --json assets \
+                 --jq '.assets[].name' 2>/dev/null | grep -qx "$LEGACY"; then
+              echo "Deleting the pre-rename asset $LEGACY."
+              gh release delete-asset "$TAG" "$LEGACY" --yes \
+                || echo "::warning::could not delete $LEGACY — it will keep serving a stale build."
+            fi
           else
             echo "Creating the $TAG release."
             gh release create "$TAG" "$NAME" \
