@@ -376,7 +376,7 @@ export default function CreateWalletModal({ visible, onClose, onCreated }: Props
                   />
                   <Text style={styles.hint}>
                     Import only a Silent Payments wallet's recovery phrase.
-                    Thrilla derives keys at the BIP-352 path (m/352′), so a
+                    WhiSPa derives keys at the BIP-352 path (m/352′), so a
                     regular Bitcoin wallet phrase won't recover those coins here
                     — it would just start a new, empty SP wallet.
                   </Text>

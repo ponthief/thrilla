@@ -21,7 +21,7 @@ export function plainAccountPath(network: string): string {
 // BIP-84 external chain — where a failed swap's refund lands, and where coins
 // paid by anything that can't send to a Silent Payments address arrive.
 // Standard on purpose: the same seed reaches it in Sparrow, Electrum or any
-// other wallet, which is what makes the funds recoverable without Thrilla.
+// other wallet, which is what makes the funds recoverable without WhiSPa.
 export function refundDerivationPath(network: string, index = 0): string {
   return `${plainAccountPath(network)}/0/${index}`;
 }

@@ -171,7 +171,7 @@ export default function LockScreen() {
             resizeMode="contain"
           />
           <Text style={styles.title}>Enter your PIN</Text>
-          <Text style={styles.subtitle}>Enter your PIN to unlock Thrilla.</Text>
+          <Text style={styles.subtitle}>Enter your PIN to unlock WhiSPa.</Text>
 
           <PinPad
             value={pin}
@@ -221,7 +221,7 @@ export default function LockScreen() {
           style={styles.logo}
           resizeMode="contain"
         />
-        <Text style={styles.title}>Thrilla is locked</Text>
+        <Text style={styles.title}>WhiSPa is locked</Text>
         <Text style={styles.subtitle}>
           Unlock with your fingerprint, face, or device PIN to continue.
         </Text>

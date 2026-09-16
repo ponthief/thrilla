@@ -17,7 +17,7 @@ export default function NotificationsPage({ onBack }: { onBack: () => void }) {
   const [permBlocked, setPermBlocked] = useState(false);
 
   // Alerts can be on in the app while the phone blocks notifications for
-  // Thrilla (permission denied, or revoked later in system settings) — say so
+  // WhiSPa (permission denied, or revoked later in system settings) — say so
   // instead of showing a switch that promises alerts the OS will drop. Checked
   // on mount, so returning from system settings and reopening this page picks
   // up a fresh grant.
@@ -49,7 +49,7 @@ export default function NotificationsPage({ onBack }: { onBack: () => void }) {
           if (!(await ensureNotificationPermission())) {
             setPermBlocked(true);
             setMsg(
-              "Notifications are blocked for Thrilla in your phone's settings. Allow them there, then turn this on again.",
+              "Notifications are blocked for WhiSPa in your phone's settings. Allow them there, then turn this on again.",
             );
             return;
           }
@@ -91,7 +91,7 @@ export default function NotificationsPage({ onBack }: { onBack: () => void }) {
         ) : permBlocked ? (
           <Block>
             <Note kind="error">
-              Your phone is blocking notifications for Thrilla, so alerts will
+              Your phone is blocking notifications for WhiSPa, so alerts will
               not appear while the app is closed.
             </Note>
           </Block>

@@ -77,7 +77,7 @@ export default function QRScanner({ visible, onClose, onScanned }: Props) {
         ) : perm === 'denied' ? (
           <View style={styles.center}>
             <Text style={styles.msg}>
-              Camera permission is required to scan. Enable it for Thrilla in
+              Camera permission is required to scan. Enable it for WhiSPa in
               your device settings.
             </Text>
           </View>

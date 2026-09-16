@@ -61,7 +61,7 @@ export default function LoginScreen({ onCreateAccount, onForgotPassword }: Props
             style={styles.logo}
             resizeMode="contain"
           />
-          <Text style={styles.title}>Thrilla</Text>
+          <Text style={styles.title}>WhiSPa</Text>
           <Text style={styles.subtitle}>Bitcoin Silent Payments Wallet</Text>
 
           <View style={styles.form}>

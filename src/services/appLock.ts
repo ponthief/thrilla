@@ -37,7 +37,7 @@ export async function isEnabled(): Promise<boolean> {
 
 // Prompt the device for biometric/credential unlock. Returns true on success.
 export async function authenticate(
-  title = 'Unlock Thrilla',
+  title = 'Unlock WhiSPa',
 ): Promise<boolean> {
   try {
     const res = await Keychain.getGenericPassword({
