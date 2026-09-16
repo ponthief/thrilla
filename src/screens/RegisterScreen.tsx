@@ -296,7 +296,7 @@ export default function RegisterScreen({ onBackToLogin }: Props) {
             resizeMode="contain"
           />
           <Text style={styles.title}>Create Account</Text>
-          <Text style={styles.subtitle}>Register for Thrilla</Text>
+          <Text style={styles.subtitle}>Register for WhiSPa</Text>
 
           <View style={styles.form}>
             <Text style={styles.label}>Username</Text>

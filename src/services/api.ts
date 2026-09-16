@@ -411,7 +411,7 @@ export async function requestPasswordReset(email: string): Promise<unknown> {
   });
 }
 
-// Invite a friend to Thrilla by email. The server emails a fixed invite (naming
+// Invite a friend to WhiSPa by email. The server emails a fixed invite (naming
 // the inviter) with a sign-up link; the address is used only for that one
 // message. Requires a trusted device (invoice key). Rate-limited server-side.
 export async function sendInvite(

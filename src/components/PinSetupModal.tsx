@@ -99,7 +99,7 @@ export default function PinSetupModal({ visible, mode, onClose, onDone }: Props)
           <Text style={styles.sub}>
             {mode === 'duress'
               ? "Entering this PIN at the lock screen silently wipes this device's wallet keys. Pick one different from your normal PIN."
-              : "You'll enter this 6-digit PIN to unlock Thrilla."}
+              : "You'll enter this 6-digit PIN to unlock WhiSPa."}
           </Text>
 
           <PinPad

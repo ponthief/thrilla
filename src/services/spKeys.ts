@@ -130,7 +130,7 @@ export function validateNewWalletPassphrase(passphrase: string): string | null {
 // that is already the risky one. Deriving it from the wallet's own seed makes
 // the destination self-custodial with no extra backup: the standard BIP-84
 // path means the same 12 words recover it in Electrum, Sparrow or any other
-// wallet, not just Thrilla.
+// wallet, not just WhiSPa.
 //
 // Address reuse: index 0 is what gets derived and stored at wallet creation, so
 // repeated refunds to the same wallet cluster on one address. That's an

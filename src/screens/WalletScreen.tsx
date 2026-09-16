@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
+  Image,
   RefreshControl,
   ScrollView,
   StyleSheet,
@@ -8,6 +9,7 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
+import Config from 'react-native-config';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAuthStore } from '@stores/authStore';
 import { useWalletStore } from '@stores/walletStore';
@@ -27,6 +29,10 @@ import { useSeedBackup } from '@stores/seedBackup';
 import { useNavStore } from '@stores/navStore';
 import { useTxLabelStore } from '@stores/txLabelStore';
 import { useCatchUpScan } from '../hooks/useCatchUpScan';
+
+// Falls back to the brand rather than to an empty header: Config is empty in a
+// plain `react-native start` session with no env file selected.
+const APP_NAME = Config.APP_NAME || 'WhiSPa';
 
 function normalizeTime(t?: number | string | null): number | null {
   if (t == null) return null;
@@ -314,6 +320,24 @@ export default function WalletScreen() {
         refreshControl={
           <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
         }>
+        {/* The wallet tab is the first thing shown after signing in, and until
+            now nothing in the app named itself once you were past the login
+            screen — the launcher icon was the only branding. Config.APP_NAME is
+            the same value as the launcher label, so a Signet build says "WhiSPa
+            Signet" here and there is no second copy to keep in sync. */}
+        <View style={styles.brand}>
+          <Image
+            source={require('../assets/icon.png')}
+            style={styles.brandMark}
+            resizeMode="contain"
+            accessibilityIgnoresInvertColors
+          />
+          <View style={styles.brandText}>
+            <Text style={styles.brandName}>{APP_NAME}</Text>
+            <Text style={styles.brandSub}>Silent Payments</Text>
+          </View>
+        </View>
+
         {LIGHTNING_ENABLED ? (
           <View style={styles.segment}>
             <SegmentButton
@@ -345,7 +369,7 @@ export default function WalletScreen() {
             <Text style={styles.emptyIcon}>🔒</Text>
             <Text style={styles.emptyTitle}>No wallet yet</Text>
             <Text style={styles.emptyBody}>
-              Create your Thrilla Silent Payments wallet to start receiving.
+              Create your WhiSPa Silent Payments wallet to start receiving.
             </Text>
             <TouchableOpacity
               style={styles.createBtn}
@@ -554,6 +578,29 @@ function SegmentButton({
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.bg },
+  brand: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    marginBottom: 14,
+  },
+  // The mark is a dark rounded card in the artwork, so it needs no background
+  // of its own against colors.bg.
+  brandMark: { width: 34, height: 34, borderRadius: 8 },
+  brandText: { justifyContent: 'center' },
+  brandName: {
+    color: colors.text,
+    fontSize: 17,
+    fontWeight: '600',
+    letterSpacing: -0.2,
+    lineHeight: 20,
+  },
+  brandSub: {
+    color: colors.muted,
+    fontSize: 11.5,
+    letterSpacing: 0.4,
+    lineHeight: 14,
+  },
   content: { flex: 1, padding: 16 },
   segment: {
     flexDirection: 'row',
