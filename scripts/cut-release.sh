@@ -6,7 +6,7 @@
 # that key is deliberately not on the build machine, because a key CI can reach
 # is a key anyone with push access can reach. So the last step happens here, on
 # the machine that holds the key, and it is the step that makes a download
-# verifiable against something an attacker who owns thrilla.me cannot forge.
+# verifiable against something an attacker who owns whispawallet.com cannot forge.
 #
 # Usage:
 #   scripts/cut-release.sh v0.1.1                       # fetch the CI builds
@@ -22,7 +22,7 @@
 # What it publishes, under stable asset names so the download page never needs
 # editing again:
 #
-#   thrilla-mainnet.apk  thrilla-signet.apk  SHA256SUMS  SHA256SUMS.asc
+#   whispa-mainnet.apk  whispa-signet.apk  SHA256SUMS  SHA256SUMS.asc
 #
 # The page links to /releases/latest/download/<name>, which GitHub resolves to
 # the newest release that is NOT a prerelease — so the rolling ci-* builds are
@@ -67,8 +67,8 @@ step "Collecting APKs"
 if [ "$#" -eq 2 ]; then
   [ -f "$1" ] || die "not found: $1"
   [ -f "$2" ] || die "not found: $2"
-  cp "$1" "$work/thrilla-mainnet.apk"
-  cp "$2" "$work/thrilla-signet.apk"
+  cp "$1" "$work/whispa-mainnet.apk"
+  cp "$2" "$work/whispa-signet.apk"
   note "mainnet ← $1"
   note "signet  ← $2"
 elif [ "$#" -eq 0 ]; then
@@ -78,9 +78,9 @@ elif [ "$#" -eq 0 ]; then
   for net in mainnet signet; do
     note "downloading the ci-$net-release build…"
     gh release download "ci-$net-release" \
-       --pattern "thrilla-$net-release.apk" --dir "$work" --clobber \
-      || die "could not download thrilla-$net-release.apk from the ci-$net-release release. Either that release does not exist yet — run the Build Android APK workflow for the $net flavour — or this account cannot read it. Check with: gh release view ci-$net-release"
-    mv "$work/thrilla-$net-release.apk" "$work/thrilla-$net.apk"
+       --pattern "whispa-$net-release.apk" --dir "$work" --clobber \
+      || die "could not download whispa-$net-release.apk from the ci-$net-release release. Either that release does not exist yet — run the Build Android APK workflow for the $net flavour — or this account cannot read it. Check with: gh release view ci-$net-release"
+    mv "$work/whispa-$net-release.apk" "$work/whispa-$net.apk"
   done
 else
   die "pass either no APKs (fetch from CI) or exactly two: mainnet then signet."
@@ -116,8 +116,8 @@ if blocks:
 PY
 }
 
-main_cert="$(cert_of "$work/thrilla-mainnet.apk")"
-sig_cert="$(cert_of "$work/thrilla-signet.apk")"
+main_cert="$(cert_of "$work/whispa-mainnet.apk")"
+sig_cert="$(cert_of "$work/whispa-signet.apk")"
 
 if [ -z "$main_cert" ] || [ -z "$sig_cert" ]; then
   die "could not read a signing certificate from the APKs. Install the Android SDK build-tools (for apksigner) or python3+openssl, and try again — publishing without knowing which key signed a wallet is not a thing to do."
@@ -147,13 +147,13 @@ if [ -n "$want" ]; then
   note "matches THRILLA_RELEASE_CERT_SHA256 ✓"
 else
   note "no THRILLA_RELEASE_CERT_SHA256 set — not checked against an expected value."
-  note "This must equal the fingerprint published on thrilla.me, or users who"
+  note "This must equal the fingerprint published on whispawallet.com, or users who"
   note "verify will be told your own release is not yours."
 fi
 
 # ------------------------------------------------------------ checksum and sign
 step "Checksumming and signing"
-"$repo_root/scripts/sign-release.sh" "$work/thrilla-mainnet.apk" "$work/thrilla-signet.apk"
+"$repo_root/scripts/sign-release.sh" "$work/whispa-mainnet.apk" "$work/whispa-signet.apk"
 
 for f in SHA256SUMS SHA256SUMS.asc; do
   [ -s "$work/$f" ] || die "$f was not produced; not publishing."
@@ -172,7 +172,7 @@ notes="$(cat <<EOF
 Android builds for mainnet and Signet. The Signet build installs alongside the
 mainnet one.
 
-**Verify before installing** — see [thrilla.me/download.html#verify](https://thrilla.me/download.html#verify):
+**Verify before installing** — see [whispawallet.com/download.html#verify](https://whispawallet.com/download.html#verify):
 
 \`\`\`
 gpg --verify SHA256SUMS.asc SHA256SUMS
@@ -199,8 +199,8 @@ fi
 step "Creating release $tag"
 need_gh "needed to create the release"
 gh release create "$tag" \
-  "$work/thrilla-mainnet.apk" \
-  "$work/thrilla-signet.apk" \
+  "$work/whispa-mainnet.apk" \
+  "$work/whispa-signet.apk" \
   "$work/SHA256SUMS" \
   "$work/SHA256SUMS.asc" \
   --title "Thrilla $tag" \
@@ -214,8 +214,8 @@ gh release create "$tag" \
 step "Done"
 note "https://github.com/ponthief/thrilla/releases/tag/$tag"
 note "The download page picks this up automatically:"
-note "  https://github.com/ponthief/thrilla/releases/latest/download/thrilla-mainnet.apk"
-note "  https://github.com/ponthief/thrilla/releases/latest/download/thrilla-signet.apk"
+note "  https://github.com/ponthief/thrilla/releases/latest/download/whispa-mainnet.apk"
+note "  https://github.com/ponthief/thrilla/releases/latest/download/whispa-signet.apk"
 note ""
-note "Check the fingerprint above still matches thrilla.me/download.html, and"
+note "Check the fingerprint above still matches whispawallet.com/download.html, and"
 note "that it is also stated somewhere other than that page."
