@@ -109,7 +109,16 @@ jobs:
           java-version: '17'
           distribution: temurin
 
+      # packages: the action's default is "tools platform-tools", and `tools`
+      # is the obsolete SDK Tools package Google has since removed from the
+      # repository — so the default now fails the job outright, eight seconds
+      # in, with "Warning: Failed to find package 'tools'" followed by
+      # sdkmanager exit 1. Runs 21 and 22 died here, before a line of this
+      # project's own build ran. Ask for platform-tools only; the runner image
+      # already carries the rest, and Gradle fetches whatever else it needs.
       - uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
 
       # Caches ~/.gradle across runs, so a rebuild is a few minutes rather than
       # a cold one every time.
