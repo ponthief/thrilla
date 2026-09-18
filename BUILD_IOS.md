@@ -33,15 +33,13 @@ does not block development signing onto your own device.
 
 ## What CI does today
 
-**Nothing.** There is no iOS workflow: CI builds Android APKs only, both
-flavours, and `.github/workflows/build-ios.yml` was removed. The Xcode project
-in `ios/` is still here and still builds locally on a Mac — see the sections
-below — but nothing builds it automatically, so a change that breaks the iOS
-build will not be caught until someone opens Xcode.
+`.github/workflows/build-ios.yml`, on a `macos-14` runner. It runs on
+`workflow_dispatch` and on pushes to `master` that touch `ios/**`,
+`package.json`, `package-lock.json` or the workflow itself — a JS-only commit
+cannot trigger it, because macOS runner minutes bill at ten times the Linux
+rate on a private repository.
 
-The rest of this file describes the workflow as it was, and is kept because it
-is what to restore if iOS comes back. It had two modes, chosen by whether the
-Apple secrets exist:
+It has two modes, chosen by whether the Apple secrets exist:
 
 - **No secrets → simulator build.** Compiles the app and every CocoaPod, then
   stops. This is the honest ceiling without Apple credentials: unlike Android,
