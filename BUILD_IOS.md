@@ -13,7 +13,7 @@ counterpart. Every route to an iPhone that is not yours goes through Apple:
 
 | Route | Reach | What it costs |
 |---|---|---|
-| Simulator build | nobody | nothing; proves the code compiles |
+| Unsigned simulator build | no physical device; simulators only, local or on a device cloud | nothing |
 | Development signing | devices in your provisioning profile | Apple Developer Program |
 | Ad-hoc distribution | up to 100 devices/year, by UDID | as above, plus collecting UDIDs |
 | TestFlight | 10,000 external testers | as above, plus Apple review of the build; builds expire after 90 days |
@@ -41,14 +41,56 @@ rate on a private repository.
 
 It has two modes, chosen by whether the Apple secrets exist:
 
-- **No secrets → simulator build.** Compiles the app and every CocoaPod, then
-  stops. This is the honest ceiling without Apple credentials: unlike Android,
-  where a throwaway keystore produces a real installable APK, an iOS build
-  cannot be signed with a key you invent. A green compile is still the thing
-  most likely to break, so it is worth running.
+- **No secrets → unsigned simulator build.** Compiles the app and every
+  CocoaPod, verifies the binary has an `arm64` slice, and attaches
+  `Thrilla-simulator.zip` (the `.app` at the archive root) to the run. This is
+  the ceiling without Apple credentials: unlike Android, where a throwaway
+  keystore produces a real installable APK, an iOS build cannot be signed with
+  a key you invent, so **no physical iPhone will run it**. Simulators will —
+  see *Testing unsigned on a device cloud* below.
 - **Secrets set → signed `.ipa`.** Archives, exports with the method you choose
   (`development`, `ad-hoc`, `app-store`), reports the resulting code signature
   and entitlements, and attaches the `.ipa` to the run.
+
+### Testing unsigned on a device cloud
+
+Simulators do not enforce code signing; physical devices do, absolutely. That
+split decides what a device cloud can do with an unsigned build:
+
+| | Unsigned zipped `.app` | Signed `.ipa` |
+|---|---|---|
+| LambdaTest **simulator** session | works | n/a |
+| LambdaTest **real device** cloud | rejected — the upload accepts only `.ipa` | works, if the UDID is in the profile |
+
+LambdaTest's own [iOS simulator
+troubleshooting](https://www.lambdatest.com/support/docs/troubleshooting-ios-app-testing/)
+documents the simulator path and states two hard requirements, both of which
+this workflow now satisfies and checks:
+
+- the build must include the **arm64** architecture (`lipo -archs` is asserted
+  in the job, which fails the build rather than the upload);
+- the `.app` bundle must be at the **root of the archive** (`ditto -c -k
+  --keepParent`, which also preserves the symlinks a plain `zip` mangles).
+
+Signing is not mentioned on that page, and there is nothing to mention: a
+simulator build has no signature to validate. Their [real-device
+upload](https://www.lambdatest.com/support/docs/upload-apps-on-real-device-cloud/)
+page, by contrast, takes `.ipa` only — so the moment testing needs real
+hardware, the Apple secrets below become unavoidable.
+
+Locally the same zip runs with:
+
+```bash
+unzip Thrilla-simulator.zip
+xcrun simctl boot 'iPhone 15' 2>/dev/null; open -a Simulator
+xcrun simctl install booted Thrilla.app
+xcrun simctl launch booted com.thrilla-btc.thrilla
+```
+
+One caveat that is nothing to do with signing: the flavour input does not yet
+change what iOS builds (`react-native-config`'s build phase is not wired up, see
+below), so whichever flavour you dispatch, the simulator app talks to the
+default backend.
 
 ### Secrets for the signed path
 

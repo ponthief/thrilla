@@ -11,16 +11,19 @@ name: Build iOS
 # Builds the iOS app on a macOS runner. Two modes, and which one you get
 # depends entirely on whether the Apple signing secrets exist:
 #
-#   no secrets  → compiles for the SIMULATOR and stops. Proves the project and
-#                 every pod build, which is the thing that actually breaks, and
-#                 needs no Apple Developer account at all.
+#   no secrets  → builds an UNSIGNED simulator .app, zipped with the bundle at
+#                 the archive root. Needs no Apple Developer account at all.
+#                 Runs in a local simulator and in a device cloud's simulator
+#                 session (LambdaTest takes this zip directly).
 #   secrets set → archives and exports a signed .ipa you can install on a
-#                 registered device.
+#                 registered physical device.
 #
-# The simulator path is not a consolation prize: unlike Android, an iOS build
-# cannot be signed with a throwaway key, so without Apple credentials there is
-# no such thing as an installable artifact. A green compile is the whole of
-# what CI can honestly assert in that case, and it is worth having.
+# The simulator path is not a consolation prize, but it is not a substitute for
+# the signed one either. Simulators do not enforce code signing, so an unsigned
+# .app is genuinely testable there; real devices enforce it absolutely, accept
+# only a signed .ipa, and an iOS build cannot be signed with a throwaway key
+# the way an Android one can. So: unsigned covers simulators, and nothing else
+# covers hardware.
 #
 # Secrets, when you want the .ipa (see BUILD_IOS.md for how to produce each):
 #
@@ -245,12 +248,21 @@ jobs:
           # BUILD_IOS.md. Until then, treat the flavour input as a label.
           echo "::warning::The flavour input does not yet change what is built on iOS: react-native-config's build phase is not wired up. See BUILD_IOS.md."
 
-      # ---- unsigned path: prove it compiles -------------------------------
+      # ---- unsigned path: a simulator .app you can actually run -----------
+      # Unsigned is not only a compile check. Simulators do not enforce code
+      # signing, so an unsigned .app is a testable artifact — device clouds
+      # (LambdaTest among them) take a zipped .app for simulator sessions. Real
+      # devices still need the signed .ipa below; there is no way around that.
       - name: Build for the simulator
         if: steps.signing.outputs.mode == 'simulator'
         working-directory: ios
         run: |
           set -o pipefail
+          # No -arch: Release leaves ONLY_ACTIVE_ARCH off, so this builds the
+          # standard simulator set (arm64 and x86_64) and runs on an Apple
+          # silicon or an Intel simulator host alike. Pinning -arch arm64 would
+          # satisfy the clouds that require arm64 and break the ones that do
+          # not have it, so the set is verified below rather than narrowed.
           xcodebuild \
             -workspace Thrilla.xcworkspace \
             -scheme Thrilla \
@@ -265,6 +277,26 @@ jobs:
           echo "Built $APP"
           echo "Bundled fonts in the app:"
           ls "$APP" | grep -i '\.ttf' || echo "  (none — fonts are not in Copy Bundle Resources yet; see BUILD_IOS.md)"
+
+          # Read the executable's name rather than assuming it matches the
+          # bundle's: PRODUCT_NAME and the .app name are separate settings, and
+          # a wrong guess here would make lipo fail on a perfectly good build.
+          EXE="$(plutil -extract CFBundleExecutable raw "$APP/Info.plist" 2>/dev/null || echo Thrilla)"
+          ARCHS="$(lipo -archs "$APP/$EXE" 2>/dev/null || echo '?')"
+          echo "Architectures in the binary: $ARCHS"
+          case "$ARCHS" in
+            *arm64*) : ;;
+            *) echo "::error::the simulator binary has no arm64 slice ($ARCHS). Device clouds that run simulators on Apple silicon — LambdaTest requires this — will reject it."; exit 1 ;;
+          esac
+
+          # The .app bundle has to sit at the ROOT of the archive, not inside a
+          # build directory, or the upload is rejected as not an app. ditto
+          # --keepParent does exactly that and, unlike `zip`, preserves the
+          # symlinks and resource forks inside a bundle.
+          mkdir -p build/upload
+          ditto -c -k --sequesterRsrc --keepParent "$APP" build/upload/Thrilla-simulator.zip
+          unzip -l build/upload/Thrilla-simulator.zip | head -5
+          ls -lh build/upload/Thrilla-simulator.zip
 
       # ---- signed path: archive and export an .ipa ------------------------
       - name: Archive
@@ -334,6 +366,15 @@ jobs:
           path: ios/${{ env.ipa }}
           retention-days: 14
 
+      # The simulator build used to be thrown away. It is the artifact you
+      # upload for a simulator session on a device cloud, so keep it.
+      - uses: actions/upload-artifact@v4
+        if: steps.signing.outputs.mode == 'simulator'
+        with:
+          name: whispa-ios-simulator-${{ steps.params.outputs.flavor }}-${{ github.sha }}
+          path: ios/build/upload/Thrilla-simulator.zip
+          retention-days: 14
+
       - name: Summary
         if: always()
         run: |
@@ -345,9 +386,11 @@ jobs:
               echo
               echo "Install it with Apple Configurator, or \`xcrun devicectl device install app --device <udid> <ipa>\`. The device must be in the provisioning profile."
             else
-              echo "**Simulator build only — nothing installable was produced.**"
+              echo "**Unsigned simulator build** — \`Thrilla-simulator.zip\` attached to this run."
               echo
-              echo "This run proves the Xcode project and every CocoaPod compile. An iOS build cannot be signed with a throwaway key the way an Android one can, so an installable artifact requires real Apple credentials: add \`APPLE_CERTIFICATE_P12\`, \`APPLE_CERTIFICATE_PASSWORD\`, \`APPLE_PROVISIONING_PROFILE\` and \`APPLE_TEAM_ID\`. See \`BUILD_IOS.md\`."
+              echo "Run it locally with \`xcrun simctl install booted Thrilla.app\`, or upload the zip as-is to a device cloud's *simulator* app slot (LambdaTest: **App Automation → Upload**, or its REST upload endpoint). The \`.app\` is at the root of the archive and carries an arm64 slice, which is what those uploads check."
+              echo
+              echo "**Real iOS devices cannot run this.** They accept only a signed \`.ipa\`, and an iOS build cannot be signed with a throwaway key the way an Android one can — that needs real Apple credentials: \`APPLE_CERTIFICATE_P12\`, \`APPLE_CERTIFICATE_PASSWORD\`, \`APPLE_PROVISIONING_PROFILE\` and \`APPLE_TEAM_ID\`. See \`BUILD_IOS.md\`."
             fi
             echo
             echo "| | |"
