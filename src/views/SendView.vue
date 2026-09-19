@@ -119,12 +119,37 @@ const feeExceedsFunds = computed(() => {
   return (Number(amount.value) + estimatedFee.value) > selectedTotal.value
 })
 
+// The builder's dust floor (helpers/wallet.py DUST_SATS). Stricter than Bitcoin
+// Core's 330-sat relay floor for a P2TR output, and the same number that flags a
+// received output as suspected dust.
+const DUST_SATS = 546
+// What is left to send once the fee is paid.
+const maxSendable = computed(() =>
+  selectedTotal.value > 0 ? selectedTotal.value - estimatedFee.value : 0,
+)
+const belowDust = computed(() => {
+  const a = Number(amount.value) || 0
+  return a > 0 && a < DUST_SATS
+})
+// A selection so small that no amount works — checking amount + fee ≤ total
+// misses it, because a sub-dust amount IS affordable. It is just not payable.
+const selectionTooSmall = computed(() =>
+  selectedUtxos.value.length > 0 &&
+  Number(feeRate.value) > 0 &&
+  maxSendable.value < DUST_SATS,
+)
+
 const canBuild = computed(() =>
   selectedWallet.value &&
   recipient.value.trim() &&
   amount.value > 0 &&
   selectedUtxos.value.length > 0 &&
   feeRate.value > 0 &&
+  // These three were computed and displayed but never gated on, so Build stayed
+  // enabled through a warning the user could simply click past.
+  !feeExceedsFunds.value &&
+  !belowDust.value &&
+  !selectionTooSmall.value &&
   !bitmailInvalid.value &&
   !bitmailChecking.value
 )
@@ -564,13 +589,35 @@ onBeforeUnmount(() => { if (scanWatchTimer) clearInterval(scanWatchTimer) })
                 style="margin-top:8px"
               />
               <span v-if="feeTiers?.source === 'fallback'" class="text-dim text-xs">Live rates unavailable — showing defaults. You can set a custom rate.</span>
-              <div v-if="estimatedFee > 0" class="fee-estimate" :class="{ over: feeExceedsFunds }">
+              <div v-if="estimatedFee > 0" class="fee-estimate" :class="{ over: feeExceedsFunds || selectionTooSmall }">
                 <span>Estimated fee</span>
                 <span class="mono">≈ {{ fmt(estimatedFee) }}</span>
                 <span class="fe-detail">{{ feeRate }} sat/vB · ~{{ estimatedVsize }} vB</span>
               </div>
-              <div v-if="feeExceedsFunds" class="text-xs" style="color:#ff7b72;margin-top:4px">
-                ⚠ Amount + fee ({{ fmt(Number(amount) + estimatedFee) }}) exceeds selected UTXOs ({{ fmt(selectedTotal) }}).
+              <div v-if="estimatedFee > 0" class="fee-estimate">
+                <span>Max sendable</span>
+                <span class="mono">{{ maxSendable > 0 ? '≈ ' + fmt(maxSendable) : 'nothing' }}</span>
+              </div>
+              <!-- Most specific first: a selection that can never clear the dust
+                   limit also reads as "amount too small", and telling someone to
+                   retype an amount that has no valid value wastes their time. -->
+              <div v-if="selectionTooSmall" class="text-xs" style="color:#ff7b72;margin-top:4px">
+                <template v-if="maxSendable > 0">
+                  ⚠ These coins leave {{ fmt(maxSendable) }} after the fee — under the
+                  {{ fmt(DUST_SATS) }} sat dust limit, so they can't fund any payment at
+                  this fee rate. Select more coins, or wait for a lower fee.
+                </template>
+                <template v-else>
+                  ⚠ These coins don't cover the {{ fmt(estimatedFee) }} sat fee.
+                </template>
+              </div>
+              <div v-else-if="belowDust" class="text-xs" style="color:#ff7b72;margin-top:4px">
+                ⚠ {{ fmt(Number(amount)) }} is below the {{ fmt(DUST_SATS) }} sat dust
+                limit. An output that small costs more to spend than it holds, and the
+                network may refuse to relay it.
+              </div>
+              <div v-else-if="feeExceedsFunds" class="text-xs" style="color:#ff7b72;margin-top:4px">
+                ⚠ Amount + fee ({{ fmt(Number(amount) + estimatedFee) }}) exceeds selected UTXOs ({{ fmt(selectedTotal) }}) — the most they can send is {{ fmt(maxSendable) }}.
               </div>
             </div>
           </div>

@@ -79,6 +79,12 @@ function estimateFee(numInputs: number, feeRate: number): number {
   return Math.max(1, Math.ceil(vsize * feeRate));
 }
 
+// The builder's dust floor (helpers/wallet.py DUST_SATS), mirrored so the
+// refusal happens here rather than three screens later. Stricter than Bitcoin
+// Core's 330-sat relay floor for a P2TR output, and the same number the Coins
+// screen uses to flag a received output as a suspected dust attack.
+const DUST_SATS = 546;
+
 export default function SendScreen() {
   const inkey = useAuthStore((s) => s.inkey);
   const adminkey = useAuthStore((s) => s.adminkey);
@@ -304,6 +310,19 @@ export default function SendScreen() {
   const insufficient =
     amountSats > 0 && selectedTotal > 0 && amountSats + estFee > selectedTotal;
 
+  // The most the selection can pay once the fee is taken. Negative when the
+  // coins cannot even cover the fee.
+  const maxSendable = selectedTotal > 0 ? selectedTotal - estFee : 0;
+  // An amount below the dust floor is refused by the builder, so refuse it here
+  // where the number was typed.
+  const belowDust = amountSats > 0 && amountSats < DUST_SATS;
+  // The case actually reported: a coin so small that NO amount works. Checking
+  // only amount + fee ≤ total let a 561-sat coin through, because 432 sats is
+  // affordable — it is just not a payment anyone can make. Flagging the
+  // selection rather than the amount matters: there is nothing to retype.
+  const selectionTooSmall =
+    selectedUtxos.length > 0 && feeRate > 0 && maxSendable < DUST_SATS;
+
   // How far this wallet has been scanned vs. the chain tip. last_scan_height is
   // progress, last_height the birth height (static) — a wallet born at the tip
   // has no progress yet but is up to date, so take the max (same rule as the
@@ -324,6 +343,8 @@ export default function SendScreen() {
     selectedUtxos.length > 0 &&
     feeRate > 0 &&
     !insufficient &&
+    !belowDust &&
+    !selectionTooSmall &&
     !noKeys &&
     !scanActive;
 
@@ -874,6 +895,16 @@ export default function SendScreen() {
                 label="Est. fee"
                 value={`~${groupThousands(estFee)} sats`}
               />
+              {/* What is actually left to send. Shown always, not only when
+                  something is wrong: it is the number that decides whether the
+                  selection is usable, and reading it off Selected minus Est.
+                  fee is exactly the arithmetic people skip. */}
+              <SummaryRow
+                label="Max sendable"
+                value={
+                  maxSendable > 0 ? `~${groupThousands(maxSendable)} sats` : 'nothing'
+                }
+              />
             </View>
           ) : null}
 
@@ -887,9 +918,29 @@ export default function SendScreen() {
             </View>
           ) : null}
 
-          {insufficient ? (
+          {/* Most specific first. A too-small selection makes the other two
+              true as well, and saying "amount is below the dust limit" about a
+              coin that can never clear it just sends you back to retype. */}
+          {selectionTooSmall ? (
             <Text style={styles.error}>
-              Selected coins don't cover the amount plus fee.
+              {maxSendable > 0
+                ? `These coins leave ${groupThousands(maxSendable)} sats after the ` +
+                  `fee — under the ${groupThousands(DUST_SATS)} sat dust limit, so ` +
+                  `they can't fund any payment at this fee rate. Select more coins, ` +
+                  `or wait for a lower fee.`
+                : `These coins don't cover the ${groupThousands(estFee)} sat fee. ` +
+                  `Select more coins, or wait for a lower fee rate.`}
+            </Text>
+          ) : belowDust ? (
+            <Text style={styles.error}>
+              {groupThousands(amountSats)} sats is below the{' '}
+              {groupThousands(DUST_SATS)} sat dust limit. An output that small costs
+              more to spend than it holds, and the network may refuse to relay it.
+            </Text>
+          ) : insufficient ? (
+            <Text style={styles.error}>
+              Selected coins don't cover the amount plus fee — the most they can send
+              is {groupThousands(maxSendable)} sats.
             </Text>
           ) : null}
           {error ? <Text style={styles.error}>{error}</Text> : null}
