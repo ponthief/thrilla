@@ -25,7 +25,8 @@
     "build:admin": "vite build --mode admin",
     "build:admin-signet": "vite build --mode admin-signet",
     "build:admin-regtest": "vite build --mode admin-regtest",
-    "preview:admin-regtest": "vite preview --mode admin-regtest"
+    "preview:admin-regtest": "vite preview --mode admin-regtest",
+    "check:signing": "node --experimental-strip-types scripts/check-sp-signing.mjs"
   },
   "dependencies": {
     "@capacitor-mlkit/barcode-scanning": "^6.0.0",
