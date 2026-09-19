@@ -104,34 +104,24 @@ function selectedTarget() {
   return requestTargets.value.find(t => t.address_id === requestForm.value.address_id) || null
 }
 
-function friendlyResolveError(msg) {
-  const m = (msg || '').toLowerCase()
-  // Security: DNSSEC validation failure means the record exists but couldn't be
-  // trusted. Surface this clearly — never collapse it into "not found".
-  if (m.includes('dnssec') || m.includes('unsafe')) {
-    return "⚠ This address could not be verified — its DNSSEC signature failed. For your safety it was rejected. Do not send funds to it."
-  }
-  if (m.includes('format') || (m.includes('invalid') && m.includes('address'))) {
-    return "That doesn't look like a valid BitMail address. It should look like name@domain.com."
-  }
-  if (m.includes('does not contain a valid bitcoin')) {
-    return "That address exists but doesn't publish a valid payment code."
-  }
-  if (m.includes('temporarily unavailable') || m.includes('502') || m.includes('resolvers failed')) {
-    return "The address lookup service is temporarily unavailable. Please try again shortly."
-  }
-  if (m.includes('not found') || m.includes('no txt') || m.includes('nxdomain') || m.includes('domain not found')) {
-    return "We couldn't find a BitMail address there. Double-check the spelling — it should look like name@domain.com."
-  }
-  return msg
-}
+// A friendlyResolveError() used to live here, matching substrings of the
+// backend's DNS errors and rewriting them. The backend now writes those
+// messages for the payer itself (helpers/address_resolver.py), and they say
+// more than the translations did — which domain is at fault, whether to retry,
+// whether to retype. Matching on strings that had moved on left DNSSEC being
+// replaced by a vaguer message and everything else falling through unchanged,
+// so the layer was doing nothing but waiting to rot. The backend is the
+// authority; show what it says.
 
 async function resolve() {
   const addr = address.value.trim()
   if (!addr) { error.value = 'Enter a BitMail address first.'; return }
-  // Basic shape check before hitting the network
+  // Shape check before hitting the network — saves a round trip on an obvious
+  // typo. Worded to match what the backend says for the same condition, so one
+  // mistake doesn't get two different explanations depending on which side
+  // caught it.
   if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(addr)) {
-    error.value = "That doesn't look like a valid BitMail address. It should look like name@domain.com."
+    error.value = `“${addr}” isn’t a valid BitMail address. It should look like name@example.com.`
     return
   }
   loading.value = true; error.value = null; result.value = null
@@ -139,7 +129,7 @@ async function resolve() {
     const res = await api.resolveBip353(auth.inkey, addr)
     result.value = res
   } catch (e) {
-    error.value = friendlyResolveError(e.detail || e.message)
+    error.value = e.detail || e.message
   }
   finally { loading.value = false }
 }

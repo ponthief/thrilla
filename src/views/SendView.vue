@@ -294,7 +294,7 @@ function explorerTxUrl(txid) {
 // ── Saved contacts (per-user private address book) ──
 const contacts = ref([])
 const showContacts = ref(false)
-const bitmailWarning = ref('')      // friendly notice when a BitMail no longer resolves
+const bitmailWarning = ref('')      // why a BitMail didn't resolve, as the backend put it
 const bitmailInvalid = ref(false)   // true → block Build/Send (BitMail didn't resolve)
 const bitmailChecking = ref(false)  // resolution in flight
 const saveContactLabel = ref('')
@@ -307,10 +307,19 @@ async function loadContacts() {
   try { contacts.value = (await api.spContactsList(auth.inkey)).contacts || [] }
   catch { contacts.value = [] }
 }
-// Verify a recipient that is a BitMail (name@domain) resolves to a real DNS TXT
-// record. Sets a friendly warning + blocks Build/Send on failure so the user
-// isn't surprised by a cryptic "No txt record found" at send time. SP/on-chain
-// addresses need no resolution and are always considered valid here.
+// Verify a recipient that is a BitMail (name@domain) resolves, before the user
+// gets as far as Build. SP/on-chain addresses need no resolution and are always
+// valid here.
+//
+// This used to swallow the error and substitute one blanket line, "this BitMail
+// is no longer valid", then block Build/Send. That claim is wrong twice over: a
+// DNS outage does not make an address invalid, and a DNSSEC failure is a
+// security refusal rather than a stale address — and hard-blocking on a
+// transient lookup failure left a perfectly good payment unsendable.
+//
+// So: show what the backend said, and only block on a verdict about the
+// address itself. A 502 means the lookup did not complete, which is not a
+// verdict — warn, let them proceed, and the build-time resolve will decide.
 async function validateBitmail(value) {
   const v = (value || '').trim()
   bitmailWarning.value = ''
@@ -319,9 +328,14 @@ async function validateBitmail(value) {
   bitmailChecking.value = true
   try {
     await api.resolveBip353(auth.inkey, v)
-  } catch {
-    bitmailWarning.value = `${v} could not be resolved — this BitMail is no longer valid. Ask the recipient for a current address.`
-    bitmailInvalid.value = true
+  } catch (e) {
+    // No status at all means fetch itself failed — also transient, and its
+    // raw "Failed to fetch" is not worth showing anyone.
+    const transient = !e.status || e.status >= 500
+    bitmailWarning.value = e.detail || (transient
+      ? `Couldn’t check ${v} right now — the lookup didn’t complete. The address may be fine; try again in a moment.`
+      : e.message)
+    bitmailInvalid.value = !transient
   } finally {
     bitmailChecking.value = false
   }
