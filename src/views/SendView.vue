@@ -614,11 +614,19 @@ onBeforeUnmount(() => { if (scanWatchTimer) clearInterval(scanWatchTimer) })
                 v-if="!feeTiers || feeChoice === 'custom'"
                 class="input"
                 v-model.number="feeRate"
-                type="number" min="0.1" step="0.1"
+                type="number" min="0.01" step="0.1"
                 :placeholder="feeTiers ? 'sat/vB' : 'sat/vB (live rates unavailable)'"
                 style="margin-top:8px"
               />
               <span v-if="feeTiers?.source === 'fallback'" class="text-dim text-xs">Live rates unavailable — showing defaults. You can set a custom rate.</span>
+              <!-- Their own node may relay below 1 sat/vB; almost nothing else
+                   will. Saying so is the difference between a deliberate
+                   choice and a transaction that quietly goes nowhere. -->
+              <div v-if="feeRate > 0 && feeRate < 1" class="text-xs" style="color:var(--orange,#f97316);margin-top:4px">
+                ⚠ {{ feeRate }} sat/vB is below the 1 sat/vB minimum most nodes relay at.
+                Your own node will accept it, but the transaction may not propagate and
+                could stay unconfirmed for a long time.
+              </div>
               <div v-if="estimatedFee > 0" class="fee-estimate" :class="{ over: feeExceedsFunds || selectionTooSmall }">
                 <span>Estimated fee</span>
                 <span class="mono">≈ {{ fmt(estimatedFee) }}</span>

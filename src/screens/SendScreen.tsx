@@ -75,7 +75,11 @@ function utxoKey(u: api.Utxo): string {
 //   vsize = 10 + 57.5*inputs + 31*2 (recipient + change)
 function estimateFee(numInputs: number, feeRate: number): number {
   if (!numInputs || !feeRate) return 0;
-  const vsize = 10 + 57.5 * numInputs + 31 * 2;
+  // Math.floor, because the backend's formula is int(10 + 57.5*n + 62) and 57.5
+  // makes that fractional for an odd input count. Without it a one-input send
+  // estimated 130 sats against the 129 actually charged — harmless at 1 sat/vB,
+  // but it is meant to be a mirror, and the web app already floors.
+  const vsize = Math.floor(10 + 57.5 * numInputs + 31 * 2);
   return Math.max(1, Math.ceil(vsize * feeRate));
 }
 
@@ -109,6 +113,10 @@ export default function SendScreen() {
     'halfHourFee',
   );
   const [feeRate, setFeeRate] = useState<number>(1);
+  // The custom rate is kept as text as well as a number. Deriving the field's
+  // value from the number alone made "0." unrepresentable — it parses to 0,
+  // renders as empty, and the decimal point you just typed vanishes.
+  const [feeRateText, setFeeRateText] = useState<string>('1');
 
   const [step, setStep] = useState<Step>('form');
   const [built, setBuilt] = useState<api.BuiltTx | null>(null);
@@ -201,7 +209,10 @@ export default function SendScreen() {
       if (feeRes.status === 'fulfilled') {
         setTiers(feeRes.value);
         const def = feeRes.value.halfHourFee ?? feeRes.value.fastestFee;
-        if (def) setFeeRate(def);
+        if (def) {
+          setFeeRate(def);
+          setFeeRateText(String(def));
+        }
       }
 
       // Unavailable oracle → 0, which reads as "can't tell" and shows no
@@ -369,6 +380,9 @@ export default function SendScreen() {
       setFeeChoice(key);
       if (key !== 'custom' && tiers && tiers[key]) {
         setFeeRate(tiers[key] as number);
+        // Switching to Custom should start from the rate you were just on,
+        // not from whatever was last typed.
+        setFeeRateText(String(tiers[key]));
       }
     },
     [tiers],
@@ -933,13 +947,36 @@ export default function SendScreen() {
             <View style={[styles.unitRow, styles.feeRateRow]}>
               <TextInput
                 style={[styles.input, styles.feeRateInput]}
-                value={String(feeRate || '')}
-                onChangeText={(t) => setFeeRate(Number(t.replace(/[^0-9]/g, '')) || 0)}
-                keyboardType="number-pad"
-                placeholder="0"
+                value={feeRateText}
+                // Digits and at most one decimal point. The old filter was
+                // [^0-9], which did not merely block a fractional rate — it
+                // deleted the point, so typing 0.5 set the rate to 5 and
+                // overpaid tenfold without a word.
+                onChangeText={(t) => {
+                  const cleaned = t
+                    .replace(/[^0-9.]/g, '')
+                    .replace(/(\..*)\./g, '$1');
+                  setFeeRateText(cleaned);
+                  setFeeRate(Number(cleaned) || 0);
+                }}
+                keyboardType="decimal-pad"
+                placeholder="1"
                 placeholderTextColor={colors.faint}
               />
               <Text style={styles.unitLabel}>sat/vB</Text>
+            </View>
+          ) : null}
+
+          {/* Their own node may relay below 1 sat/vB; almost nothing else
+              will. Saying so is the difference between a deliberate choice and
+              a transaction that quietly never goes anywhere. */}
+          {feeRate > 0 && feeRate < 1 ? (
+            <View style={styles.bitmailWarn}>
+              <Text style={styles.bitmailWarnText}>
+                ⚠ {feeRate} sat/vB is below the 1 sat/vB minimum most nodes relay
+                at. Your own node will accept it, but the transaction may not
+                propagate and could stay unconfirmed for a long time.
+              </Text>
             </View>
           ) : null}
 
