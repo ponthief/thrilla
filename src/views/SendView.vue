@@ -27,6 +27,19 @@ const loadingUtxos  = ref(false)
 
 const recipient  = ref(route.query.address || '')
 const amount     = ref(route.query.amount ? Number(route.query.amount) : null)
+
+// Sats are whole and positive. `min`/`step` on the input stop the spinner
+// arrows, but they do not stop a typed or pasted "-500" or "1.5" — the browser
+// only marks such a field invalid and hands the value over anyway. And an
+// invalid amount used to fail silently: canBuild requires amount > 0, so Build
+// simply went dead with nothing on screen saying why. Normalising here is what
+// the mobile app has always done by stripping non-digits on input.
+watch(amount, (v) => {
+  if (v === null || v === undefined || v === '') return
+  const n = Math.floor(Number(v))
+  if (!Number.isFinite(n) || n < 0) { amount.value = null; return }
+  if (n !== v) amount.value = n
+})
 // Swap-funding context: when SendView is opened to fund a Boltz swap-in, these
 // carry the swap id + lightning amount so we can show a banner and (after
 // broadcast) point the user back to swap status.
@@ -559,6 +572,9 @@ onBeforeUnmount(() => { if (scanWatchTimer) clearInterval(scanWatchTimer) })
                 class="input send-amt"
                 v-model.number="amount"
                 type="number"
+                min="0"
+                step="1"
+                inputmode="numeric"
                 :readonly="isSwapFunding"
                 :style="isSwapFunding ? 'opacity:.75;cursor:not-allowed' : ''"
                 placeholder="100000" />
