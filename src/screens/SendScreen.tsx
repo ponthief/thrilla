@@ -117,6 +117,14 @@ export default function SendScreen() {
   const [txid, setTxid] = useState('');
   const [scanning, setScanning] = useState(false);
 
+  // BitMail is the one recipient kind that can fail for reasons outside the
+  // address itself, and it used to fail at Build — after the amount, the coins
+  // and the fee had all been chosen. Resolve it when the field loses focus, so
+  // the answer appears under the field that caused it. Matches the web app.
+  const [bitmailWarning, setBitmailWarning] = useState('');
+  const [bitmailInvalid, setBitmailInvalid] = useState(false);
+  const [bitmailChecking, setBitmailChecking] = useState(false);
+
   // A catch-up scan (often thousands of blocks) can be running server-side after
   // login. While it is, this wallet's coin set is still incomplete, so sending
   // is paused until it finishes — then the user spends from a complete,
@@ -345,6 +353,8 @@ export default function SendScreen() {
     !insufficient &&
     !belowDust &&
     !selectionTooSmall &&
+    !bitmailInvalid &&
+    !bitmailChecking &&
     !noKeys &&
     !scanActive;
 
@@ -358,6 +368,45 @@ export default function SendScreen() {
     [tiers],
   );
 
+  // A failure that follows a tap gets an alert, not a line of red text below
+  // the fold. The inline copy stays as the record once the alert is dismissed —
+  // the alert is what makes it seen, not where it lives. Live validation (dust,
+  // insufficient funds) deliberately does NOT come through here: it updates as
+  // you type, and a modal per keystroke would be unusable.
+  const failed = useCallback((title: string, message: string) => {
+    setError(message);
+    Alert.alert(title, message, [{ text: 'OK' }]);
+  }, []);
+
+  // Only a verdict about the address blocks. A 502, or a request that never
+  // landed, says the lookup didn't complete — not that the address is bad — so
+  // it warns and lets them carry on; the resolve at build time decides.
+  const validateBitmail = useCallback(
+    async (value: string) => {
+      const v = (value || '').trim();
+      setBitmailWarning('');
+      setBitmailInvalid(false);
+      if (!v.includes('@') || !inkey) return;
+      setBitmailChecking(true);
+      try {
+        await api.resolveBip353(inkey, v);
+      } catch (e: any) {
+        const transient = !e?.status || e.status >= 500;
+        setBitmailWarning(
+          e?.detail ||
+            (transient
+              ? `Couldn’t check ${v} right now — the lookup didn’t complete. ` +
+                `The address may be fine; try again in a moment.`
+              : e?.message || `${v} could not be resolved.`),
+        );
+        setBitmailInvalid(!transient);
+      } finally {
+        setBitmailChecking(false);
+      }
+    },
+    [inkey],
+  );
+
   const doBuild = useCallback(async () => {
     Keyboard.dismiss();
     setError(null);
@@ -366,7 +415,10 @@ export default function SendScreen() {
     try {
       const keys = await getWalletKeys(wallet.id);
       if (!keys) {
-        setError('Wallet keys are not on this device. Re-import the wallet to send.');
+        failed(
+          'Keys not on this device',
+          'Wallet keys are not on this device. Re-import the wallet to send.',
+        );
         setBusy(false);
         return;
       }
@@ -391,11 +443,17 @@ export default function SendScreen() {
       setBuilt(result);
       setStep('review');
     } catch (e: any) {
-      setError(e?.message || 'Could not build the transaction.');
+      // The recipient is the overwhelmingly common reason a build fails, and
+      // the backend's message already says which address and what to do about
+      // it, so the title only has to say which half of the form to look at.
+      failed(
+        rKind === 'bitmail' ? 'Couldn’t use that BitMail' : 'Couldn’t send',
+        e?.message || 'Could not build the transaction.',
+      );
     } finally {
       setBusy(false);
     }
-  }, [wallet, adminkey, inkey, recipient, amountSats, feeRate, selectedUtxos]);
+  }, [wallet, adminkey, inkey, recipient, amountSats, feeRate, selectedUtxos, rKind, failed]);
 
   const doBroadcast = useCallback(async () => {
     if (!built || !wallet || !adminkey) return;
@@ -426,11 +484,13 @@ export default function SendScreen() {
       }
       setStep('done');
     } catch (e: any) {
-      setError(e?.message || 'Broadcast failed.');
+      // The one place where "did it go?" matters most — never a line they can
+      // scroll past.
+      failed('Broadcast failed', e?.message || 'Broadcast failed.');
     } finally {
       setBusy(false);
     }
-  }, [built, wallet, adminkey, selectedUtxos, recipient, amountSats]);
+  }, [built, wallet, adminkey, selectedUtxos, recipient, amountSats, failed]);
 
   // Start a catch-up scan from here, so a wallet that's behind can be brought
   // up to date without leaving the Send screen. The existing poller takes over:
@@ -538,6 +598,8 @@ export default function SendScreen() {
     setRecipient('');
     setAmount('');
     setSelected(new Set());
+    setBitmailWarning('');
+    setBitmailInvalid(false);
     load();
   }, [load]);
 
@@ -724,7 +786,11 @@ export default function SendScreen() {
             onChangeText={(t) => {
               setRecipient(t);
               setContactMsg(null);
+              // Editing invalidates the previous verdict; re-checked on blur.
+              setBitmailWarning('');
+              setBitmailInvalid(false);
             }}
+            onBlur={() => validateBitmail(recipient)}
             placeholder="sp1… / bc1… / name@domain"
             placeholderTextColor={colors.faint}
             autoCapitalize="none"
@@ -734,6 +800,20 @@ export default function SendScreen() {
 
           {rKind ? (
             <Text style={styles.kindHint}>Detected: {KIND_LABEL[rKind]}</Text>
+          ) : null}
+
+          {bitmailChecking ? (
+            <Text style={styles.kindHint}>Checking that BitMail…</Text>
+          ) : bitmailWarning ? (
+            <View style={bitmailInvalid ? styles.bitmailBad : styles.bitmailWarn}>
+              <Text
+                style={
+                  bitmailInvalid ? styles.bitmailBadText : styles.bitmailWarnText
+                }>
+                {bitmailInvalid ? '✕ ' : '⚠ '}
+                {bitmailWarning}
+              </Text>
+            </View>
           ) : null}
 
           {/* Every one of these fills in the address above, so they sit in a
@@ -748,9 +828,14 @@ export default function SendScreen() {
             </TouchableOpacity>
             <TouchableOpacity
               style={styles.actionBtn}
-              onPress={async () =>
-                setRecipient(parseScannedAddress(await Clipboard.getString()))
-              }>
+              onPress={async () => {
+                // Filling the field programmatically never fires onBlur, so
+                // each of these has to ask for the check itself — otherwise a
+                // pasted or scanned BitMail is only ever caught at Build.
+                const v = parseScannedAddress(await Clipboard.getString());
+                setRecipient(v);
+                validateBitmail(v);
+              }}>
               <Text style={styles.actionBtnText}>Paste</Text>
             </TouchableOpacity>
             <TouchableOpacity
@@ -971,14 +1056,21 @@ export default function SendScreen() {
       <QRScanner
         visible={scanning}
         onClose={() => setScanning(false)}
-        onScanned={(v) => setRecipient(parseScannedAddress(v))}
+        onScanned={(v) => {
+          const a = parseScannedAddress(v);
+          setRecipient(a);
+          validateBitmail(a);
+        }}
       />
 
       <ContactsModal
         visible={showContacts}
         contacts={contacts}
         onClose={() => setShowContacts(false)}
-        onPick={(v) => setRecipient(v)}
+        onPick={(v) => {
+          setRecipient(v);
+          validateBitmail(v);
+        }}
         onDelete={onDeleteContact}
       />
     </SafeAreaView>
@@ -1242,6 +1334,25 @@ const styles = StyleSheet.create({
     marginTop: 14,
   },
   privacyText: { fontSize: 13, color: colors.primary, lineHeight: 18 },
+
+  // Two weights, because the two cases need different responses. Amber warns
+  // and lets you continue (the lookup didn't complete — the address may be
+  // fine); red is a verdict about the address and blocks Review, so it should
+  // not look like something to shrug past.
+  bitmailWarn: {
+    backgroundColor: 'rgba(249,115,22,0.10)',
+    borderRadius: 8,
+    padding: 10,
+    marginTop: 8,
+  },
+  bitmailWarnText: { fontSize: 13, color: colors.primary, lineHeight: 18 },
+  bitmailBad: {
+    backgroundColor: 'rgba(239,68,68,0.10)',
+    borderRadius: 8,
+    padding: 10,
+    marginTop: 8,
+  },
+  bitmailBadText: { fontSize: 13, color: colors.danger, lineHeight: 18 },
 
   doneIcon: {
     fontSize: 48,
