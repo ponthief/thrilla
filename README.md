@@ -1,6 +1,6 @@
-# Thrilla — Bitcoin Silent Payments Wallet
+# WhiSPa Wallet — Bitcoin Silent Payments
 
-Thrilla is a self-custodial **Bitcoin** wallet built on **Silent Payments
+WhiSPa is a self-custodial **Bitcoin** wallet built on **Silent Payments
 ([BIP-352](https://github.com/bitcoin/bips/blob/master/bip-0352.mediawiki))**.
 It's a React Native (Android/iOS) app; a Vue web app lives in the same repo.
 
@@ -34,7 +34,7 @@ fresh addresses.
 - **Lock & duress.** Biometric or in-app PIN lock, plus an optional **duress
   PIN** that wipes this device's keys and signs out. Sending re-authenticates.
 
-Thrilla talks to a self-hosted **LNbits** instance running the **siLNt**
+WhiSPa talks to a self-hosted **LNbits** instance running the **siLNt**
 extension (the scanner/indexer backend). Builds are provided for **mainnet** and
 **signet**.
 
@@ -104,7 +104,17 @@ npm run apk:signet    # → android/app/build/outputs/apk/signet/release/
 
 **Signing:** release builds are signed with your own keystore when its
 credentials are present as Gradle properties (kept **outside** the repo, in
-`~/.gradle/gradle.properties`):
+`~/.gradle/gradle.properties`).
+
+> The `THRILLA_*` names below — and `THRILLA_DRY_RUN`, `THRILLA_GPG_KEY` and
+> `THRILLA_RELEASE_CERT_SHA256` further down — are not leftover copy. They are
+> the literal property and environment-variable names that `build.gradle` and
+> the scripts read, they are what the GitHub Actions secrets are called, and
+> they are in every contributor's `~/.gradle/gradle.properties`. Renaming them
+> here without renaming them everywhere would document a setup that does not
+> work. Same reason the app's id stays `com.thrilla_btc.thrilla`: Android
+> treats a changed id as a different app, so installed users would stop
+> receiving updates.
 
 ```properties
 THRILLA_STORE_FILE=/absolute/path/to/thrilla-release.keystore
@@ -129,7 +139,7 @@ where a build came from. Two independent checks cover that, and a release
 should ship both.
 
 **1. The APK signing certificate.** Android already enforces this: an APK
-signed by a different key cannot replace an installed Thrilla, so every user
+signed by a different key cannot replace an installed WhiSPa, so every user
 is protected whether or not they check anything. Publish the fingerprint so
 they *can* check:
 
@@ -162,7 +172,7 @@ anything not signed by the key you expect.
 The assets get **stable names** — `whispa-mainnet.apk`, `whispa-signet.apk`,
 `SHA256SUMS`, `SHA256SUMS.asc` — and the release is not a prerelease. That is
 what lets the download page link to
-`releases/latest/download/thrilla-mainnet.apk` and never need editing: GitHub
+`releases/latest/download/whispa-mainnet.apk` and never need editing: GitHub
 resolves `latest` to the newest non-prerelease release, so the rolling `ci-*`
 builds from Actions are skipped and only a signed release is ever offered to a
 user.
@@ -178,12 +188,34 @@ The script checksums the APKs, signs the sums, **verifies the signature it
 just made** (a bad signature that ships reads to users as a compromised
 build), and prints both fingerprints.
 
-First time only, create a signing key and export the public half:
+The current key is `F061 E3E9 56FC F57F 99D2  FE48 81DC EBD9 74E9 CABE`,
+`WhiSPa Wallet <admin@whispawallet.com>`. First time only, or to start over:
 
 ```bash
-gpg --quick-generate-key "Thrilla <you@example.com>" ed25519 sign 3y
-gpg --armor --export "you@example.com" > whispa-signing-key.asc
+gpg --quick-generate-key "WhiSPa Wallet <admin@whispawallet.com>" ed25519 sign 3y
+gpg --armor --export <key-id> > whispa-signing-key.asc
 ```
+
+**Changing the name on the key is not the same as replacing the key.** The uid
+was swapped once already — added, made primary, old one revoked — and because
+the fingerprint did not move, every release signed before that still verifies.
+Rotating the key itself means a new fingerprint, re-signing every published
+release, and every user having to learn the new one out of band, so it is
+reserved for a key that is compromised or lost:
+
+```bash
+gpg --quick-add-uid         <key-id> "New Name <new@example.com>"
+gpg --quick-set-primary-uid <key-id> "New Name <new@example.com>"
+gpg --quick-revoke-uid      <key-id> "Old Name <old@example.com>"
+gpg --armor --export        <key-id> > whispa-signing-key.asc
+```
+
+Revoking a uid hides it and marks it invalid; it does not delete it. The old
+string stays in the key bytes, and anyone who imported the key earlier keeps
+seeing the old name until they run `gpg --refresh-keys`. After any uid change,
+`download.html` in the siLNt repo has to match what `gpg` now prints — both
+the signing-key line and the sample output — or the verify page is teaching
+people to accept a mismatch.
 
 Then publish, per release:
 
