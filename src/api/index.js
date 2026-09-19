@@ -240,6 +240,31 @@ export async function getChainTip(inkey, network = undefined) {
 }
 
 // ── Transactions ──────────────────────────────────────────────────────────────
+// Everything needed to build a send, with no key material in either direction.
+// The client derives its outputs and signs locally (services/spSign.ts) and
+// posts the finished tx_hex to broadcastTx below, so the spend key never
+// crosses the network. Returns the resolved recipient (a BitMail has been
+// through the tampering guard by this point), the eligible coins as the SERVER
+// has them, and the amounts the signature will commit to.
+export async function prepareTx(adminkey, { walletId, recipient, amount, feeRate, utxos }) {
+  return req(`${SILNT}/api/v1/tx/prepare`, {
+    method: 'POST',
+    headers: keyHeaders(adminkey),
+    body: JSON.stringify({
+      wallet_id: walletId,
+      recipient,
+      amount,
+      fee_rate: feeRate,
+      // Outpoints only. Amounts and keys come back from the database, so a
+      // stale cached amount can never be what gets signed.
+      utxos: utxos.map((u) => ({ txid: u.txid, vout: u.vout })),
+    }),
+  })
+}
+
+// DEPRECATED for the web app, still live for React Native: this is the call
+// that sends the spend key. It stays until the mobile app moves to prepareTx +
+// spSign.ts as well — see siLNt models.py BuildTxRequest.
 export async function buildTx(adminkey, data, spendKey, scanSecret) {
   return req(`${SILNT}/api/v1/tx/build`, {
     method: 'POST',

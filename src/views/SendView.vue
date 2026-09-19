@@ -3,6 +3,7 @@ import { ref, computed, watch, onMounted, onBeforeUnmount } from 'vue'
 import { useRoute } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import * as api from '@/api'
+import { buildSignedTx } from '@/services/spSign'
 import { useAmount } from '@/composables/useAmount'
 import { saveTxRecipientLabel, saveSwapTxLabel } from '@/stores/txlabels'
 import { pushToast } from '@/stores/toasts'
@@ -189,23 +190,54 @@ async function loadUtxos() {
   finally { loadingUtxos.value = false }
 }
 
+// Build and sign in this browser. The spend key never leaves it.
+//
+// The server still decides which coins may be spent and what a BitMail
+// resolves to — /tx/prepare runs the same guards /tx/build does — but it never
+// sees a key. buildSignedTx then derives the outputs and signs here, and only
+// the finished transaction goes back out, through the broadcast endpoint that
+// has always taken a tx_hex.
+//
+// The React Native app still uses api.buildTx and still sends its spend key.
+// That path stays until it moves across too.
 async function buildTransaction() {
   building.value = true; buildError.value = null; txResult.value = null
   try {
     const keys = await auth.getWalletKeys(selectedWallet.value)
     if (!keys) { buildError.value = 'Wallet keys not found locally. Go to Wallets and click "🔑 Recover Keys" on this wallet to restore them.'; building.value = false; return }
-    const result = await api.buildTx(auth.adminkey, {
-      wallet_id: selectedWallet.value,
+
+    const plan = await api.prepareTx(auth.adminkey, {
+      walletId: selectedWallet.value,
       recipient: recipient.value.trim(),
       amount: amount.value,
-      fee_rate: feeRate.value,
-      utxos: selectedUtxos.value.map(u => ({
-        txid: u.txid, vout: u.vout, amount: u.amount,
-        priv_key_tweak: u.priv_key_tweak, pub_key: u.pub_key,
-      })),
-    }, keys.spendKey, keys.scanSecret)
-    txResult.value = result
-  } catch (e) { buildError.value = e.message }
+      feeRate: feeRate.value,
+      utxos: selectedUtxos.value,
+    })
+
+    const built = buildSignedTx({
+      recipient: plan.recipient,
+      recipientScriptHex: plan.recipient_script || undefined,
+      amount: plan.amount,
+      feeRate: plan.fee_rate,
+      utxos: plan.utxos,
+      spendKey: keys.spendKey,
+      scanSecret: keys.scanSecret,
+      network: plan.network,
+    })
+
+    // The server quoted these before anything was signed; the signature commits
+    // to them. A disagreement means the two sides computed different
+    // transactions, and the only safe move is to stop rather than broadcast one
+    // of them.
+    if (built.fee !== plan.fee || built.change !== plan.change) {
+      throw new Error(
+        `Refusing to send: this browser and the server disagree on the ` +
+        `amounts (fee ${built.fee} vs ${plan.fee}, change ${built.change} vs ` +
+        `${plan.change}). Reload and try again.`,
+      )
+    }
+    txResult.value = built
+  } catch (e) { buildError.value = e.detail || e.message }
   finally { building.value = false }
 }
 
