@@ -27,9 +27,11 @@ import QRScanner from '../components/QRScanner';
 import ContactsModal from '../components/ContactsModal';
 import ConfirmLockModal from '../components/ConfirmLockModal';
 import {
+  buildSignedTx,
   estimateVsize,
   outputVbytesForAddress,
   TAPROOT_OUTPUT_VBYTES,
+  type BuiltTx as SignedTx,
 } from '@services/spSign';
 
 type RecipientKind = 'sp' | 'onchain' | 'bitmail' | '';
@@ -131,7 +133,7 @@ export default function SendScreen() {
   const [feeRateText, setFeeRateText] = useState<string>('1');
 
   const [step, setStep] = useState<Step>('form');
-  const [built, setBuilt] = useState<api.BuiltTx | null>(null);
+  const [built, setBuilt] = useState<SignedTx | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [txid, setTxid] = useState('');
@@ -454,24 +456,40 @@ export default function SendScreen() {
         setBusy(false);
         return;
       }
-      const result = await api.buildTx(
-        adminkey,
-        {
-          wallet_id: wallet.id,
-          recipient: recipient.trim(),
-          amount: amountSats,
-          fee_rate: feeRate,
-          utxos: selectedUtxos.map((u) => ({
-            txid: u.txid,
-            vout: u.vout,
-            amount: u.amount,
-            priv_key_tweak: u.priv_key_tweak,
-            pub_key: u.pub_key,
-          })),
-        },
-        keys.spendKey,
-        keys.scanSecret,
-      );
+      // The server still decides which coins may be spent and what a BitMail
+      // resolves to — /tx/prepare runs the same guards /tx/build did — but it
+      // never sees a key. The outputs are derived and the inputs signed here,
+      // on the device, and only the finished transaction goes back out.
+      const plan = await api.prepareTx(adminkey, {
+        walletId: wallet.id,
+        recipient: recipient.trim(),
+        amount: amountSats,
+        feeRate,
+        utxos: selectedUtxos,
+      });
+
+      const result = buildSignedTx({
+        recipient: plan.recipient,
+        recipientScriptHex: plan.recipient_script || undefined,
+        amount: plan.amount,
+        feeRate: plan.fee_rate,
+        utxos: plan.utxos,
+        spendKey: keys.spendKey,
+        scanSecret: keys.scanSecret,
+        network: plan.network,
+      });
+
+      // The server quoted these before anything was signed; the signature
+      // commits to them. A disagreement means the two sides computed different
+      // transactions, and the only safe move is to stop rather than broadcast
+      // one of them.
+      if (result.fee !== plan.fee || result.change !== plan.change) {
+        throw new Error(
+          `Refusing to send: this phone and the server disagree on the ` +
+            `amounts (fee ${result.fee} vs ${plan.fee}, change ${result.change} ` +
+            `vs ${plan.change}). Try again in a moment.`,
+        );
+      }
       setBuilt(result);
       setStep('review');
     } catch (e: any) {
@@ -562,9 +580,9 @@ export default function SendScreen() {
   }, [inkey, wallet, walletHeight]);
 
   // Require re-authentication (PIN/biometric) first when an app lock is
-  // enabled. Building the transaction exposes the spend key (sent to the server
-  // to sign), so gate here rather than at the final broadcast. With no lock,
-  // proceed straight to the review step.
+  // enabled. Building reads the spend key out of the keychain and signs with
+  // it, so gate here rather than at the final broadcast. With no lock, proceed
+  // straight to the review step.
   const proceedToReview = useCallback(() => {
     if (lockEnabled) {
       Keyboard.dismiss();

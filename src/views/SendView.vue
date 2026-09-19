@@ -210,8 +210,8 @@ async function loadUtxos() {
 // the finished transaction goes back out, through the broadcast endpoint that
 // has always taken a tx_hex.
 //
-// The React Native app still uses api.buildTx and still sends its spend key.
-// That path stays until it moves across too.
+// SendScreen.tsx does the same thing on the phone; the two are deliberately the
+// same sequence, including the amounts check below.
 async function buildTransaction() {
   building.value = true; buildError.value = null; txResult.value = null
   try {

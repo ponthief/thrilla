@@ -141,8 +141,17 @@ function u32le(n: number): Uint8Array {
 }
 
 function u64le(n: number): Uint8Array {
+  // Two 32-bit writes rather than setBigUint64, which is not guaranteed on
+  // Hermes. Every value passed here is a satoshi amount, and 2.1e15 sats of
+  // total supply sits well inside Number.MAX_SAFE_INTEGER, so there is nothing
+  // to lose by staying in Number.
+  if (!Number.isSafeInteger(n) || n < 0) {
+    throw new Error(`amount out of range: ${n}`);
+  }
   const b = new Uint8Array(8);
-  new DataView(b.buffer).setBigUint64(0, BigInt(n), true);
+  const dv = new DataView(b.buffer);
+  dv.setUint32(0, n >>> 0, true);
+  dv.setUint32(4, Math.floor(n / 0x100000000) >>> 0, true);
   return b;
 }
 

@@ -717,8 +717,14 @@ export async function getRecommendedFees(
   return req(`${SILNT}/api/v1/fees/recommended${qs}`, { headers: apiKey(inkey) });
 }
 
-// Build a Silent Payments spend. Requires the admin key; the scan/spend keys are
-// passed transiently so the server can sign (never stored server-side).
+/**
+ * DEPRECATED — this is the call that sends the spend key.
+ *
+ * Superseded by prepareTx + services/spSign.ts, which builds and signs on the
+ * device. Nothing in this app reaches it any more: SendScreen.tsx moved across
+ * with SendView.vue. It stays only so installed builds that have not updated
+ * still work, and /tx/build stays on the backend for the same reason.
+ */
 export async function buildTx(
   adminkey: string,
   data: {
@@ -737,6 +743,59 @@ export async function buildTx(
     method: 'POST',
     headers: apiKey(adminkey),
     body: JSON.stringify({ ...data, spend_key: spendKey, scan_secret: scanSecret }),
+  });
+}
+
+export interface PreparedTx {
+  recipient: string;                // a BitMail has been resolved by now
+  recipient_script: string | null;  // null for a Silent Payments recipient
+  is_silent_payment: boolean;
+  network: string;
+  utxos: Array<{
+    txid: string;
+    vout: number;
+    amount: number;
+    pub_key: string;
+    priv_key_tweak: string;
+  }>;
+  amount: number;
+  fee: number;
+  change: number;
+  vsize: number;
+  total_input: number;
+  fee_rate: number;
+}
+
+// Everything needed to build a send, with no key material in either direction.
+//
+// The device derives its outputs and signs locally (services/spSign.ts) and
+// posts the finished tx_hex to broadcastTx, so the spend key never crosses the
+// network. The server still decides which coins may be spent and what a BitMail
+// resolves to — it runs the same guards /tx/build does — it just never sees a
+// key.
+//
+// `utxos` is outpoints only: amounts and keys come back from the server's own
+// database, so a stale cached amount can never be what gets signed.
+export async function prepareTx(
+  adminkey: string,
+  data: {
+    walletId: string;
+    recipient: string;
+    amount: number;
+    feeRate: number;
+    utxos: Array<Pick<Utxo, 'txid' | 'vout'>>;
+  },
+): Promise<PreparedTx> {
+  return req(`${SILNT}/api/v1/tx/prepare`, {
+    method: 'POST',
+    headers: apiKey(adminkey),
+    body: JSON.stringify({
+      wallet_id: data.walletId,
+      recipient: data.recipient,
+      amount: data.amount,
+      fee_rate: data.feeRate,
+      utxos: data.utxos.map((u) => ({ txid: u.txid, vout: u.vout })),
+    }),
   });
 }
 
