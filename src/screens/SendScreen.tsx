@@ -119,8 +119,14 @@ export default function SendScreen() {
 
   // BitMail is the one recipient kind that can fail for reasons outside the
   // address itself, and it used to fail at Build — after the amount, the coins
-  // and the fee had all been chosen. Resolve it when the field loses focus, so
-  // the answer appears under the field that caused it. Matches the web app.
+  // and the fee had all been chosen. Resolving it earlier puts the answer under
+  // the field that caused it.
+  //
+  // Only on Paste, Scan and Contacts, though: an address arriving whole is one
+  // worth one lookup. Checking on blur instead meant a DNS round trip every
+  // time focus left the field, including the blur that Keyboard.dismiss() fires
+  // on the way into Build. A typed BitMail is checked at Build, which now
+  // raises an alert rather than a line below the fold.
   const [bitmailWarning, setBitmailWarning] = useState('');
   const [bitmailInvalid, setBitmailInvalid] = useState(false);
   const [bitmailChecking, setBitmailChecking] = useState(false);
@@ -786,11 +792,11 @@ export default function SendScreen() {
             onChangeText={(t) => {
               setRecipient(t);
               setContactMsg(null);
-              // Editing invalidates the previous verdict; re-checked on blur.
+              // Editing a pasted address invalidates the verdict that came
+              // with it. Nothing re-checks until Build, which is the point.
               setBitmailWarning('');
               setBitmailInvalid(false);
             }}
-            onBlur={() => validateBitmail(recipient)}
             placeholder="sp1… / bc1… / name@domain"
             placeholderTextColor={colors.faint}
             autoCapitalize="none"
@@ -829,9 +835,6 @@ export default function SendScreen() {
             <TouchableOpacity
               style={styles.actionBtn}
               onPress={async () => {
-                // Filling the field programmatically never fires onBlur, so
-                // each of these has to ask for the check itself — otherwise a
-                // pasted or scanned BitMail is only ever caught at Build.
                 const v = parseScannedAddress(await Clipboard.getString());
                 setRecipient(v);
                 validateBitmail(v);
