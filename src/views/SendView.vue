@@ -3,7 +3,12 @@ import { ref, computed, watch, onMounted, onBeforeUnmount } from 'vue'
 import { useRoute } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import * as api from '@/api'
-import { buildSignedTx } from '@/services/spSign'
+import {
+  buildSignedTx,
+  estimateVsize,
+  outputVbytesForAddress,
+  TAPROOT_OUTPUT_VBYTES,
+} from '@/services/spSign'
 import { useAmount } from '@/composables/useAmount'
 import { saveTxRecipientLabel, saveSwapTxLabel } from '@/stores/txlabels'
 import { pushToast } from '@/stores/toasts'
@@ -114,13 +119,20 @@ const multiInputSelected = computed(
 )
 const selectedTotal = computed(() => selectedUtxos.value.reduce((s, u) => s + u.amount, 0))
 
-// Live fee estimate — mirrors the backend builder's vsize formula exactly:
-//   vsize = 10 + 57.5*inputs + 31*2   (two outputs assumed: recipient + change)
-//   fee   = max(1, ceil(vsize * fee_rate))
+// Live fee estimate. Sizes come from services/spSign.ts, which mirrors
+// helpers/txsize.py, so this agrees with the fee /tx/prepare will quote. It has
+// to: the estimate gates the dust checks, and one that came in under the quote
+// would let a send through that the builder then refuses.
+//
+// The recipient's output is sized from the address as typed; change is always
+// a P2TR Silent Payments output.
 const estimatedVsize = computed(() => {
   const nIn = selectedUtxos.value.length
   if (!nIn) return 0
-  return Math.floor(10 + 57.5 * nIn + 31 * 2)
+  return estimateVsize(nIn, [
+    outputVbytesForAddress(recipient.value),
+    TAPROOT_OUTPUT_VBYTES,
+  ])
 })
 const estimatedFee = computed(() => {
   const rate = Number(feeRate.value) || 0

@@ -35,7 +35,8 @@ const { __testing, buildSignedTx, DUST_SATS } = await import(
 );
 const { schnorr } = await import('@noble/curves/secp256k1');
 const { toHex, fromHex, computeAmounts, spScriptPubKey, inputSigningKey,
-        labelledChangeAddress, taprootSighash, serializeUnsigned } = __testing;
+        labelledChangeAddress, taprootSighash, serializeUnsigned,
+        outputVbytes } = __testing;
 
 const data = JSON.parse(readFileSync(new URL(FIXTURES, import.meta.url), 'utf8'));
 
@@ -44,10 +45,14 @@ for (const c of data.cases) {
   const e = c.expected;
   const keys = c.utxos.map((u) => inputSigningKey(c.spend_key, u));
 
-  // 1. amounts
+  // 1. amounts. The recipient's script sizes its output, so it is passed here
+  //    the way buildSignedTx passes it — a P2WPKH recipient is 31 vB, not the
+  //    43 a Silent Payments one costs.
   let amounts;
   try {
-    amounts = computeAmounts(c.utxos, c.amount, c.fee_rate);
+    amounts = computeAmounts(
+      c.utxos, c.amount, c.fee_rate, outputVbytes(fromHex(e.recipient_spk)),
+    );
   } catch (err) {
     ok('amounts', false, String(err));
     continue;

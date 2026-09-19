@@ -26,6 +26,11 @@ import { colors } from '@/theme';
 import QRScanner from '../components/QRScanner';
 import ContactsModal from '../components/ContactsModal';
 import ConfirmLockModal from '../components/ConfirmLockModal';
+import {
+  estimateVsize,
+  outputVbytesForAddress,
+  TAPROOT_OUTPUT_VBYTES,
+} from '@services/spSign';
 
 type RecipientKind = 'sp' | 'onchain' | 'bitmail' | '';
 
@@ -71,15 +76,22 @@ function utxoKey(u: api.Utxo): string {
   return `${u.txid}:${u.vout}`;
 }
 
-// Mirror the backend builder's vsize formula for a live fee estimate:
-//   vsize = 10 + 57.5*inputs + 31*2 (recipient + change)
-function estimateFee(numInputs: number, feeRate: number): number {
+// Live fee estimate. Sizes come from services/spSign.ts, mirroring
+// helpers/txsize.py, so this matches what the builder charges.
+//
+// It did not, until txsize existed: the shared formula used 31 vB per output,
+// which is a P2WPKH output, for outputs that are P2TR at 43. A two-output send
+// was under-counted by 25 vB, and the estimate under-counted with it.
+function estimateFee(
+  numInputs: number,
+  feeRate: number,
+  recipient: string = '',
+): number {
   if (!numInputs || !feeRate) return 0;
-  // Math.floor, because the backend's formula is int(10 + 57.5*n + 62) and 57.5
-  // makes that fractional for an odd input count. Without it a one-input send
-  // estimated 130 sats against the 129 actually charged — harmless at 1 sat/vB,
-  // but it is meant to be a mirror, and the web app already floors.
-  const vsize = Math.floor(10 + 57.5 * numInputs + 31 * 2);
+  const vsize = estimateVsize(numInputs, [
+    outputVbytesForAddress(recipient),
+    TAPROOT_OUTPUT_VBYTES,
+  ]);
   return Math.max(1, Math.ceil(vsize * feeRate));
 }
 
@@ -331,7 +343,7 @@ export default function SendScreen() {
     [selectedUtxos],
   );
   const amountSats = Number(amount) || 0;
-  const estFee = estimateFee(selectedUtxos.length, feeRate);
+  const estFee = estimateFee(selectedUtxos.length, feeRate, recipient);
   const insufficient =
     amountSats > 0 && selectedTotal > 0 && amountSats + estFee > selectedTotal;
 

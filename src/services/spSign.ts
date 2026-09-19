@@ -33,6 +33,61 @@ const N = secp256k1.CURVE.n;
 // relay floor for a P2TR output, and the same number the Coins screen uses.
 export const DUST_SATS = 546;
 
+// Transaction sizing, mirroring helpers/txsize.py. Weight units divided by four:
+//   overhead  (4 version + 4 locktime + 1 vin count + 1 vout count) * 4 + 2
+//             marker/flag = 42 WU = 10.5 vB
+//   P2TR input  41 base bytes * 4 + a 66-byte witness = 230 WU = 57.5 vB
+//   output      8 value + 1 length + the script, all at weight 4
+export const OVERHEAD_VBYTES = 10.5;
+export const TAPROOT_INPUT_VBYTES = 57.5;
+export const TAPROOT_OUTPUT_VBYTES = 43;   // OP_1 <32>
+export const P2WPKH_OUTPUT_VBYTES = 31;    // OP_0 <20>
+
+const OUTPUT_VBYTES_BY_SCRIPT_LEN: Record<number, number> = {
+  22: 31,  // P2WPKH
+  23: 32,  // P2SH
+  25: 34,  // P2PKH
+  34: 43,  // P2TR / P2WSH
+};
+
+export function outputVbytes(scriptPubKey: Uint8Array): number {
+  return OUTPUT_VBYTES_BY_SCRIPT_LEN[scriptPubKey.length] ?? 8 + 1 + scriptPubKey.length;
+}
+
+/**
+ * Output size for an address the user typed, before any script is derived.
+ *
+ * Used by the Send screens' live fee estimate, which has to agree with what
+ * the server will quote — it gates the dust checks, so an estimate that is too
+ * low lets a send through that the builder then refuses.
+ */
+export function outputVbytesForAddress(addr: string): number {
+  const a = (addr || '').trim().toLowerCase();
+  if (a.startsWith('sp1') || a.startsWith('tsp1')) return TAPROOT_OUTPUT_VBYTES;
+  // bech32: bc1p/tb1p/bcrt1p is v1 taproot, bc1q/tb1q is v0. A v0 witness
+  // program is 20 bytes for P2WPKH and 32 for P2WSH; the data length tells
+  // them apart without decoding.
+  const m = a.match(/^(bc|tb|bcrt)1([0-9a-z]+)$/);
+  if (m) {
+    if (m[2][0] === 'p') return TAPROOT_OUTPUT_VBYTES;
+    if (m[2][0] === 'q') return m[2].length > 40 ? 43 : P2WPKH_OUTPUT_VBYTES;
+    return TAPROOT_OUTPUT_VBYTES;
+  }
+  if (a.startsWith('1') || a.startsWith('m') || a.startsWith('n')) return 34; // P2PKH
+  if (a.startsWith('3') || a.startsWith('2')) return 32;                      // P2SH
+  // Unknown: assume the larger, so the estimate never comes in under the quote.
+  return TAPROOT_OUTPUT_VBYTES;
+}
+
+/** Virtual size, rounded up — a fee is charged on whole vbytes. */
+export function estimateVsize(nInputs: number, outputSizes: number[]): number {
+  return Math.ceil(
+    OVERHEAD_VBYTES +
+      TAPROOT_INPUT_VBYTES * nInputs +
+      outputSizes.reduce((a, b) => a + b, 0),
+  );
+}
+
 export interface SpUtxo {
   txid: string;           // big-endian, as an explorer shows it
   vout: number;
@@ -224,10 +279,22 @@ export function labelledChangeAddress(
 
 // ── amounts ──────────────────────────────────────────────────────────────────
 
-/** Mirrors wallet.py::_compute_amounts, including the dust rules. */
-export function computeAmounts(utxos: SpUtxo[], amount: number, feeRate: number) {
+/**
+ * Mirrors wallet.py::_compute_amounts, including the dust rules.
+ *
+ * `recipientVbytes` sizes the recipient's output and defaults to P2TR, which is
+ * what a Silent Payments recipient always is. The old shared formula charged
+ * 31 vB — a P2WPKH output — for outputs that are P2TR at 43, so a two-output
+ * send under-counted by 25 vB and paid about 16% under the chosen rate.
+ */
+export function computeAmounts(
+  utxos: SpUtxo[],
+  amount: number,
+  feeRate: number,
+  recipientVbytes: number = TAPROOT_OUTPUT_VBYTES,
+) {
   const totalInput = utxos.reduce((s, u) => s + u.amount, 0);
-  const vsize = Math.trunc(10 + 57.5 * utxos.length + 31 * 2);
+  let vsize = estimateVsize(utxos.length, [recipientVbytes, TAPROOT_OUTPUT_VBYTES]);
   let fee = Math.max(1, Math.ceil(vsize * feeRate));
 
   if (amount < DUST_SATS) {
@@ -254,8 +321,11 @@ export function computeAmounts(utxos: SpUtxo[], amount: number, feeRate: number)
     );
   }
   if (change > 0 && change < DUST_SATS) {
+    // Uneconomic to create: it goes to the miner and the transaction is one
+    // output smaller than it was priced at.
     fee += change;
     change = 0;
+    vsize = estimateVsize(utxos.length, [recipientVbytes]);
   }
   return { totalInput, fee, change, vsize };
 }
@@ -343,7 +413,6 @@ export function buildSignedTx(opts: {
   if (!utxos.length) throw new Error('No coins selected.');
 
   const keys = utxos.map((u) => inputSigningKey(spendKey, u));
-  const { totalInput, fee, change, vsize } = computeAmounts(utxos, amount, feeRate);
 
   const isSp = recipient.startsWith('sp1') || recipient.startsWith('tsp1');
   const recipientScript = isSp
@@ -354,6 +423,11 @@ export function buildSignedTx(opts: {
             throw new Error('A non-Silent-Payment recipient needs a resolved script.');
           })(),
       );
+
+  // Derived first, because its script decides what the output costs.
+  const { totalInput, fee, change, vsize } = computeAmounts(
+    utxos, amount, feeRate, outputVbytes(recipientScript),
+  );
 
   const outs: TxOut[] = [{ value: amount, script: recipientScript }];
   if (change >= DUST_SATS) {
@@ -419,6 +493,8 @@ export const __testing = {
   taprootSighash,
   serializeUnsigned,
   computeAmounts,
+  estimateVsize,
+  outputVbytes,
   spScriptPubKey,
   inputSigningKey,
   labelledChangeAddress,
