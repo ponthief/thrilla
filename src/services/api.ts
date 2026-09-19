@@ -858,13 +858,70 @@ export async function getPlainPreview(
   return req(`${SILNT}/api/v1/plain/${walletId}?${qs}`, { headers: apiKey(inkey) });
 }
 
-// Pay out of the plain chain. The destination can be an ordinary address or a
-// Silent Payments one — paying your own SP address is how these coins move into
-// that wallet, if you want them there.
+// What a plain-chain spend needs decided, with no key in the request.
 //
-// `amount` null means send everything. `changeAddress` must be the chain's next
-// unused address; the backend refuses anything off that chain, so the remainder
-// cannot be routed elsewhere.
+// The server still finds the coins (only it can reach the chain index), checks
+// the destination and does the arithmetic; the device then signs. See
+// services/plainSign.ts.
+//
+// `destination_script` is null for a Silent Payments destination and nothing
+// else: that output key comes from the input private keys, so only this device
+// can derive it.
+export interface PreparedPlainTx {
+  destination: string;
+  destination_script: string | null;
+  is_silent_payment: boolean;
+  utxos: Array<{
+    address: string;
+    txid: string;
+    vout: number;
+    amount: number;
+    height: number;
+  }>;
+  amount: number;
+  change: number;
+  change_address: string | null;
+  change_script: string | null;
+  fee: number;
+  total_input: number;
+  vsize: number;
+  fee_rate_used: number;
+  input_count: number;
+  network: string;
+  unconfirmed_sats: number;
+}
+
+export async function preparePlainSpend(
+  adminkey: string,
+  walletId: string,
+  addresses: string[],
+  destination: string,
+  amount: number | null,
+  changeAddress: string | null,
+  feeRate: number,
+): Promise<PreparedPlainTx> {
+  return req(`${SILNT}/api/v1/plain/prepare`, {
+    method: 'POST',
+    headers: apiKey(adminkey),
+    body: JSON.stringify({
+      wallet_id: walletId,
+      addresses,
+      destination,
+      amount,
+      change_address: changeAddress,
+      fee_rate: feeRate,
+    }),
+  });
+}
+
+/**
+ * DEPRECATED — this is the call that sends the plain chain's private keys.
+ *
+ * Each one empties the address it belongs to on its own. Superseded by
+ * preparePlainSpend + services/plainSign.ts, which signs on the device.
+ * Nothing in this app reaches it any more; it stays, with /plain/spend on the
+ * backend, only so installed builds that have not updated still work.
+ */
 export async function buildPlainSpend(
   adminkey: string,
   walletId: string,

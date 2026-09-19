@@ -228,29 +228,44 @@ export function inputSigningKey(spendKeyHex: string, u: SpUtxo): Uint8Array {
 /**
  * BIP-352 recipient output from the input private keys.
  *
- * Mirrors wallet.py::sp_scriptpubkey_from_inputs. Every input here is P2TR, so
- * every key contributes with even Y — inputSigningKey has already applied that,
- * which is why this sums those keys rather than re-deriving them.
+ * Mirrors wallet.py::sp_scriptpubkey_from_inputs, including the part of it that
+ * is easy to get wrong: a P2TR key-path input must contribute the key whose
+ * public point has EVEN Y (BIP-340), and a P2WPKH input must contribute its key
+ * exactly as it is. Negating the wrong one gives a different a_sum, a different
+ * shared secret, and an output the recipient's scanner will never find. The
+ * coins are not recoverable from that.
+ *
+ * `isTaproot` is therefore per-call and not defaulted at the call sites that
+ * matter: the Silent Payments wallet spends P2TR, the plain BIP-84 chain spends
+ * P2WPKH, and both can pay an sp1… destination.
  */
-export function spScriptPubKey(
+export function spOutputScript(
   spAddress: string,
-  keys: Uint8Array[],
-  utxos: SpUtxo[],
+  privKeys: Uint8Array[],
+  outpoints: { txid: string; vout: number }[],
+  isTaproot: boolean,
   k = 0,
 ): Uint8Array {
-  if (keys.length !== utxos.length) throw new Error('key/utxo count mismatch');
+  if (privKeys.length !== outpoints.length) {
+    throw new Error('key/outpoint count mismatch');
+  }
+  if (!privKeys.length) throw new Error('no inputs');
   const { scan: bScan, spend: bSpend } = parseSpAddress(spAddress);
 
   let aSum = 0n;
   let aPoint = secp256k1.ProjectivePoint.ZERO;
-  for (const key of keys) {
-    aSum = (aSum + bytesToBig(key)) % N;
-    aPoint = aPoint.add(secp256k1.ProjectivePoint.fromPrivateKey(key));
+  for (const key of privKeys) {
+    let k_i = bytesToBig(key) % N;
+    if (isTaproot && secp256k1.getPublicKey(bigToBytes(k_i), true)[0] === 0x03) {
+      k_i = N - k_i;
+    }
+    aSum = (aSum + k_i) % N;
+    aPoint = aPoint.add(secp256k1.ProjectivePoint.fromPrivateKey(bigToBytes(k_i)));
   }
   if (aSum === 0n) throw new Error('input keys sum to zero');
 
   const aSumBytes = aPoint.toRawBytes(true);
-  const outpointL = utxos
+  const outpointL = outpoints
     .map((u) => outpoint(u.txid, u.vout))
     .reduce((min, o) => (toHex(o) < toHex(min) ? o : min));
 
@@ -268,6 +283,20 @@ export function spScriptPubKey(
     secp256k1.ProjectivePoint.BASE.multiply(tK),
   );
   return concat(new Uint8Array([0x51, 0x20]), P.toRawBytes(true).slice(1));
+}
+
+/**
+ * The same thing for this wallet's own P2TR coins, whose keys inputSigningKey
+ * has already brought to even Y.
+ */
+export function spScriptPubKey(
+  spAddress: string,
+  keys: Uint8Array[],
+  utxos: SpUtxo[],
+  k = 0,
+): Uint8Array {
+  if (keys.length !== utxos.length) throw new Error('key/utxo count mismatch');
+  return spOutputScript(spAddress, keys, utxos, true, k);
 }
 
 /** The m=0 labelled address this wallet sends its change to. */

@@ -456,14 +456,39 @@ export async function getPlainPreview(inkey, walletId, addresses) {
   return req(`${SILNT}/api/v1/plain/${walletId}?${qs}`, { headers: keyHeaders(inkey) })
 }
 
-// Pay out of the plain chain. The destination can be an ordinary address or a
-// Silent Payments one — paying your own SP address is how these coins move into
-// that wallet, if you want them there.
+// What a plain-chain spend needs decided, with no key in the request. The
+// server finds the coins (only it can reach the chain index), checks the
+// destination and does the arithmetic; this browser then signs. See
+// services/plainSign.js.
 //
 // `amount` null means send everything. `changeAddress` must be the chain's next
 // unused address; the backend refuses anything off that chain, so the remainder
-// cannot be routed elsewhere. Keys are sent transiently for signing and are
-// never stored server-side, exactly as buildTx sends the spend key.
+// cannot be routed elsewhere.
+export async function preparePlainSpend(
+  adminkey, walletId, addresses, destination, amount, changeAddress, feeRate,
+) {
+  return req(`${SILNT}/api/v1/plain/prepare`, {
+    method: 'POST',
+    headers: keyHeaders(adminkey),
+    body: JSON.stringify({
+      wallet_id: walletId,
+      addresses,
+      destination,
+      amount,
+      change_address: changeAddress,
+      fee_rate: feeRate,
+    }),
+  })
+}
+
+/**
+ * DEPRECATED — this is the call that sends the plain chain's private keys.
+ *
+ * Each one empties the address it belongs to on its own. Superseded by
+ * preparePlainSpend + services/plainSign.ts. Nothing in this app reaches it any
+ * more; it stays, with /plain/spend on the backend, only so an older client
+ * still works.
+ */
 export async function buildPlainSpend(
   adminkey, walletId, keysHex, destination, amount, changeAddress, feeRate,
 ) {

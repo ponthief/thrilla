@@ -20,9 +20,10 @@ import {
   defaultPlainSelection,
   destinationPlaceholder,
   isOwnSpAddress,
-  keysForIndices,
+  keyMapForIndices,
   plainAddressTotals,
 } from '@/services/plainChain'
+import { buildSignedPlainTx } from '@/services/plainSign'
 import { addPendingSend } from '@/stores/pendingsends'
 import { recordPlainSend } from '@/stores/plainhistory'
 import { parseScannedAddress } from '@/services/addressUri'
@@ -132,22 +133,55 @@ async function pasteDestination() {
   } catch { /* clipboard blocked or empty — the field is typeable */ }
 }
 
+// Build and sign in this browser. The plain chain's private keys never leave
+// it — and unlike a Silent Payments spend key, each one is enough on its own to
+// empty the address it belongs to.
+//
+// The server still finds the coins (only it can reach the chain index) and does
+// the arithmetic, and the destination script is derived here and checked
+// against the one it resolved. PlainSendModal.tsx does the same on the phone.
 async function build() {
   error.value = null
   busy.value = true
   try {
-    built.value = await api.buildPlainSpend(
+    const keys = keyMapForIndices(props.accountXprv, props.wallet.network, selected.value)
+    // Change comes back to the chain's next unused address, so a payment does
+    // not put the remainder back on an address that has now been seen spending.
+    const changeAddress = sendMax.value ? null : props.chain.receiveAddress
+
+    const plan = await api.preparePlainSpend(
       auth.adminkey,
       props.wallet.id,
-      keysForIndices(props.accountXprv, props.wallet.network, selected.value),
+      Object.keys(keys),
       destination.value.trim(),
       amountSats.value,
-      // Change comes back to the chain's next unused address, so a payment does
-      // not put the remainder back on an address that has now been seen
-      // spending.
-      sendMax.value ? null : props.chain.receiveAddress,
+      changeAddress,
       Number(feeRate.value),
     )
+
+    const signed = buildSignedPlainTx({
+      destination: destination.value.trim(),
+      utxos: plan.utxos,
+      keys,
+      amount: amountSats.value,
+      feeRate: Number(feeRate.value),
+      changeAddress,
+      network: props.wallet.network,
+      expectDestinationScriptHex: plan.destination_script,
+    })
+
+    // The server quoted these before anything was signed and the signature
+    // commits to them. A disagreement means the two sides built different
+    // transactions, and neither should go out.
+    if (signed.fee !== plan.fee || signed.change !== plan.change ||
+        signed.amount !== plan.amount) {
+      throw new Error(
+        `Refusing to send: this browser and the server disagree on the amounts ` +
+        `(fee ${signed.fee} vs ${plan.fee}, change ${signed.change} vs ` +
+        `${plan.change}). Reload and try again.`,
+      )
+    }
+    built.value = signed
     stage.value = 'review'
   } catch (e) { error.value = e.message }
   finally { busy.value = false }

@@ -16,10 +16,11 @@ import {
   defaultPlainSelection,
   destinationPlaceholder,
   isOwnSpAddress,
-  keysForIndices,
+  keyMapForIndices,
   plainAddressTotals,
   PlainChainState,
 } from '@services/plainChain';
+import { buildSignedPlainTx, type PlainBuiltTx } from '@services/plainSign';
 import { usePendingSends } from '@stores/pendingSends';
 import { useTxLabelStore } from '@stores/txLabelStore';
 import { usePlainHistory } from '@stores/plainHistoryStore';
@@ -91,7 +92,7 @@ export default function PlainSendModal({
   const [feeRate, setFeeRate] = useState('1');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [built, setBuilt] = useState<api.BuiltPlainTx | null>(null);
+  const [built, setBuilt] = useState<PlainBuiltTx | null>(null);
   const [txid, setTxid] = useState<string | null>(null);
   const [scanning, setScanning] = useState(false);
   // Which addresses to spend. Explicit, because it decides whether this
@@ -155,18 +156,49 @@ export default function PlainSendModal({
     setError(null);
     setBusy(true);
     try {
-      const res = await api.buildPlainSpend(
+      const keys = keyMapForIndices(accountXprv, wallet.network, selected);
+      // Change comes back to the pool's next unused address, so a pay-out does
+      // not put the remainder back on an address that has now been seen
+      // spending.
+      const changeAddress = sendMax ? null : chain.receiveAddress;
+
+      // The server finds the coins and does the arithmetic — only it can reach
+      // the chain index — but it is never sent a key. The signing happens here.
+      const plan = await api.preparePlainSpend(
         adminkey,
         wallet.id,
-        keysForIndices(accountXprv, wallet.network, selected),
+        Object.keys(keys),
         destination.trim(),
         amountSats,
-        // Change comes back to the pool's next unused address, so a pay-out
-        // does not put the remainder back on an address that has now been seen
-        // spending.
-        sendMax ? null : chain.receiveAddress,
+        changeAddress,
         Number(feeRate),
       );
+
+      const res = buildSignedPlainTx({
+        destination: destination.trim(),
+        utxos: plan.utxos,
+        keys,
+        amount: amountSats,
+        feeRate: Number(feeRate),
+        changeAddress,
+        network: wallet.network,
+        expectDestinationScriptHex: plan.destination_script,
+      });
+
+      // The server quoted these before anything was signed and the signature
+      // commits to them. A disagreement means the two sides built different
+      // transactions, and neither should go out.
+      if (
+        res.fee !== plan.fee ||
+        res.change !== plan.change ||
+        res.amount !== plan.amount
+      ) {
+        throw new Error(
+          `Refusing to send: this phone and the server disagree on the amounts ` +
+            `(fee ${res.fee} vs ${plan.fee}, change ${res.change} vs ` +
+            `${plan.change}). Try again in a moment.`,
+        );
+      }
       setBuilt(res);
       setStage('review');
     } catch (e: any) {

@@ -72,5 +72,17 @@ first, then mirror it.
 ```bash
 npx tsc --noEmit            # React Native side
 npm run build:signet        # web app
+npm run check:signing       # both on-device signers vs the Python
 cd ../siLNt && python3 -m pytest tests/ -q
+```
+
+`check:signing` holds `src/services/spSign.ts` and `src/services/plainSign.ts`
+to vectors generated from the backend's own builders. Both apps now build and
+sign every send on the device, so a change to a fee formula, an output
+ordering or a derivation — **on either side** — needs the vectors regenerated:
+
+```bash
+cd ../siLNt
+python3 helpers/_client_signing_fixtures.py > fixtures/client-signing.json
+python3 helpers/_plain_signing_fixtures.py  > fixtures/plain-signing.json
 ```

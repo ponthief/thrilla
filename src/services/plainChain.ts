@@ -201,6 +201,23 @@ export function keysForIndices(
   return indices.map((i) => plainKeyAt(accountXprv, network, i).privateKeyHex);
 }
 
+// The same keys, addressed by the address they control — what the on-device
+// signer needs, since it matches each coin to its key that way rather than by
+// position. plainKeyAt derives the pair together, so the two cannot come from
+// different indices.
+export function keyMapForIndices(
+  accountXprv: string,
+  network: string,
+  indices: number[],
+): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const i of indices) {
+    const k = plainKeyAt(accountXprv, network, i);
+    out[k.address] = k.privateKeyHex;
+  }
+  return out;
+}
+
 export interface PlainAddressTotal {
   index: number;
   address: string;
