@@ -342,14 +342,16 @@ export async function getWalletAddresses(inkey, walletId) {
   })
 }
 
-export async function previewWalletAddress(inkey, walletId, scanSecret, spendKey, labelIndex = null) {
-  // labelIndex is optional — server picks next free if omitted
+export async function previewWalletAddress(inkey, walletId, scanSecret, labelIndex = null) {
+  // labelIndex is optional — server picks next free if omitted.
+  // No spend key: a labelled address needs the scan secret and the spend PUBLIC
+  // key, and the server takes that from the wallet's own sp_address. Sending the
+  // secret put spend-capable material on the wire for a read-only preview.
   return req(`${SILNT}/api/v1/wallet/${walletId}/addresses/preview`, {
     method: 'POST',
     headers: keyHeaders(inkey),
     body: JSON.stringify({
       scan_secret: scanSecret,
-      spend_key:   spendKey,
       label_index: labelIndex,
     }),
   })

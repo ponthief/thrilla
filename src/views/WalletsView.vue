@@ -418,7 +418,7 @@ async function generateAddress(wallet) {
       return
     }
     // 1) Server derives the address at the next free label_index
-    const preview = await api.previewWalletAddress(auth.inkey, rw.id, keys.scanSecret, keys.spendKey)
+    const preview = await api.previewWalletAddress(auth.inkey, rw.id, keys.scanSecret)
     // 2) Immediately persist it (empty label — user can edit inline after)
     const saved   = await api.saveWalletAddress(
       auth.inkey, rw.id, preview.sp_address, '', preview.label_index
