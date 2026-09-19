@@ -88,7 +88,11 @@ async function loadWallets() {
 async function loadConfig() {
   try {
     const cfg = await api.getAppConfig(auth.inkey)
-    if (cfg?.mempool_endpoint) mempoolUrl.value = cfg.mempool_endpoint.replace(/\/$/, '')
+    // explorer_endpoint first: these are links a browser opens, and once
+    // mempool_url points at a LAN-only instance it stops being reachable.
+    // mempool_endpoint is the fallback for a backend that predates the split.
+    const base = cfg?.explorer_endpoint || cfg?.mempool_endpoint
+    if (base) mempoolUrl.value = base.replace(/\/$/, '')
   } catch {}
 }
 

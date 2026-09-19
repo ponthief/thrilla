@@ -14,7 +14,7 @@ const isAdmin   = ref(false)
 const meLoading = ref(true)
 
 // System config (BlindBit / network / limits)
-const config  = ref({ blindbit_url: '', mempool_url: 'https://mempool.space', boltz_url: '', min_scan_height: 0, dust_threshold_sats: 5000, fulcrum_host: '', fulcrum_port: 50001, fulcrum_tls: false, login_scan_enabled: true, login_scan_auto_threshold: 432 })
+const config  = ref({ blindbit_url: '', mempool_url: 'https://mempool.space', explorer_url: 'https://mempool.space', boltz_url: '', min_scan_height: 0, dust_threshold_sats: 5000, fulcrum_host: '', fulcrum_port: 50001, fulcrum_tls: false, login_scan_enabled: true, login_scan_auto_threshold: 432 })
 const loading = ref(true)
 const saving  = ref(false)
 const error   = ref(null)
@@ -334,8 +334,23 @@ onBeforeUnmount(() => {
               <span class="text-dim text-xs">The BlindBit backend that provides tweak and UTXO index data for scanning.</span>
             </div>
             <div class="field">
-              <label>Mempool URL</label>
+              <label>Mempool URL <span class="text-dim text-xs">(API — fees, broadcast, tx status)</span></label>
               <input class="input" v-model="config.mempool_url" placeholder="https://mempool.space" />
+              <span class="text-dim text-xs">
+                The backend calls this. Point it at your own instance: on a public
+                explorer, this traffic reveals which txids your users care about.
+                It may be LAN-only — nothing here is opened by a user's browser.
+              </span>
+            </div>
+            <div class="field">
+              <label>Explorer URL <span class="text-dim text-xs">(links opened by users)</span></label>
+              <input class="input" v-model="config.explorer_url" placeholder="https://mempool.space" />
+              <span class="text-dim text-xs">
+                Where “open in explorer” sends someone's browser, so it has to resolve
+                off your network. Leave it public even when the URL above is private —
+                a link leaks one txid the user chose to look up, not every txid the
+                wallet touches. Blank falls back to the Mempool URL.
+              </span>
             </div>
             <div class="field">
               <label>Boltz API URL</label>
