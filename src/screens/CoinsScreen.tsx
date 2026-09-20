@@ -29,8 +29,13 @@ function key(u: api.Utxo): string {
   return `${u.txid}:${u.vout}`;
 }
 
+// 'frozen' is not a utxo_state — it is a flag on an unspent coin. It gets a
+// chip anyway because finding a frozen coin was otherwise a scroll to the
+// bottom of the list: they sort last, and the badge was the same grey as the
+// state badge beside it.
 const STATE_FILTERS: { key: string; label: string }[] = [
   { key: 'unspent', label: 'Unspent' },
+  { key: 'frozen', label: 'Frozen' },
   { key: 'unconfirmed_spent', label: 'Pending' },
   { key: 'spent', label: 'Spent' },
   { key: 'all', label: 'All' },
@@ -124,11 +129,18 @@ export default function CoinsScreen({ visible, onClose }: Props) {
     const list =
       stateFilter === 'all'
         ? utxos
+        : stateFilter === 'frozen'
+        ? utxos.filter((u) => u.frozen && u.utxo_state === 'unspent')
         : utxos.filter((u) => u.utxo_state === stateFilter);
     return [...list].sort(
       (a, b) => Number(a.frozen) - Number(b.frozen) || b.amount - a.amount,
     );
   }, [utxos, stateFilter]);
+
+  const frozenCount = useMemo(
+    () => utxos.filter((u) => u.frozen && u.utxo_state === 'unspent').length,
+    [utxos],
+  );
 
   const setFrozen = useCallback(
     async (u: api.Utxo, frozen: boolean) => {
@@ -275,6 +287,7 @@ export default function CoinsScreen({ visible, onClose }: Props) {
                   onPress={() => setStateFilter(f.key)}>
                   <Text style={[styles.filterText, active && styles.filterTextOn]}>
                     {f.label}
+                    {f.key === 'frozen' && frozenCount > 0 ? ` ${frozenCount}` : ''}
                   </Text>
                 </TouchableOpacity>
               );
@@ -296,15 +309,15 @@ export default function CoinsScreen({ visible, onClose }: Props) {
               const busy = busyKey === k;
               const editing = editingKey === k;
               return (
-                <View key={k} style={styles.coin}>
+                <View key={k} style={[styles.coin, u.frozen && styles.coinFrozen]}>
                   <View style={styles.coinTop}>
-                    <Text style={styles.amount}>
+                    <Text style={[styles.amount, u.frozen && styles.amountFrozen]}>
                       {hidden ? MASK : groupThousands(u.amount)} sats
                     </Text>
                     <View style={styles.badges}>
                       {u.frozen ? (
-                        <View style={[styles.badge, styles.badgeGray]}>
-                          <Text style={styles.badgeGrayText}>frozen</Text>
+                        <View style={[styles.badge, styles.badgeFrozen]}>
+                          <Text style={styles.badgeFrozenText}>frozen</Text>
                         </View>
                       ) : null}
                       {dust ? (
@@ -363,13 +376,20 @@ export default function CoinsScreen({ visible, onClose }: Props) {
                       </TouchableOpacity>
                       {u.utxo_state === 'unspent' ? (
                         <TouchableOpacity
-                          style={styles.freezeBtn}
+                          style={[styles.freezeBtn, u.frozen && styles.unfreezeBtn]}
                           onPress={() => setFrozen(u, !u.frozen)}
                           disabled={busy}>
                           {busy ? (
-                            <ActivityIndicator size="small" color={PRIMARY} />
+                            <ActivityIndicator
+                              size="small"
+                              color={u.frozen ? colors.ice : PRIMARY}
+                            />
                           ) : (
-                            <Text style={styles.freezeText}>
+                            <Text
+                              style={[
+                                styles.freezeText,
+                                u.frozen && styles.unfreezeText,
+                              ]}>
                               {u.frozen ? 'Unfreeze' : 'Freeze'}
                             </Text>
                           )}
@@ -468,13 +488,20 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
   },
+  // A frozen coin is set aside, so it is marked rather than highlighted: the
+  // stripe finds it while scrolling, and the dimmed amount says it is not part
+  // of what this wallet can spend.
+  coinFrozen: { borderLeftWidth: 3, borderLeftColor: colors.ice },
   amount: { fontSize: 16, fontWeight: '700', color: colors.text },
+  amountFrozen: { color: colors.faint },
   badges: { flexDirection: 'row', gap: 6 },
   badge: { borderRadius: 5, paddingHorizontal: 8, paddingVertical: 3 },
   badgeGray: { backgroundColor: colors.surfaceAlt },
   badgeGrayText: { fontSize: 11, color: colors.muted, fontWeight: '600' },
   badgeDust: { backgroundColor: 'rgba(249,115,22,0.14)' },
   badgeDustText: { fontSize: 11, color: PRIMARY, fontWeight: '700' },
+  badgeFrozen: { backgroundColor: colors.iceTint },
+  badgeFrozenText: { fontSize: 11, color: colors.ice, fontWeight: '700' },
   outpoint: {
     fontSize: 12,
     color: colors.faint,
@@ -499,6 +526,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   freezeText: { color: PRIMARY, fontSize: 13, fontWeight: '600' },
+  unfreezeBtn: { borderColor: colors.ice },
+  unfreezeText: { color: colors.ice },
   labelEditRow: { flexDirection: 'row', alignItems: 'center', marginTop: 12, gap: 8 },
   labelInput: {
     flex: 1,

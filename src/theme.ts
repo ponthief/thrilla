@@ -35,6 +35,11 @@ export const colors = {
   green: '#22c55e', // --green
   danger: '#ef4444', // --red
   warn: '#eab308', // --yellow: a caution that is not yet a failure
+  // Frozen coins. Deliberately cool and deliberately not orange: orange already
+  // means dust on the same card, and a frozen coin is a choice the user made,
+  // not a warning. 9.2:1 on bg, 8.7:1 on surface, and 7.2:1 as badge text on
+  // its own tint below — the worst case, and still well clear of 4.5:1.
+  ice: '#38bdf8',
 
   // ── Surfaces: near-black, faintly blue, flat rather than layered ───────────
   bg: '#080b0f', // app / screen background
@@ -55,6 +60,7 @@ export const colors = {
   accentTint: 'rgba(249,115,22,0.10)',
   greenTint: 'rgba(34,197,94,0.10)',
   dangerTint: 'rgba(239,68,68,0.10)',
+  iceTint: 'rgba(56,189,248,0.12)',
 };
 
 // ── Typography ──────────────────────────────────────────────────────────────
