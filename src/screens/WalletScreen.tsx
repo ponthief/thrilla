@@ -28,6 +28,7 @@ import { usePlainStatus } from '@stores/plainStatus';
 import { useSeedBackup } from '@stores/seedBackup';
 import { useNavStore } from '@stores/navStore';
 import { useTxLabelStore } from '@stores/txLabelStore';
+import { MASK, useBalancePrivacy } from '@stores/balancePrivacy';
 import { useCatchUpScan } from '../hooks/useCatchUpScan';
 
 // Falls back to the brand rather than to an empty header: Config is empty in a
@@ -305,6 +306,9 @@ export default function WalletScreen() {
   const btc = sats != null ? (sats / 1e8).toFixed(8) : null;
   const usd = sats != null && rate != null ? (sats / 1e8) * rate : null;
 
+  const hidden = useBalancePrivacy((s) => s.hidden);
+  const toggleHidden = useBalancePrivacy((s) => s.toggle);
+
   // Prefill the tx-detail label editor with the real label only (not the
   // "Sent"/"Received" fallback used for display).
   const detailTx = spTxs.find((t) => t.id === detailTxid) || null;
@@ -381,7 +385,12 @@ export default function WalletScreen() {
           </View>
         ) : (
           <>
-            <View style={styles.card}>
+            <TouchableOpacity
+              style={styles.card}
+              activeOpacity={0.7}
+              onPress={toggleHidden}
+              accessibilityRole="button"
+              accessibilityLabel={hidden ? 'Show balance' : 'Hide balance'}>
               <Text style={styles.label}>{name}</Text>
               {loading ? (
                 <ActivityIndicator style={styles.spinner} color={colors.primary} />
@@ -393,15 +402,19 @@ export default function WalletScreen() {
                 <>
                   <View style={styles.balanceRow}>
                     <BitcoinSign size={34} color={colors.primary} weight={2.6} />
-                    <Text style={styles.balance}>{btc}</Text>
+                    <Text style={styles.balance}>{hidden ? MASK : btc}</Text>
                   </View>
-                  <Text style={styles.sub}>{groupThousands(sats)} sats</Text>
+                  <Text style={styles.sub}>
+                    {hidden ? MASK : groupThousands(sats)} sats
+                  </Text>
                   {usd != null ? (
-                    <Text style={styles.sub}>≈ ${usd.toFixed(2)} USD</Text>
+                    <Text style={styles.sub}>
+                      ≈ ${hidden ? MASK : usd.toFixed(2)} USD
+                    </Text>
                   ) : null}
                 </>
               )}
-            </View>
+            </TouchableOpacity>
 
             {isSp && keysMissing && !loading ? (
               <View style={styles.scanBanner}>
@@ -469,8 +482,8 @@ export default function WalletScreen() {
               <View style={styles.plainBanner}>
                 <View style={styles.scanTextWrap}>
                   <Text style={styles.scanTitle}>
-                    {groupThousands(plainSpendable || plainIncoming)} sats on a
-                    plain address
+                    {hidden ? MASK : groupThousands(plainSpendable || plainIncoming)}{' '}
+                    sats on a plain address
                   </Text>
                   <Text style={styles.scanSub}>
                     {plainSpendable > 0

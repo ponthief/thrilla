@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { Alert } from 'react-native';
 import { useAppLockStore } from '@stores/appLockStore';
+import { useBalancePrivacy } from '@stores/balancePrivacy';
 import * as appLock from '@services/appLock';
 import * as appPin from '@services/appPin';
 import { hasSeed } from '@services/seedVault';
@@ -35,6 +36,8 @@ export default function SecurityPage({ onBack }: { onBack: () => void }) {
   const lockAnyEnabled = useAppLockStore((s) => s.enabled);
   const autoLockMs = useAppLockStore((s) => s.autoLockMs);
   const setAutoLockMs = useAppLockStore((s) => s.setAutoLockMs);
+  const balancesHidden = useBalancePrivacy((s) => s.hidden);
+  const setBalancesHidden = useBalancePrivacy((s) => s.setHidden);
 
   const [biometry, setBiometry] = useState<string | null>(null);
   const [lockBusy, setLockBusy] = useState(false);
@@ -173,6 +176,16 @@ export default function SecurityPage({ onBack }: { onBack: () => void }) {
             <Note kind="error">{lockMsg}</Note>
           </Block>
         ) : null}
+      </Group>
+
+      <Group title="On screen">
+        <SwitchRow
+          first
+          title="Hide balances"
+          help="Show stars instead of amounts. Tap the balance to flip it back."
+          value={balancesHidden}
+          onValueChange={setBalancesHidden}
+        />
       </Group>
 
       {/* Only meaningful once something locks — with no lock configured this is

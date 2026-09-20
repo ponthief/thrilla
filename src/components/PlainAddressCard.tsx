@@ -17,6 +17,7 @@ import QRCode from './QRCode';
 import PlainSendModal from './PlainSendModal';
 import PlainSetupModal from './PlainSetupModal';
 import { colors } from '@/theme';
+import { MASK, useBalancesHidden } from '@stores/balancePrivacy';
 
 const PRIMARY = colors.primary;
 
@@ -68,6 +69,7 @@ interface Props {
  * accept it, and being second in the segment is enough to say so.
  */
 export default function PlainAddressCard({ wallet }: Props) {
+  const hidden = useBalancesHidden();
   const inkey = useAuthStore((s) => s.inkey);
   // A payment broadcast from here that the chain index hasn't caught up with.
   // Its inputs are spent, but a mempool spend takes a moment to reach Fulcrum,
@@ -203,10 +205,12 @@ export default function PlainAddressCard({ wallet }: Props) {
           ) : (
             <View style={styles.balanceBox}>
               <Text style={styles.balanceLabel}>Available here</Text>
-              <Text style={styles.balanceValue}>{groupThousands(sats)} sats</Text>
+              <Text style={styles.balanceValue}>
+                {hidden ? MASK : groupThousands(sats)} sats
+              </Text>
               {chain.unconfirmedSats > 0 ? (
                 <Text style={styles.balanceHint}>
-                  + {groupThousands(chain.unconfirmedSats)} sats from{' '}
+                  + {hidden ? MASK : groupThousands(chain.unconfirmedSats)} sats from{' '}
                   {chain.unconfirmedCount > 1
                     ? `${chain.unconfirmedCount} payments`
                     : '1 payment'}{' '}
@@ -254,7 +258,7 @@ export default function PlainAddressCard({ wallet }: Props) {
                   }}>
                   <View style={styles.histMeta}>
                     <Text style={styles.histAmount}>
-                      −{groupThousands(h.amount)} sats
+                      −{hidden ? MASK : groupThousands(h.amount)} sats
                       {h.toSelf ? ' · to your wallet' : ''}
                     </Text>
                     <Text style={styles.histDest} numberOfLines={1}>

@@ -26,6 +26,7 @@ import LockSetupScreen from './screens/LockSetupScreen';
 import { useAuthStore } from '@stores/authStore';
 import { useAppLockStore } from '@stores/appLockStore';
 import { useNotifyStore } from '@stores/notifyStore';
+import { useBalancePrivacy } from '@stores/balancePrivacy';
 import { useIdleLock } from './hooks/useIdleLock';
 import { useVerifyLink } from './hooks/useVerifyLink';
 import { touchActivity } from '@services/sessionActivity';
@@ -204,6 +205,7 @@ const App = () => {
   const paymentAlerts = useNotifyStore((s) => s.paymentAlerts);
   const notifyReady = useNotifyStore((s) => s.ready);
   const refreshNotify = useNotifyStore((s) => s.refresh);
+  const refreshBalancePrivacy = useBalancePrivacy((s) => s.refresh);
   const lastInkey = useRef<string | null>(null);
   useEffect(() => {
     if (!notifyReady) return;
@@ -236,11 +238,13 @@ const App = () => {
   // additionally erase the stored session — see hooks/useIdleLock.
   useIdleLock();
 
-  // Load the app-lock and notification preferences once at startup.
+  // Load the app-lock, notification and balance-privacy preferences once at
+  // startup.
   useEffect(() => {
     refreshLock();
     refreshNotify();
-  }, [refreshLock, refreshNotify]);
+    refreshBalancePrivacy();
+  }, [refreshLock, refreshNotify, refreshBalancePrivacy]);
 
   // An email-verification link that opened the app rather than a browser. Sits
   // at this level because it must be caught whether the app was launched by the

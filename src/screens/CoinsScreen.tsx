@@ -15,6 +15,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAuthStore } from '@stores/authStore';
 import * as api from '@services/api';
 import { colors } from '@/theme';
+import { MASK, useBalancesHidden } from '@stores/balancePrivacy';
 
 const PRIMARY = colors.primary;
 
@@ -41,6 +42,7 @@ interface Props {
 }
 
 export default function CoinsScreen({ visible, onClose }: Props) {
+  const hidden = useBalancesHidden();
   const inkey = useAuthStore((s) => s.inkey);
   const adminkey = useAuthStore((s) => s.adminkey);
 
@@ -228,7 +230,9 @@ export default function CoinsScreen({ visible, onClose }: Props) {
           }>
           <View style={styles.statsRow}>
             <View style={styles.stat}>
-              <Text style={styles.statValue}>{groupThousands(spendable)}</Text>
+              <Text style={styles.statValue}>
+                {hidden ? MASK : groupThousands(spendable)}
+              </Text>
               <Text style={styles.statLabel}>spendable sats</Text>
             </View>
             <View style={styles.stat}>
@@ -294,7 +298,9 @@ export default function CoinsScreen({ visible, onClose }: Props) {
               return (
                 <View key={k} style={styles.coin}>
                   <View style={styles.coinTop}>
-                    <Text style={styles.amount}>{groupThousands(u.amount)} sats</Text>
+                    <Text style={styles.amount}>
+                      {hidden ? MASK : groupThousands(u.amount)} sats
+                    </Text>
                     <View style={styles.badges}>
                       {u.frozen ? (
                         <View style={[styles.badge, styles.badgeGray]}>

@@ -571,7 +571,7 @@ export default function SendScreen() {
       // up either way.
       setCatchUpMsg(
         /recently|already|budget|too many/i.test(msg)
-          ? 'A scan was requested recently — this wallet will catch up shortly.'
+          ? 'Already scanning — it will catch up shortly.'
           : msg,
       );
     } finally {
@@ -795,8 +795,7 @@ export default function SendScreen() {
                 {scanTot
                   ? ` — block ${groupThousands(scanCur)} of ${groupThousands(scanTot)}`
                   : ''}
-                . Sending is paused until your wallet finishes scanning, so you
-                spend from a complete, up-to-date balance.
+                . Sending is paused until it finishes.
               </Text>
             </View>
           ) : null}
@@ -804,11 +803,8 @@ export default function SendScreen() {
           {behind ? (
             <View style={styles.behindBanner}>
               <Text style={styles.behindText}>
-                ⚠ This wallet is scanned up to block{' '}
-                {groupThousands(walletHeight)} — {groupThousands(blocksBehind)}{' '}
-                blocks behind the chain tip. Payments that arrived since then
-                aren't listed below yet, so you may be spending from an
-                incomplete balance. The coins shown are still yours to spend.
+                ⚠ {groupThousands(blocksBehind)} blocks behind. Coins received
+                since then aren't listed yet.
               </Text>
               <TouchableOpacity
                 style={[styles.behindBtn, catchUpBusy && styles.btnDisabled]}

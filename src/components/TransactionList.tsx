@@ -7,6 +7,7 @@ import {
   View,
 } from 'react-native';
 import { colors } from '@/theme';
+import { MASK, useBalancesHidden } from '@stores/balancePrivacy';
 
 export interface TxItem {
   id: string;
@@ -52,6 +53,7 @@ export default function TransactionList({
   emptyText = 'No transactions yet',
   onPressItem,
 }: Props) {
+  const hidden = useBalancesHidden();
   return (
     <View style={styles.card}>
       <Text style={styles.cardTitle}>{title}</Text>
@@ -92,7 +94,7 @@ export default function TransactionList({
                 ]}
                 numberOfLines={1}>
                 {tx.direction === 'in' ? '+' : '−'}
-                {groupThousands(tx.amountSats)} sats
+                {hidden ? MASK : groupThousands(tx.amountSats)} sats
               </Text>
               {tappable ? <Text style={styles.chevron}>›</Text> : null}
             </Wrapper>
