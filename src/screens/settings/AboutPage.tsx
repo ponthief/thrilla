@@ -7,7 +7,6 @@ import {
   checkForUpdate,
   fetchExpectedSha256,
   flavorAssetName,
-  RELEASES_URL,
   UpdateCheckError,
   type ReleaseInfo,
 } from '@services/updateCheck';
@@ -24,7 +23,6 @@ import {
 } from '@services/apkInstaller';
 
 const REPO = 'https://github.com/ponthief/thrilla';
-const VERIFY = 'https://whispawallet.com/download.html#verify';
 
 type Stage =
   | { kind: 'idle' }
@@ -79,8 +77,7 @@ export default function AboutPage({ onBack }: { onBack: () => void }) {
     setError(null);
     if (!release.apkUrl || !release.apkName) {
       setError(
-        `This release has no ${flavorAssetName()}. Open the release notes to ` +
-          'see what it does have.',
+        `This release has no ${flavorAssetName()}.`,
       );
       return;
     }
@@ -92,10 +89,8 @@ export default function AboutPage({ onBack }: { onBack: () => void }) {
       if (!perm.allowed) {
         Alert.alert(
           'Android needs your permission',
-          'To install an update, WhiSPa has to be allowed to ask. The next ' +
-            'screen is the Android setting for it — turn it on, come back, and ' +
-            'tap Download again.\n\nAndroid still checks the signature itself: ' +
-            'an app signed with a different key cannot replace WhiSPa.',
+          'Android has to allow WhiSPa to install an update. Turn it on in the ' +
+            'next screen, then tap Download again.',
           [
             { text: 'Not now', style: 'cancel' },
             { text: 'Open settings', onPress: () => openInstallSettings().catch(() => {}) },
@@ -194,12 +189,6 @@ export default function AboutPage({ onBack }: { onBack: () => void }) {
       <>
         <InfoRow first title="Ready to install" value={stage.release.version} />
         <InfoRow title="SHA-256 checked" value={`${stage.sha256.slice(0, 16)}…`} />
-        <Note kind="ok">
-          The download matches the checksum published for this release. Android
-          will check the signature too, and refuse it unless it was signed with
-          the same key as the copy you have — your wallet and keys stay where
-          they are.
-        </Note>
         <Button label="Install now" onPress={() => onInstall(stage.path)} />
         <Button
           label="Delete the download"
@@ -219,11 +208,7 @@ export default function AboutPage({ onBack }: { onBack: () => void }) {
         {IN_APP_INSTALL_SUPPORTED && r.apkUrl ? (
           <Button label={`Download ${r.version}`} onPress={() => onDownload(r)} />
         ) : null}
-        <NavRow
-          title="Release notes"
-          help="What changed, and the published checksums"
-          onPress={() => open(r.pageUrl)}
-        />
+        <NavRow title="Release notes" onPress={() => open(r.pageUrl)} />
         {!IN_APP_INSTALL_SUPPORTED && r.apkUrl ? (
           <NavRow
             title="Download in a browser"
@@ -235,11 +220,7 @@ export default function AboutPage({ onBack }: { onBack: () => void }) {
     );
   } else {
     updateRows = (
-      <NavRow
-        title="Check for updates"
-        help="Asks github.com — only when you tap it"
-        onPress={onCheck}
-      />
+      <NavRow title="Check for updates" help="Asks github.com" onPress={onCheck} />
     );
   }
 
@@ -261,25 +242,7 @@ export default function AboutPage({ onBack }: { onBack: () => void }) {
           help="github.com/ponthief/thrilla"
           onPress={() => open(REPO)}
         />
-        <NavRow
-          title="All releases"
-          help="Every version, with checksums and signatures"
-          onPress={() => open(RELEASES_URL)}
-        />
-        <NavRow
-          title="Verify a download"
-          help="whispawallet.com/download.html#verify"
-          onPress={() => open(VERIFY)}
-        />
       </Group>
-
-      <Help>
-        Updates are GitHub releases, not an app store, so nothing is checked
-        until you ask. The download is verified against the release’s published
-        SHA-256 before it is offered for install, and Android enforces the
-        signing key on top of that. To check the signature on the checksums
-        yourself, use the verify instructions above.
-      </Help>
 
       <Help>
         Set in Geist and Geist Mono, by Vercel with basement.studio, under the
