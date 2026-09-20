@@ -16,7 +16,7 @@ import { useWalletStore } from '@stores/walletStore';
 import { useBitmailAlert } from '@stores/bitmailAlert';
 import * as api from '@services/api';
 import { hasWalletKeys } from '@services/secureKeys';
-import { colors, LIGHTNING_ENABLED } from '@/theme';
+import { colors, LIGHTNING_ENABLED, type } from '@/theme';
 import CoinsScreen from './CoinsScreen';
 import CreateWalletModal from '../components/CreateWalletModal';
 import RecoverKeysModal from '../components/RecoverKeysModal';
@@ -333,7 +333,9 @@ export default function WalletScreen() {
             accessibilityIgnoresInvertColors
           />
           <View style={styles.brandText}>
-            <Text style={styles.brandName}>{APP_NAME}</Text>
+            <Text style={styles.brandName} numberOfLines={1}>
+              {APP_NAME}
+            </Text>
             <Text style={styles.brandSub}>Silent Payments</Text>
           </View>
         </View>
@@ -581,25 +583,27 @@ const styles = StyleSheet.create({
   brand: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 10,
-    marginBottom: 14,
+    gap: 12,
+    marginBottom: 18,
   },
   // The mark is a dark rounded card in the artwork, so it needs no background
   // of its own against colors.bg.
-  brandMark: { width: 34, height: 34, borderRadius: 8 },
-  brandText: { justifyContent: 'center' },
+  brandMark: { width: 48, height: 48, borderRadius: 11 },
+  // flexShrink, so "WhiSPa Signet" — the longer of the two names — ellipsizes
+  // on a narrow screen instead of shoving the mark off the left edge.
+  brandText: { justifyContent: 'center', flexShrink: 1 },
   brandName: {
+    ...type.title,
     color: colors.text,
-    fontSize: 17,
-    fontWeight: '600',
-    letterSpacing: -0.2,
-    lineHeight: 20,
+    lineHeight: 30,
   },
+  // The overline's tracking is what makes uppercase legible this small, and
+  // the width it buys is the point: it sets the masthead against the balance
+  // below rather than leaving the row trailing off into empty space.
   brandSub: {
+    ...type.overline,
     color: colors.muted,
-    fontSize: 11.5,
-    letterSpacing: 0.4,
-    lineHeight: 14,
+    lineHeight: 15,
   },
   content: { flex: 1, padding: 16 },
   segment: {
