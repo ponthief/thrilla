@@ -25,6 +25,71 @@ apply from: project(':react-native-config').projectDir.getPath() + "/dotenv.grad
 // to confirm you built the flavor you intended.
 println "🔧 Thrilla build config → NETWORK_LOCK=${project.env?.NETWORK_LOCK}  LNBITS_URL=${project.env?.LNBITS_URL}"
 
+// ── the app version, read from the repo rather than repeated here ────────────
+//
+// package.json's "version" is canonical; src/version.ts mirrors it because the
+// JS bundle needs a literal it can import. Both are read, and a mismatch is a
+// failed build — bumping one and forgetting the other cannot reach a phone.
+//
+// Every failure here is fatal on purpose. A build that cannot establish the
+// version must not fall back to a guess and ship a wrong one, which is exactly
+// how "0.2.0" got in front of users while v0.1.4 was the newest release anyone
+// could install.
+def appVersionName = { ->
+    def pkg = file("${rootDir}/../package.json")
+    if (!pkg.exists()) {
+        throw new GradleException(
+            "The app version is read from package.json, and it is not at ${pkg}."
+        )
+    }
+    def fromPkg = new groovy.json.JsonSlurper().parseText(pkg.text).version
+    if (!(fromPkg ==~ /^\d+\.\d+\.\d+$/)) {
+        throw new GradleException(
+            "package.json version is '${fromPkg}'; it must be x.y.z so that a " +
+            "versionCode can be derived from it."
+        )
+    }
+
+    def ts = file("${rootDir}/../src/version.ts")
+    if (!ts.exists()) {
+        throw new GradleException(
+            "src/version.ts is missing; the app reports its version from it."
+        )
+    }
+    def m = ts.text =~ /export const APP_VERSION = '([^']+)'/
+    if (!m) {
+        throw new GradleException(
+            "Could not find APP_VERSION in ${ts}. It must stay a plain literal " +
+            "(export const APP_VERSION = 'x.y.z') so this build can check it " +
+            "against package.json."
+        )
+    }
+    def fromTs = m[0][1]
+    if (fromTs != fromPkg) {
+        throw new GradleException(
+            "Version mismatch: package.json says ${fromPkg}, src/version.ts " +
+            "says ${fromTs}. Set both to the same x.y.z — the second is what " +
+            "the About page and the update check report."
+        )
+    }
+    return fromPkg
+}()
+
+// x.y.z -> x*10000 + y*100 + z. Monotonic for any version that only goes up,
+// and every value it produces clears the hand-set 2 that shipped before.
+def appVersionCode = {
+    def (major, minor, patch) = appVersionName.tokenize('.').collect { it as int }
+    if (minor > 99 || patch > 99) {
+        throw new GradleException(
+            "Version ${appVersionName} does not fit this scheme: minor and patch " +
+            "must stay under 100, or the derived versionCode stops increasing."
+        )
+    }
+    return major * 10000 + minor * 100 + patch
+}()
+
+println "🔧 Thrilla version → ${appVersionName} (versionCode ${appVersionCode})"
+
 /**
  * This is the configuration block to customize your React Native Android app.
  * By default you don't need to apply any configuration, just uncomment the lines you need.
@@ -101,13 +166,19 @@ android {
         applicationId "com.thrilla_btc.thrilla"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        // versionCode must strictly increase for Android to accept an update;
-        // it sat at 1 through every release so far, so an install over an
-        // existing build was a reinstall rather than an upgrade. versionName is
-        // what a user sees and now matches package.json and the About page,
-        // instead of the "1.0" left over from the React Native template.
-        versionCode 2
-        versionName "0.2.0"
+        // Both read from package.json, which is the only place the version is
+        // written. It used to be repeated here and in the About page, and the
+        // three agreeing was mistaken for them being right: they said "0.2.0"
+        // while the published releases were on v0.1.4, so the About page named
+        // a version nobody could download. See src/version.ts.
+        //
+        // versionCode must strictly increase or Android refuses the update, so
+        // it is derived rather than remembered: 0.1.5 -> 105, 1.2.3 -> 10203.
+        // It sat at 1 through every early release, which is why installing over
+        // an existing build was a reinstall rather than an upgrade, and then at
+        // a hand-set 2. Every derived code is far above both.
+        versionCode appVersionCode
+        versionName appVersionName
 
         // react-native-config resolves Config.* at runtime from
         // "<package>.BuildConfig" using getPackageName() (the applicationId).
