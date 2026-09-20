@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  What the FileProvider in AndroidManifest.xml is allowed to serve.
+
+  Exactly one directory: the "updates" folder inside the app's cache, which is
+  the only place updater/ApkInstallerModule.kt writes and the only place its
+  install() will accept a path from. Nothing else in the app's storage is
+  reachable through the provider, so a path arriving from JS cannot be turned
+  into "hand this other file to the installer".
+
+  cache-path maps to Context.getCacheDir(), so Android is free to reclaim a
+  downloaded APK under storage pressure — which is correct for a file that has
+  already been installed or abandoned.
+-->
+<paths>
+    <cache-path name="updates" path="updates/" />
+</paths>

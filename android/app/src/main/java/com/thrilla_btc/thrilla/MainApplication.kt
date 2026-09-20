@@ -11,6 +11,7 @@ import com.facebook.react.defaults.DefaultReactHost.getDefaultReactHost
 import com.facebook.react.defaults.DefaultReactNativeHost
 import com.facebook.react.flipper.ReactNativeFlipper
 import com.facebook.soloader.SoLoader
+import com.thrilla_btc.thrilla.updater.ApkInstallerPackage
 
 class MainApplication : Application(), ReactApplication {
 
@@ -18,8 +19,11 @@ class MainApplication : Application(), ReactApplication {
       object : DefaultReactNativeHost(this) {
         override fun getPackages(): List<ReactPackage> =
             PackageList(this).packages.apply {
-              // Packages that cannot be autolinked yet can be added manually here, for example:
-              // add(MyReactNativePackage())
+              // Autolinking only covers modules that arrive as npm packages;
+              // this one lives in this repo. See updater/ApkInstallerModule.kt
+              // for why downloading and installing an update is written here
+              // rather than pulled in as a filesystem library.
+              add(ApkInstallerPackage())
             }
 
         override fun getJSMainModuleName(): String = "index"

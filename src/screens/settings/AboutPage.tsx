@@ -1,93 +1,257 @@
-import React, { useCallback, useState } from 'react';
-import { ActivityIndicator, Alert, Linking, View } from 'react-native';
-import { Group, Help, InfoRow, NavRow, Page } from './ui';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { Alert, Linking, StyleSheet, View } from 'react-native';
+import { Button, Group, Help, InfoRow, NavRow, Note, Page } from './ui';
+import { colors } from '@/theme';
 import { APP_VERSION } from '@/version';
 import {
   checkForUpdate,
+  fetchExpectedSha256,
   flavorAssetName,
   RELEASES_URL,
   UpdateCheckError,
+  type ReleaseInfo,
 } from '@services/updateCheck';
+import {
+  cancelDownload,
+  canInstall,
+  discardDownload,
+  downloadApk,
+  formatBytes,
+  installApk,
+  IN_APP_INSTALL_SUPPORTED,
+  onDownloadProgress,
+  openInstallSettings,
+} from '@services/apkInstaller';
 
 const REPO = 'https://github.com/ponthief/thrilla';
 const VERIFY = 'https://whispawallet.com/download.html#verify';
 
+type Stage =
+  | { kind: 'idle' }
+  | { kind: 'checking' }
+  | { kind: 'found'; release: ReleaseInfo }
+  | { kind: 'downloading'; release: ReleaseInfo; bytes: number; total: number }
+  | { kind: 'verified'; release: ReleaseInfo; path: string; sha256: string };
+
 export default function AboutPage({ onBack }: { onBack: () => void }) {
-  const [checking, setChecking] = useState(false);
+  const [stage, setStage] = useState<Stage>({ kind: 'idle' });
+  const [error, setError] = useState<string | null>(null);
+  const mounted = useRef(true);
+
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
 
   const open = (url: string) => Linking.openURL(url).catch(() => {});
 
+  // ── find out whether there is one ──────────────────────────────────────────
   const onCheck = useCallback(async () => {
-    setChecking(true);
+    setError(null);
+    setStage({ kind: 'checking' });
     try {
       const status = await checkForUpdate();
+      if (!mounted.current) return;
       if (!status.updateAvailable) {
+        setStage({ kind: 'idle' });
         Alert.alert(
           'Up to date',
           `You have ${status.current}, which is the newest release.`,
         );
         return;
       }
-
-      // The APK's signing certificate is checked by Android on every update, so
-      // an APK signed by any other key cannot replace this one. Saying so is
-      // what makes tapping "Download" a reasonable thing to do.
-      const body =
-        `${status.latest.version} is out — you have ${status.current}.\n\n` +
-        'Download replaces this app in place. Android only accepts an update ' +
-        'signed with the same key, so your wallet and keys stay where they are.';
-
-      const buttons = [
-        { text: 'Later', style: 'cancel' as const },
-        {
-          text: 'Release notes',
-          onPress: () => open(status.latest.pageUrl),
-        },
-        ...(status.latest.apkUrl
-          ? [
-              {
-                text: 'Download',
-                onPress: () => open(status.latest.apkUrl as string),
-              },
-            ]
-          : []),
-      ];
-
-      Alert.alert(
-        `WhiSPa ${status.latest.version}`,
-        status.latest.apkUrl
-          ? body
-          : `${body}\n\nThis release has no ${flavorAssetName()} to download — ` +
-            'open the release notes to see what it does have.',
-        buttons,
-      );
+      setStage({ kind: 'found', release: status.latest });
     } catch (e: any) {
-      Alert.alert(
-        'Could not check',
+      if (!mounted.current) return;
+      setStage({ kind: 'idle' });
+      setError(
         e instanceof UpdateCheckError
           ? e.message
           : e?.message || 'The update check did not complete.',
       );
-    } finally {
-      setChecking(false);
     }
   }, []);
+
+  // ── download it, with the hash checked as it arrives ───────────────────────
+  const onDownload = useCallback(async (release: ReleaseInfo) => {
+    setError(null);
+    if (!release.apkUrl || !release.apkName) {
+      setError(
+        `This release has no ${flavorAssetName()}. Open the release notes to ` +
+          'see what it does have.',
+      );
+      return;
+    }
+
+    // Android 8 and later require the user to allow this app to ask, once, in
+    // Settings. Better to find out before spending 37 MB of their data.
+    try {
+      const perm = await canInstall();
+      if (!perm.allowed) {
+        Alert.alert(
+          'Android needs your permission',
+          'To install an update, WhiSPa has to be allowed to ask. The next ' +
+            'screen is the Android setting for it — turn it on, come back, and ' +
+            'tap Download again.\n\nAndroid still checks the signature itself: ' +
+            'an app signed with a different key cannot replace WhiSPa.',
+          [
+            { text: 'Not now', style: 'cancel' },
+            { text: 'Open settings', onPress: () => openInstallSettings().catch(() => {}) },
+          ],
+        );
+        return;
+      }
+    } catch {
+      // Could not read the setting; let the install attempt report it instead
+      // of blocking on a check that is itself failing.
+    }
+
+    let stop: (() => void) | undefined;
+    try {
+      const expected = await fetchExpectedSha256(release);
+      if (!mounted.current) return;
+
+      setStage({
+        kind: 'downloading',
+        release,
+        bytes: 0,
+        total: release.apkBytes ?? -1,
+      });
+      stop = onDownloadProgress((p) => {
+        if (!mounted.current) return;
+        setStage((s) =>
+          s.kind === 'downloading'
+            ? { ...s, bytes: p.bytes, total: p.total > 0 ? p.total : s.total }
+            : s,
+        );
+      });
+
+      const got = await downloadApk(release.apkUrl, expected, release.apkName);
+      if (!mounted.current) return;
+      setStage({ kind: 'verified', release, path: got.path, sha256: got.sha256 });
+    } catch (e: any) {
+      if (!mounted.current) return;
+      setStage({ kind: 'found', release });
+      // E_CANCELLED is the user's own doing, so it is not an error to report.
+      if (e?.code !== 'E_CANCELLED') {
+        setError(
+          e instanceof UpdateCheckError
+            ? e.message
+            : e?.message || 'The download did not finish.',
+        );
+      }
+    } finally {
+      stop?.();
+    }
+  }, []);
+
+  const onCancel = useCallback(() => {
+    cancelDownload().catch(() => {});
+  }, []);
+
+  const onInstall = useCallback(async (path: string) => {
+    setError(null);
+    try {
+      await installApk(path);
+    } catch (e: any) {
+      setError(e?.message || 'Could not start the installer.');
+    }
+  }, []);
+
+  const onDiscard = useCallback((release: ReleaseInfo) => {
+    discardDownload().catch(() => {});
+    setStage({ kind: 'found', release });
+  }, []);
+
+  // ── the update section ─────────────────────────────────────────────────────
+  let updateRows: React.ReactNode;
+  if (stage.kind === 'checking') {
+    updateRows = <Note kind="info">Asking github.com…</Note>;
+  } else if (stage.kind === 'downloading') {
+    const { bytes, total } = stage;
+    const pct = total > 0 ? Math.min(100, Math.round((bytes / total) * 100)) : null;
+    updateRows = (
+      <>
+        <InfoRow
+          first
+          title={`Downloading ${stage.release.version}`}
+          value={
+            pct === null
+              ? formatBytes(bytes)
+              : `${pct}%  ·  ${formatBytes(bytes)} of ${formatBytes(total)}`
+          }
+        />
+        <View style={styles.track}>
+          <View style={[styles.fill, pct === null ? styles.fillUnknown : { width: `${pct}%` }]} />
+        </View>
+        <Button label="Cancel" kind="secondary" onPress={onCancel} />
+      </>
+    );
+  } else if (stage.kind === 'verified') {
+    updateRows = (
+      <>
+        <InfoRow first title="Ready to install" value={stage.release.version} />
+        <InfoRow title="SHA-256 checked" value={`${stage.sha256.slice(0, 16)}…`} />
+        <Note kind="ok">
+          The download matches the checksum published for this release. Android
+          will check the signature too, and refuse it unless it was signed with
+          the same key as the copy you have — your wallet and keys stay where
+          they are.
+        </Note>
+        <Button label="Install now" onPress={() => onInstall(stage.path)} />
+        <Button
+          label="Delete the download"
+          kind="secondary"
+          onPress={() => onDiscard(stage.release)}
+        />
+      </>
+    );
+  } else if (stage.kind === 'found') {
+    const r = stage.release;
+    updateRows = (
+      <>
+        <InfoRow first title="Newer release" value={r.version} />
+        {r.apkBytes ? (
+          <InfoRow title="Download size" value={formatBytes(r.apkBytes)} />
+        ) : null}
+        {IN_APP_INSTALL_SUPPORTED && r.apkUrl ? (
+          <Button label={`Download ${r.version}`} onPress={() => onDownload(r)} />
+        ) : null}
+        <NavRow
+          title="Release notes"
+          help="What changed, and the published checksums"
+          onPress={() => open(r.pageUrl)}
+        />
+        {!IN_APP_INSTALL_SUPPORTED && r.apkUrl ? (
+          <NavRow
+            title="Download in a browser"
+            help={r.apkName || undefined}
+            onPress={() => open(r.apkUrl as string)}
+          />
+        ) : null}
+      </>
+    );
+  } else {
+    updateRows = (
+      <NavRow
+        title="Check for updates"
+        help="Asks github.com — only when you tap it"
+        onPress={onCheck}
+      />
+    );
+  }
 
   return (
     <Page title="About" onBack={onBack}>
       <Group title="Version">
         <InfoRow first title="WhiSPa" value={APP_VERSION} />
-        {checking ? (
-          <View style={{ paddingVertical: 14, alignItems: 'center' }}>
-            <ActivityIndicator />
-          </View>
-        ) : (
-          <NavRow
-            title="Check for updates"
-            help="Asks github.com — only when you tap it"
-            onPress={onCheck}
-          />
-        )}
+      </Group>
+
+      <Group title="Update">
+        {updateRows}
+        {error ? <Note kind="error">{error}</Note> : null}
       </Group>
 
       <Group title="Source">
@@ -110,9 +274,36 @@ export default function AboutPage({ onBack }: { onBack: () => void }) {
       </Group>
 
       <Help>
+        Updates are GitHub releases, not an app store, so nothing is checked
+        until you ask. The download is verified against the release’s published
+        SHA-256 before it is offered for install, and Android enforces the
+        signing key on top of that. To check the signature on the checksums
+        yourself, use the verify instructions above.
+      </Help>
+
+      <Help>
         Set in Geist and Geist Mono, by Vercel with basement.studio, under the
         SIL Open Font License 1.1.
       </Help>
     </Page>
   );
 }
+
+const styles = StyleSheet.create({
+  track: {
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: colors.border,
+    overflow: 'hidden',
+    marginTop: 10,
+    marginBottom: 4,
+  },
+  fill: {
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: colors.primary,
+  },
+  // No content length: show a part-filled bar rather than a bar that claims a
+  // percentage it does not have.
+  fillUnknown: { width: '35%' },
+});

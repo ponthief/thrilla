@@ -12,6 +12,19 @@
          installs on devices without one. -->
     <uses-permission android:name="android.permission.CAMERA" />
     <uses-feature android:name="android.hardware.camera" android:required="false" />
+    <!-- Settings -> About -> "Check for updates" downloads the release APK and
+         hands it to Android's installer. There is no app store here: updates
+         are GitHub releases, and without this the only route is a browser
+         download the user then has to find and tap.
+
+         The permission does not let this app install anything by itself. It
+         lets it ASK, and API 26+ requires the user to grant it per-app in
+         Settings first (updater/ApkInstallerModule.kt sends them there). What
+         then arrives is Android's own installer dialog, which refuses the
+         update outright unless the APK is signed with the same certificate as
+         the installed copy — so this cannot be used to replace WhiSPa with
+         something else. See ApkInstallerModule.kt for the full chain. -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
 
     <application
       android:name=".MainApplication"
@@ -62,5 +75,27 @@
                 android:pathPrefix="/verify" />
         </intent-filter>
       </activity>
+
+      <!-- Serves the downloaded APK to Android's installer. From API 24 a
+           file:// URI handed to another app throws, so the installer is given a
+           content:// one instead, granted read access for that one Intent.
+
+           The authority is ${applicationId}, not the namespace: the signet
+           flavour adds applicationIdSuffix ".signet" so the two builds install
+           side by side, and two providers claiming one authority makes the
+           second install fail with a duplicate-authority error.
+           ApkInstallerModule builds the same string from getPackageName(),
+           which returns the applicationId, so the two always agree.
+
+           exported=false: nothing outside this app may ask for these files. -->
+      <provider
+        android:name="androidx.core.content.FileProvider"
+        android:authorities="${applicationId}.updates"
+        android:exported="false"
+        android:grantUriPermissions="true">
+        <meta-data
+          android:name="android.support.FILE_PROVIDER_PATHS"
+          android:resource="@xml/apk_file_paths" />
+      </provider>
     </application>
 </manifest>

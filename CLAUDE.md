@@ -73,7 +73,15 @@ first, then mirror it.
 npx tsc --noEmit            # React Native side
 npm run build:signet        # web app
 npm run check:signing       # both on-device signers vs the Python
+npm run check:update        # what the update path offers, vs a real release
 cd ../siLNt && python3 -m pytest tests/ -q
+```
+
+None of these touch the Android native code. `android/app/src/main/java/…/updater`
+is only compiled by a real Gradle build, so a change there needs one:
+
+```bash
+npm run apk:signet          # or apk:signet:lowmem
 ```
 
 `check:signing` holds `src/services/spSign.ts` and `src/services/plainSign.ts`
