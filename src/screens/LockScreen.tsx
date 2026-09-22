@@ -42,6 +42,9 @@ export default function LockScreen() {
   const logout = useAuthStore((s) => s.logout);
   const inkey = useAuthStore((s) => s.inkey);
   const [failed, setFailed] = useState(false);
+  // The lock exists but is not bound to an authentication, so no amount of
+  // retrying will satisfy it. See services/appLock::storageEnforcesAuth.
+  const [unenforceable, setUnenforceable] = useState(false);
   // Which method the screen is showing. Starts on biometric wherever it is
   // available, and the user can switch; switching is remembered only for this
   // lock, so the next one starts from the fast path again.
@@ -84,20 +87,24 @@ export default function LockScreen() {
     setBusyBio(true);
     setUnlocking(true);
     setFailed(false);
-    let ok = false;
+    let res: appLock.UnlockResult = { ok: false, reason: 'failed' };
     try {
-      ok = await appLock.authenticate();
+      res = await appLock.tryAuthenticate();
     } catch {
-      /* authenticate() swallows its own errors; treat a throw as a failure */
+      /* tryAuthenticate swallows its own errors; treat a throw as a failure */
     } finally {
       // Always, on every path. This is the line whose absence wedged the screen.
       setBusyBio(false);
       setUnlocking(false);
     }
-    if (ok) {
+    if (res.ok) {
       unlock();
       return;
     }
+    // Only a real, fresh authentication unlocks. A read that came back without
+    // the OS asking anyone anything is a failure, and one that retrying cannot
+    // fix — say so rather than offering "Try again" forever.
+    setUnenforceable(res.reason === 'not-enforceable');
     setFailed(true);
   }, [setUnlocking, unlock]);
 
@@ -226,18 +233,29 @@ export default function LockScreen() {
           Unlock with your fingerprint, face, or device PIN to continue.
         </Text>
 
-        <TouchableOpacity
-          style={[styles.button, busyBio && styles.buttonDisabled]}
-          onPress={prompt}
-          disabled={busyBio}>
-          {busyBio ? (
-            <ActivityIndicator color={colors.onPrimary} />
-          ) : (
-            <Text style={styles.buttonText}>{failed ? 'Try again' : 'Unlock'}</Text>
-          )}
-        </TouchableOpacity>
+        {/* Not offered when the lock cannot be enforced: pressing it would
+            fail identically every time, and "Try again" would be a lie. */}
+        {unenforceable ? null : (
+          <TouchableOpacity
+            style={[styles.button, busyBio && styles.buttonDisabled]}
+            onPress={prompt}
+            disabled={busyBio}>
+            {busyBio ? (
+              <ActivityIndicator color={colors.onPrimary} />
+            ) : (
+              <Text style={styles.buttonText}>{failed ? 'Try again' : 'Unlock'}</Text>
+            )}
+          </TouchableOpacity>
+        )}
 
-        {failed ? (
+        {unenforceable ? (
+          <Text style={styles.error}>
+            This phone never tied the lock to your fingerprint, so it cannot
+            check it's you — retrying will not help.{' '}
+            {pinSet ? 'Use your PIN' : 'Log out'} to get in, then turn App Lock
+            off and on again in Settings to rebuild it.
+          </Text>
+        ) : failed ? (
           <Text style={styles.error}>
             Couldn't verify it's you. Try again{pinSet ? ', use your PIN' : ''},
             or log out.

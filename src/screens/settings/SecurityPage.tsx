@@ -69,11 +69,19 @@ export default function SecurityPage({ onBack }: { onBack: () => void }) {
       setLockMsg(null);
       try {
         if (val) {
-          const ok = await appLock.enable();
-          setBioEnabled(ok);
-          if (!ok) {
+          const res = await appLock.enable();
+          setBioEnabled(res.ok);
+          if (!res.ok) {
             setLockMsg(
-              'Could not turn this on. Set up a fingerprint, face, or screen PIN on your phone first.',
+              res.reason === 'not-enforceable'
+                ? 'Your phone did not tie the lock to your fingerprint, so it ' +
+                  'would have opened on the first tap and has been left off. ' +
+                  'This happens when no fingerprint or face is enrolled yet, ' +
+                  'or the sensor is locked out after failed attempts — enrol ' +
+                  'one or wait a minute, then try again.'
+                : res.reason === 'cancelled'
+                ? 'Not turned on: the confirmation was cancelled.'
+                : 'Could not turn this on. Set up a fingerprint, face, or screen PIN on your phone first.',
             );
           }
         } else {
