@@ -1,15 +1,39 @@
+# Zapstore publishing config for the MAINNET build of WhiSPa.
+#
+#   zsp publish --check                 # validate first
+#   SIGN_WITH=nsec1... zsp publish
+#
+# The Signet build has its own config — see ./zapstore.signet.yaml.
+#
+# `repository` keeps the name "thrilla": that is the git repository's own URL
+# and the app's applicationId is still com.thrilla_btc.thrilla, because changing
+# it would ship a second app that cannot update over the first. Only what the
+# user sees is WhiSPa.
 repository: https://github.com/ponthief/thrilla
-description: Self-custodial Bitcoin Wallet with support for SilentPayments - on-chain privacy when receiving
-summary: SilentPayments Wallet for Bitcoin
+name: WhiSPa
+summary: Bitcoin Silent Payments wallet
+description: |
+  Self-custodial Bitcoin wallet with support for Silent Payments — on-chain
+  privacy when receiving. One reusable address that never has to be reused on
+  chain.
+
+  Keys are derived on the device and stay there: transactions are built and
+  signed on the phone, so no key is ever sent to a server.
 tags:
     - bitcoin
     - wallet
     - silentpayments
     - self-custody
 license: MIT
-website: https://thrilla.me
+website: https://whispawallet.com
 images:
     - screenshots
+# The published release, not a local build. /releases/latest/download/<name>
+# always resolves to the newest non-prerelease asset by that name, which is the
+# same URL the download page on the website points at. Naming the asset matters:
+# every release carries the mainnet and Signet APKs side by side, so without it
+# there is nothing to say which one this is.
+release_source: https://github.com/ponthief/thrilla/releases/latest/download/whispa-mainnet.apk
 metadata_sources:
     - github
 pubkey: npub1cfm900wdm4p0sky6tz3uhjdcdxsca3l94q5rclzxtxqke7gzenssthhk2w

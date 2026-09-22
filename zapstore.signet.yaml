@@ -1,24 +1,24 @@
-# Zapstore publishing config for the SIGNET (test-network) build of Thrilla.
-# Kept separate from ./zapstore.yaml (the primary config). Publish it with the
+# Zapstore publishing config for the SIGNET (test-network) build of WhiSPa.
+# Kept separate from ./zapstore.yaml (the mainnet config). Publish it with the
 # config path as a positional argument:
 #
 #   zsp publish --check zapstore.signet.yaml     # validate first
 #   SIGN_WITH=nsec1... zsp publish zapstore.signet.yaml
 #
-# Build the signed Signet APK first (npm run apk:signet — signed with your
-# release keystore; first publish links that cert to your pubkey via your .jks).
 # Signet is a separate package (com.thrilla_btc.thrilla.signet), so it lists as
-# its own app alongside the mainnet build.
+# its own app alongside the mainnet build. The first publish links the release
+# signing certificate to your pubkey via your .jks.
 repository: https://github.com/ponthief/thrilla
-name: Thrilla (Signet)
+name: WhiSPa (Signet)
 summary: Bitcoin Silent Payments wallet — Signet test build
 description: |
   Self-custodial Bitcoin wallet with support for Silent Payments — on-chain
-  privacy when receiving. Keys are derived on-device; your spend key never
-  leaves the phone.
+  privacy when receiving. Keys are derived on the device and stay there:
+  transactions are built and signed on the phone, so no key is ever sent to a
+  server.
 
   This is the SIGNET (test network) build — it does NOT hold real bitcoin. Use
-  it to try Thrilla on Signet. For real funds, use the mainnet build.
+  it to try WhiSPa on Signet. For real funds, use the mainnet build.
 tags:
     - bitcoin
     - wallet
@@ -26,13 +26,17 @@ tags:
     - self-custody
     - signet
 license: MIT
-website: https://thrilla.me
+website: https://whispawallet.com
 images:
     - screenshots
-# The signed Signet APK. Local build-artifact path shown; alternatively drop this
-# and point at a GitHub Release, filtering to the signet asset with
-# `--match signet` so it doesn't pick up the mainnet APK.
-release_source: ./android/app/build/outputs/apk/signet/release/app-signet-release.apk
+# The published release, not a local build. /releases/latest/download/<name>
+# always resolves to the newest non-prerelease asset by that name, which is the
+# same URL the download page on the website points at — so publishing here does
+# not depend on whatever happens to be in android/app/build/outputs.
+#
+# Naming the asset matters: every release carries both APKs, and picking up
+# whispa-mainnet.apk here would list the mainnet build under the Signet package.
+release_source: https://github.com/ponthief/thrilla/releases/latest/download/whispa-signet.apk
 metadata_sources:
     - github
 pubkey: npub1cfm900wdm4p0sky6tz3uhjdcdxsca3l94q5rclzxtxqke7gzenssthhk2w
