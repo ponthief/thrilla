@@ -10,8 +10,7 @@ import {
   View,
 } from 'react-native';
 import Clipboard from '@react-native-clipboard/clipboard';
-import { useAppLockStore } from '@stores/appLockStore';
-import * as appLock from '@services/appLock';
+import { useAppLockStore, authenticateGuarded } from '@stores/appLockStore';
 import { verifyPin } from '@services/appPin';
 import { readSeed, forgetSeed } from '@services/seedVault';
 import PinPad from './PinPad';
@@ -87,14 +86,10 @@ export default function SeedRevealModal({
   const promptBiometric = useCallback(async () => {
     setBusy(true);
     setError(null);
-    let ok = false;
-    try {
-      ok = await appLock.authenticate('Confirm to show your recovery phrase');
-    } catch {
-      /* treat a throw as a refusal */
-    } finally {
-      setBusy(false);
-    }
+    // Guarded for the same reason as the send gate: auto-lock "Immediately"
+    // would lock the app behind this prompt and swallow the reveal.
+    const ok = await authenticateGuarded('Confirm to show your recovery phrase');
+    setBusy(false);
     if (ok) await load();
     else setError("Couldn't verify it's you.");
   }, [load]);

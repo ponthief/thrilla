@@ -233,6 +233,7 @@ const App = () => {
   const unlocking = useAppLockStore((s) => s.unlocking);
   const refreshLock = useAppLockStore((s) => s.refresh);
   const lock = useAppLockStore((s) => s.lock);
+  const setUnlocking = useAppLockStore((s) => s.setUnlocking);
 
   // Idle timeout: lock after inactivity. It used to sign out, which now would
   // additionally erase the stored session — see hooks/useIdleLock.
@@ -288,6 +289,18 @@ const App = () => {
     });
     return () => sub.remove();
   }, [autoLockMs, lockEnabled, unlocking, lock]);
+
+  // Back in the foreground means no OS prompt is in front of us any more,
+  // whatever became of the promise that was waiting on it. Clearing the flag
+  // here — not only on the lock screen, which is where it used to live — is
+  // what stops a prompt that died with the activity from leaving `unlocking`
+  // stuck true and the rule above permanently disarmed.
+  useEffect(() => {
+    const sub = AppState.addEventListener('change', (state) => {
+      if (state === 'active') setUnlocking(false);
+    });
+    return () => sub.remove();
+  }, [setUnlocking]);
 
   // When device-trust is on, an authenticated-but-unconfirmed device must clear
   // the confirmation flow before reaching the wallet.

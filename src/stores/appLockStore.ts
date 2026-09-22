@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import * as appLock from '@services/appLock';
 import * as appPin from '@services/appPin';
+import { resetActivity } from '@services/sessionActivity';
 
 // UI state for the app lock. The lock can be backed by the device biometric/
 // passcode (appLock) OR an in-app PIN (appPin). `enabled` is on if either is
@@ -74,6 +75,40 @@ export const useAppLockStore = create<AppLockState>((set) => ({
   setPinSet: (v) =>
     set((s) => ({ pinSet: v, enabled: v || s.bioEnabled, locked: false })),
   lock: () => set({ locked: true }),
-  unlock: () => set({ locked: false, unlocking: false }),
+  // Unlocking starts the idle clock again. Without this the clock still reads
+  // however long the phone sat untouched, so the next useIdleLock tick — at
+  // most 15s away on the default delay — locks straight back. A PIN unlock hid
+  // it, because tapping the pad goes through App.tsx's touch capture; a
+  // biometric unlock asks for no touch at all, so it re-locked within seconds
+  // of letting the user in.
+  unlock: () => {
+    resetActivity();
+    set({ locked: false, unlocking: false });
+  },
   setUnlocking: (v) => set({ unlocking: v }),
 }));
+
+/**
+ * appLock.authenticate, with the re-lock race closed.
+ *
+ * Auto-lock "Immediately" locks the app on the AppState `background` that
+ * Android emits when something covers the activity — including the OS's own
+ * biometric prompt. `unlocking` is what tells App.tsx to sit that one out, and
+ * until now only the lock screen set it: a prompt raised to confirm a send or
+ * to reveal the recovery phrase locked the app behind itself, so authenticating
+ * dropped the user on the lock screen instead of where they were going.
+ *
+ * Every re-authentication gate goes through here so none can forget again.
+ * App.tsx clears the flag on the next foreground, which covers a prompt whose
+ * promise never settles because the activity died under it.
+ */
+export async function authenticateGuarded(title: string): Promise<boolean> {
+  useAppLockStore.getState().setUnlocking(true);
+  try {
+    return await appLock.authenticate(title);
+  } catch {
+    return false;
+  } finally {
+    useAppLockStore.getState().setUnlocking(false);
+  }
+}

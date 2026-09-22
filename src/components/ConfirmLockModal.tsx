@@ -7,9 +7,8 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
-import { useAppLockStore } from '@stores/appLockStore';
+import { useAppLockStore, authenticateGuarded } from '@stores/appLockStore';
 import { useAuthStore } from '@stores/authStore';
-import * as appLock from '@services/appLock';
 import { verifyPin } from '@services/appPin';
 import { runDuress } from '@services/duress';
 import PinPad from './PinPad';
@@ -67,12 +66,10 @@ export default function ConfirmLockModal({
   const promptBiometric = useCallback(async () => {
     setBusy(true);
     setBioFailed(false);
-    let ok = false;
-    try {
-      ok = await appLock.authenticate('Confirm to send');
-    } catch {
-      ok = false;
-    }
+    // Guarded, or auto-lock "Immediately" locks the app behind this prompt —
+    // the OS dialog backgrounds the activity — and authenticating to send
+    // lands on the lock screen instead of the review step.
+    const ok = await authenticateGuarded('Confirm to send');
     setBusy(false);
     if (ok) onAuthenticated();
     else setBioFailed(true);
