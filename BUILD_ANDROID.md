@@ -69,12 +69,18 @@ Android's verification simply fails, the link opens in a browser, and the web
 
 | flavor | verifyHost | applicationId |
 | --- | --- | --- |
-| mainnet | `signet.whispawallet.com` | `com.thrilla_btc.thrilla` |
-| signet | `signet.whispawallet.com` | `com.thrilla_btc.thrilla.signet` |
+| mainnet | `signet.whispawallet.com` | `com.whispawallet.app` |
+| signet | `signet.whispawallet.com` | `com.whispawallet.app.signet` |
 
-The applicationIds keep the old name on purpose: they are the app's identity to
-Play and to every device that already has it installed, and changing one ships a
-second app that will not update over the first.
+These moved from `com.thrilla_btc.thrilla` with the rebrand, while the only
+install was the author's. An applicationId is the app's identity to every device
+that has the app, so changing one ships a second app that cannot update over the
+first — do not change it again without a migration for the people on it.
+
+The Gradle `namespace` is still `com.thrilla_btc.thrilla`, deliberately: it is
+where `BuildConfig` and `R` are generated and where the Kotlin sources live,
+nothing outside the build sees it, and moving it would relocate every source
+file for no user-visible gain.
 
 Each must equal the host of `SILNT_FRONTEND_URL` on the LNbits instance that
 flavor talks to, because that is the host the backend puts in verification
@@ -136,7 +142,7 @@ verbatim and that host serves the web app:
     "relation": ["delegate_permission/common.handle_all_urls"],
     "target": {
       "namespace": "android_app",
-      "package_name": "com.thrilla_btc.thrilla",
+      "package_name": "com.whispawallet.app",
       "sha256_cert_fingerprints": ["AA:BB:…:FF"]
     }
   },
@@ -144,7 +150,7 @@ verbatim and that host serves the web app:
     "relation": ["delegate_permission/common.handle_all_urls"],
     "target": {
       "namespace": "android_app",
-      "package_name": "com.thrilla_btc.thrilla.signet",
+      "package_name": "com.whispawallet.app.signet",
       "sha256_cert_fingerprints": ["AA:BB:…:FF"]
     }
   }
@@ -180,11 +186,11 @@ location = /.well-known/assetlinks.json {
 
 ```bash
 # after installing the APK
-adb shell pm get-app-links com.thrilla_btc.thrilla
+adb shell pm get-app-links com.whispawallet.app
 # want: the host listed as "verified"
 
 # force a re-check without reinstalling
-adb shell pm verify-app-links --re-verify com.thrilla_btc.thrilla
+adb shell pm verify-app-links --re-verify com.whispawallet.app
 
 # test the intent directly, without waiting for an email
 adb shell am start -a android.intent.action.VIEW \
@@ -298,8 +304,8 @@ decodes fine either way. On macOS use `base64 -i <file>`.)
 ### One google-services.json or two?
 
 A Firebase project's `google-services.json` lists a client for **every** Android
-app registered in that project, so with `com.thrilla_btc.thrilla` and
-`com.thrilla_btc.thrilla.signet` both registered in one project, one file covers
+app registered in that project, so with `com.whispawallet.app` and
+`com.whispawallet.app.signet` both registered in one project, one file covers
 both flavours and one secret is enough. Check what a file actually contains:
 
 ```bash

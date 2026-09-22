@@ -10,8 +10,8 @@ off (no crashes, no build break).
 
 ## 1. Firebase project
 1. Create a Firebase project (console.firebase.google.com).
-2. Add an **Android app** with the app's applicationId: `com.thrilla_btc.thrilla`
-   (mainnet) and, if you want push on signet too, also `com.thrilla_btc.thrilla.signet`.
+2. Add an **Android app** with the app's applicationId: `com.whispawallet.app`
+   (mainnet) and, if you want push on signet too, also `com.whispawallet.app.signet`.
 3. Download **`google-services.json`** and place it at:
    `android/app/google-services.json`
    (The Gradle plugin is applied only when this file exists.)

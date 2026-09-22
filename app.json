@@ -2,9 +2,9 @@
   "name": "WhiSPa",
   "displayName": "WhiSPa",
   "android": {
-    "package": "com.thrilla_btc.thrilla"
+    "package": "com.whispawallet.app"
   },
   "ios": {
-    "bundleIdentifier": "com.thrilla-btc.thrilla"
+    "bundleIdentifier": "com.whispawallet.app"
   }
 }

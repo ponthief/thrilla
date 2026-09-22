@@ -162,8 +162,8 @@ jobs:
       #   jq -r '.client[].client_info.android_client_info.package_name' \
       #     google-services.json
       #
-      # If that prints both com.thrilla_btc.thrilla and
-      # com.thrilla_btc.thrilla.signet, one shared secret is all you need.
+      # If that prints both com.whispawallet.app and
+      # com.whispawallet.app.signet, one shared secret is all you need.
       - name: Configure Firebase, if the secret is set
         id: firebase
         env:
@@ -191,13 +191,13 @@ jobs:
             || { echo "::error::GOOGLE_SERVICES_JSON did not base64-decode to valid JSON — most likely a truncated paste. (Line breaks are fine; base64 -d ignores them.)"; exit 1; }
 
           # The flavours have different applicationIds — mainnet is
-          # com.thrilla_btc.thrilla, signet adds the .signet suffix — and the
+          # com.whispawallet.app, signet adds the .signet suffix — and the
           # google-services plugin fails the build outright if the file has no
           # client for the one being built. A Firebase project registered only
           # for mainnet therefore breaks signet builds and vice versa, so say so
           # here with the package name to add, instead of leaving a Gradle
           # "No matching client found" to be deciphered.
-          PKG="com.thrilla_btc.thrilla"
+          PKG="com.whispawallet.app"
           [ "${{ matrix.flavor }}" = "signet" ] && PKG="$PKG.signet"
           python3 - "$PKG" <<'PY' || exit 1
           import json, sys

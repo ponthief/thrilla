@@ -163,7 +163,7 @@ android {
 
     namespace "com.thrilla_btc.thrilla"
     defaultConfig {
-        applicationId "com.thrilla_btc.thrilla"
+        applicationId "com.whispawallet.app"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
         // Both read from package.json, which is the only place the version is
@@ -233,10 +233,19 @@ android {
         // With both installed and both listed, Android asks the user which app
         // to open — unavoidable while they share a host.
         //
-        // NOTE: the applicationId stays com.thrilla_btc.thrilla through the
-        // rebrand. It is the app's identity to Play and to every device that
-        // already has it installed; changing it ships a SECOND app that will
-        // not update over the first. Only the launcher label below changes.
+        // The applicationId moved to com.whispawallet.app, and NOT lightly:
+        // it is the app's identity to every device that has the app installed,
+        // so the change ships a SECOND app that cannot update over the first.
+        // It was done while the only install was the author's. Do not do it
+        // again once there are users without a migration for them.
+        //
+        // The NAMESPACE above deliberately stayed com.thrilla_btc.thrilla. It
+        // is where BuildConfig and R are generated and where the Kotlin
+        // sources live; nothing outside the build sees it, and moving it would
+        // relocate every source file for no user-visible gain. That is also
+        // why build_config_package above is pinned to the namespace rather
+        // than to the applicationId — react-native-config looks BuildConfig up
+        // by name, and it is not under the applicationId.
         mainnet {
             dimension "network"
             resValue "string", "app_name", "WhiSPa"

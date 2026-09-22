@@ -112,9 +112,9 @@ credentials are present as Gradle properties (kept **outside** the repo, in
 > the scripts read, they are what the GitHub Actions secrets are called, and
 > they are in every contributor's `~/.gradle/gradle.properties`. Renaming them
 > here without renaming them everywhere would document a setup that does not
-> work. Same reason the app's id stays `com.thrilla_btc.thrilla`: Android
-> treats a changed id as a different app, so installed users would stop
-> receiving updates.
+> work. The app's id DID move, to `com.whispawallet.app`, while the only
+> install was the author's — Android treats a changed id as a different app, so
+> doing that once there are users orphans them.
 
 ```properties
 THRILLA_STORE_FILE=/absolute/path/to/thrilla-release.keystore
