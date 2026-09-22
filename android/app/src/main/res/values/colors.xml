@@ -1,4 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <color name="ic_launcher_background">#070404</color>
+    <!-- Tints the notification's small icon and app name. Same value as
+         colors.primary in src/theme.ts; there is no way to share one literal
+         across a React Native theme and an Android resource, so if one moves
+         the other has to move with it. -->
+    <color name="notification_accent">#F97316</color>
 </resources>

@@ -1,0 +1,72 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  The status-bar icon for a push notification.
+
+  Without one, FCM falls back to the launcher icon, and Android renders a small
+  icon as a WHITE SILHOUETTE of whatever it is given — so a full-colour launcher
+  icon comes out as a featureless blob. That is what made the notification look
+  like it belonged to no app in particular.
+
+  This is the same ₿ as src/components/BitcoinSign.tsx, with the identical path
+  data and 24dp viewport, so the notification and the balance on the Wallet tab
+  are drawn from one glyph. Strokes rather than fills, again matching it.
+
+  Kept to a silhouette on purpose: the platform masks the small icon to a single
+  colour and ignores anything else, so detail here would only muddy it. The
+  brand colour is applied separately, via default_notification_color in
+  AndroidManifest.xml, which tints the icon and the app name on the notification.
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+
+    <!-- Upper and lower bowls of the B -->
+    <path
+        android:pathData="M7,4h6.2a3.6,3.6 0 0 1 0,7.2H7"
+        android:strokeWidth="2.6"
+        android:strokeColor="#FFFFFFFF"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round" />
+    <path
+        android:pathData="M7,11.2h7a3.9,3.9 0 0 1 0,7.8H7"
+        android:strokeWidth="2.6"
+        android:strokeColor="#FFFFFFFF"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round" />
+
+    <!-- Stem -->
+    <path
+        android:pathData="M7,4v15"
+        android:strokeWidth="2.6"
+        android:strokeColor="#FFFFFFFF"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round" />
+
+    <!-- The two strokes through it, top and bottom -->
+    <path
+        android:pathData="M10.2,1.6V4"
+        android:strokeWidth="2.6"
+        android:strokeColor="#FFFFFFFF"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round" />
+    <path
+        android:pathData="M14,1.6V4"
+        android:strokeWidth="2.6"
+        android:strokeColor="#FFFFFFFF"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round" />
+    <path
+        android:pathData="M10.2,19V21.4"
+        android:strokeWidth="2.6"
+        android:strokeColor="#FFFFFFFF"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round" />
+    <path
+        android:pathData="M14,19V21.4"
+        android:strokeWidth="2.6"
+        android:strokeColor="#FFFFFFFF"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round" />
+</vector>
