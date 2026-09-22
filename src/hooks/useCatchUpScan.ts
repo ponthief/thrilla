@@ -3,6 +3,7 @@ import * as api from '@services/api';
 import { getWalletKeys } from '@services/secureKeys';
 import { markScanStarted } from '@services/scanCooldown';
 import { usePushBanner } from '@stores/pushBanner';
+import { useBalancePrivacy } from '@stores/balancePrivacy';
 import { paymentAlertsOn } from '@stores/notifyStore';
 import { getCatchUpBlocks, effectiveThreshold } from '@services/catchUpPref';
 
@@ -70,14 +71,16 @@ export function useCatchUpScan(
             const found = Number(p.found || 0);
             if (found > 0 && paymentAlertsOn()) {
               const sats = Number(p.amount || 0);
+              // Hiding balances has to cover the announcements too. A banner
+              // reading "Received 250,000 sats" over a screen of stars is the
+              // whole point of the setting undone, and it is the one figure
+              // most likely to be read over a shoulder.
+              const hidden = useBalancePrivacy.getState().hidden;
+              const count =
+                found === 1 ? '1 new coin received.' : `${found} new coins received.`;
               usePushBanner.getState().show({
                 title: 'Payment received',
-                body:
-                  sats > 0
-                    ? `Received ${sats.toLocaleString()} sats.`
-                    : found === 1
-                      ? '1 new coin received.'
-                      : `${found} new coins received.`,
+                body: hidden || sats <= 0 ? count : `Received ${sats.toLocaleString()} sats.`,
               });
             }
             onCompleteRef.current?.();
