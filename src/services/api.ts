@@ -1076,6 +1076,38 @@ export async function unregisterPushToken(inkey: string, token: string): Promise
   });
 }
 
+// What the server made of a test push. It answers the only question worth
+// asking when nothing arrives — which link is broken — so the three failures
+// that look identical from the phone stay distinguishable:
+//   push_enabled false → the server has no usable FCM credentials
+//   tokens 0           → this account has no device registered (the app never
+//                        registered, or a rejected send pruned it)
+//   sent 0 with errors → FCM itself refused, verbatim
+export interface PushTestReport {
+  push_enabled: boolean;
+  tokens: number;
+  sent: number;
+  pruned: number;
+  errors: string[];
+}
+
+// Ask the server to push a test notification to this account's devices.
+// Nothing about a real payment is involved, so this can be run before one
+// arrives instead of waiting out the background sweep.
+export async function testPushNotification(inkey: string): Promise<PushTestReport> {
+  const r = await req<Partial<PushTestReport>>(`${SILNT}/api/v1/fcm/test`, {
+    method: 'POST',
+    headers: apiKey(inkey),
+  });
+  return {
+    push_enabled: !!r?.push_enabled,
+    tokens: Number(r?.tokens || 0),
+    sent: Number(r?.sent || 0),
+    pruned: Number(r?.pruned || 0),
+    errors: Array.isArray(r?.errors) ? r.errors.map((e) => String(e)) : [],
+  };
+}
+
 // ── Scanning (catch-up) ─────────────────────────────────────────────────────
 // Silent Payments funds are discovered by scanning blocks with the wallet's
 // scan/spend keys (never stored server-side — passed transiently per scan).
