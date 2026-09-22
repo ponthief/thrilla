@@ -304,6 +304,13 @@ export async function getTxConfirmation(adminkey, txid, walletId) {
 }
 
 // ── BIP353 ────────────────────────────────────────────────────────────────────
+// Extract the sp1…/tsp1… address from a resolve result (e.g. "bitcoin:?sp=sp1…").
+// Mirrors services/api.ts::spFromResolve — the two API layers are parallel by
+// design, and this is a pure string parse with nothing platform-specific in it.
+export function spFromResolve(res) {
+  return (res?.result || '').replace('bitcoin:?sp=', '').replace('sp=', '').trim()
+}
+
 export async function resolveBip353(inkey, address) {
   return req(`${SILNT}/api/v1/bip353/resolve?address=${encodeURIComponent(address)}`, {
     headers: keyHeaders(inkey),

@@ -98,6 +98,11 @@ const broadcastError = ref(null)
 const broadcastDone  = ref(null)
 const mempoolUrl     = ref('')
 const showConfirm    = ref(false)
+// What the last checked BitMail resolved to, and whether the built transaction
+// turned out to pay this wallet. A BitMail is never the same string as an sp1…,
+// so comparing the typed text alone can never spot a self-send by BitMail.
+const resolvedSp     = ref('')
+const planSelfSend   = ref(false)
 
 const selectedUtxos = computed(() => utxos.value.filter(u => u.selected && u.utxo_state === 'unspent'))
 
@@ -226,6 +231,13 @@ async function buildTransaction() {
       utxos: selectedUtxos.value,
     })
 
+    // /tx/prepare is where a BitMail actually becomes an address, so it is the
+    // first point at which "am I paying myself?" is answerable for every
+    // recipient — including one typed by hand, which is never pre-resolved.
+    const ownSp = (ownWallet.value?.sp_address || '').trim().toLowerCase()
+    planSelfSend.value =
+      !!ownSp && (plan.recipient || '').trim().toLowerCase() === ownSp
+
     const built = buildSignedTx({
       recipient: plan.recipient,
       recipientScriptHex: plan.recipient_script || undefined,
@@ -314,6 +326,30 @@ function reset() {
 
 function copyText(t) { navigator.clipboard.writeText(t).catch(() => {}) }
 
+// Paying this wallet's own address. Easy to do by accident, and it costs a fee
+// while linking the coins you spend to the new output on-chain. Legitimate for
+// consolidation, so it warns rather than blocks.
+//
+// Three ways to name your own wallet and text equality only catches the first:
+// the sp1… itself, this wallet's own BitMail (hr_address), and any BitMail that
+// RESOLVES here. `planSelfSend` is the authoritative one — set from what
+// /tx/prepare resolved — because a typed BitMail is never pre-resolved.
+const ownWallet = computed(
+  () => wallets.value.find(w => w.id === selectedWallet.value) || null,
+)
+const isSelfSend = computed(() => {
+  const own = (ownWallet.value?.sp_address || '').trim().toLowerCase()
+  const ownBitmail = (ownWallet.value?.hr_address || '').trim().toLowerCase()
+  const typed = (recipient.value || '').trim().toLowerCase()
+  if (!typed) return false
+  return (
+    planSelfSend.value ||
+    (!!own && typed === own) ||
+    (!!ownBitmail && typed === ownBitmail) ||
+    (!!own && !!resolvedSp.value && resolvedSp.value.trim().toLowerCase() === own)
+  )
+})
+
 // Invalidate a built transaction when any input that affects it changes, so the
 // stale hex/Broadcast can't be used and the Build button reappears for a rebuild.
 watch(
@@ -323,7 +359,14 @@ watch(
 
 // A change to the recipient clears any prior BitMail-resolution result (the
 // warning/block only applies to the exact value that was validated).
-watch(recipient, () => { bitmailWarning.value = ''; bitmailInvalid.value = false })
+watch(recipient, () => {
+  bitmailWarning.value = ''
+  bitmailInvalid.value = false
+  // A new recipient is a new question — neither the old resolution nor the
+  // verdict on the last build applies to it.
+  resolvedSp.value = ''
+  planSelfSend.value = false
+})
 
 async function loadMempoolUrl() {
   try {
@@ -384,7 +427,7 @@ async function validateBitmail(value) {
   if (!v || !v.includes('@')) return
   bitmailChecking.value = true
   try {
-    await api.resolveBip353(auth.inkey, v)
+    resolvedSp.value = api.spFromResolve(await api.resolveBip353(auth.inkey, v))
   } catch (e) {
     // No status at all means fetch itself failed — also transient, and its
     // raw "Failed to fetch" is not worth showing anyone.
@@ -475,7 +518,12 @@ function startScanWatch() {
   if (scanWatchTimer) clearInterval(scanWatchTimer)
   scanWatchTimer = setInterval(checkScanState, 5000)
 }
-watch(selectedWallet, () => { scanNoticeDismissed.value = false; checkScanState() })
+watch(selectedWallet, () => {
+  scanNoticeDismissed.value = false
+  // The self-send verdict was about the PREVIOUS wallet's own address.
+  planSelfSend.value = false
+  checkScanState()
+})
 onBeforeUnmount(() => { if (scanWatchTimer) clearInterval(scanWatchTimer) })
 </script>
 
@@ -705,6 +753,20 @@ onBeforeUnmount(() => { if (scanWatchTimer) clearInterval(scanWatchTimer) })
           </div>
         </div>
 
+        <!-- Paying yourself. A warning rather than a block: consolidating is a
+             real reason to do it, it just should not happen by accident. -->
+        <div v-if="isSelfSend" class="alert alert-warn" style="display:flex;align-items:flex-start;gap:10px">
+          <span style="font-size:18px;line-height:1">⚠</span>
+          <div style="flex:1">
+            <strong>This is your own address</strong>
+            <div class="text-sm text-dim" style="margin-top:2px">
+              {{ recipient.trim() }} is this wallet's own address. It works, but it
+              costs a fee and links the coins you spend to the new output on-chain.
+              Send elsewhere unless you meant to consolidate.
+            </div>
+          </div>
+        </div>
+
         <div v-if="buildError" class="alert alert-error">⚠ {{ buildError }}</div>
 
         <button v-if="!txResult" class="btn btn-primary" style="align-self:flex-start" :disabled="!canBuild || building || !hasKeys" @click="buildTransaction">
@@ -796,6 +858,12 @@ onBeforeUnmount(() => { if (scanWatchTimer) clearInterval(scanWatchTimer) })
           <div class="tx-detail-row"><span>Amount</span><span class="text-orange mono">{{ fmt(txResult.amount) }}</span></div>
           <div class="tx-detail-row"><span>Recipient</span><span class="mono" style="font-size:11px;word-break:break-all">{{ txResult.recipient }}</span></div>
           <div class="tx-detail-row"><span>Fee</span><span class="mono">{{ fmt(txResult.fee) }} ({{ txResult.fee_rate_used }} sat/vB)</span></div>
+          <!-- Last chance, and the first place a typed BitMail can be caught:
+               planSelfSend comes from what /tx/prepare actually resolved. -->
+          <div v-if="planSelfSend" class="alert alert-warn" style="margin-top:4px">
+            ⚠ <strong>This pays your own wallet.</strong> It costs a fee and links
+            the coins you spend to the new output on-chain.
+          </div>
           <div class="flex gap-2 justify-between" style="margin-top:8px">
             <button class="btn btn-ghost" @click="showConfirm = false">Cancel</button>
             <button class="btn btn-success" :disabled="broadcasting" @click="broadcastTransaction">
