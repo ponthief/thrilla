@@ -1,5 +1,5 @@
 import React, { useEffect, useRef } from 'react';
-import { Animated, StyleSheet, Text, TouchableOpacity } from 'react-native';
+import { Animated, Image, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { usePushBanner } from '@stores/pushBanner';
 import { colors } from '@/theme';
@@ -41,12 +41,25 @@ export default function PushBanner() {
         style={styles.card}
         accessibilityRole="button"
         accessibilityLabel={`${banner.title}. ${banner.body}`}>
-        <Text style={styles.title} numberOfLines={1}>
-          {banner.title}
-        </Text>
-        <Text style={styles.body} numberOfLines={3}>
-          {banner.body}
-        </Text>
+        {/* The full-colour mark, which a system notification cannot carry —
+            its small icon is an alpha mask, so the logo would flatten to a
+            blob there. This banner is our own view, so it can show the real
+            thing, and it is the surface seen most often: Android leaves
+            notifications to the app while the app is open. */}
+        <Image
+          source={require('../assets/icon.png')}
+          style={styles.mark}
+          resizeMode="contain"
+          accessibilityIgnoresInvertColors
+        />
+        <View style={styles.text}>
+          <Text style={styles.title} numberOfLines={1}>
+            {banner.title}
+          </Text>
+          <Text style={styles.body} numberOfLines={3}>
+            {banner.body}
+          </Text>
+        </View>
       </TouchableOpacity>
     </Animated.View>
   );
@@ -72,7 +85,16 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     paddingVertical: 12,
     paddingHorizontal: 14,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
   },
+  // Same radius-to-size ratio as the Wallet tab's masthead mark, so the two
+  // read as one logo at two sizes rather than two different treatments.
+  mark: { width: 36, height: 36, borderRadius: 8 },
+  // flexShrink, or a long body pushes the mark off the left edge instead of
+  // wrapping.
+  text: { flex: 1, flexShrink: 1 },
   title: {
     color: colors.text,
     fontSize: 14,
