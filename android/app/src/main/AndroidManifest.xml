@@ -92,6 +92,29 @@
         android:name="com.google.firebase.messaging.default_notification_icon"
         android:resource="@drawable/ic_notification" />
 
+      <!-- Builds the payment notification itself, so it can carry the logo:
+           FCM has no field for a large icon, and the small icon is an alpha
+           mask that would flatten the mark to a blob. The server sends payment
+           pushes as data-only messages so nothing in the firebase SDK displays
+           them first. See notify/PaymentNotificationReceiver.kt.
+
+           A receiver rather than a FirebaseMessagingService on purpose: a
+           second service would displace the one @react-native-firebase brings,
+           cutting JS off from messages. FCM broadcasts to every matching
+           receiver in the package, so this one runs beside the library's.
+
+           exported=true is required — the sender is Google Play services, not
+           this app — and the c2dm SEND permission is what keeps anything else
+           from broadcasting to it. -->
+      <receiver
+        android:name=".notify.PaymentNotificationReceiver"
+        android:exported="true"
+        android:permission="com.google.android.c2dm.permission.SEND">
+        <intent-filter>
+          <action android:name="com.google.android.c2dm.intent.RECEIVE" />
+        </intent-filter>
+      </receiver>
+
       <!-- Serves the downloaded APK to Android's installer. From API 24 a
            file:// URI handed to another app throws, so the installer is given a
            content:// one instead, granted read access for that one Intent.

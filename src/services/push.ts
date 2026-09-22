@@ -31,9 +31,15 @@ function handleForegroundMessage(msg: any): void {
     // the same event, so with the app open the local one wins. This push exists
     // for the case the app is closed, which Android displays itself.
     if (msg?.data?.type === 'send_confirmed') return;
+    // Data-only now: the server stopped sending a `notification` block so the
+    // firebase SDK would not display the background notification itself, which
+    // is what let notify/PaymentNotificationReceiver.kt build one with the logo
+    // on it. So title and body come out of the data map. The `notification`
+    // fallback stays for a message sent by an older server.
     const n = msg?.notification;
-    const title = n?.title || 'Payment received';
-    const body = n?.body || msg?.data?.body || 'You have a new payment.';
+    const d = msg?.data;
+    const title = d?.title || n?.title || 'Payment received';
+    const body = d?.body || n?.body || 'You have a new payment.';
     usePushBanner.getState().show({ title, body });
   } catch {
     /* never let a malformed message break the handler */

@@ -38,10 +38,14 @@ import App from './src/App';
 }
 
 // Required by react-native-firebase when a message arrives while the app is in
-// the background/quit. Notification-type messages (what the server sends) are
-// displayed by Android automatically, so there's nothing to do here — but the
-// handler must be registered. Guarded so a missing/misconfigured Firebase setup
-// can't crash startup.
+// the background/quit, and deliberately empty. The server sends payment pushes
+// as data-only messages, and android/.../notify/PaymentNotificationReceiver.kt
+// displays them natively — no JavaScript involved, so a notification costs no
+// React Native startup with the app closed. Doing it here instead would mean
+// booting the JS runtime for every push, and would need a second library to
+// post the notification at all. The handler is still registered because the
+// library logs an error without one. Guarded so a missing/misconfigured
+// Firebase setup can't crash startup.
 try {
   messaging().setBackgroundMessageHandler(async () => {});
 } catch {}

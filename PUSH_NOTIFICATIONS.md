@@ -65,8 +65,31 @@ tells you exactly what's wrong if nothing arrives:
 - On login the device registers its FCM token: `POST /api/v1/fcm/token`.
 - When a background scan (opt-in "Background scanning" in Settings) finds new
   UTXOs for a wallet, the server pushes to that user's registered devices.
-- Notification-type messages are displayed by Android automatically when the app
-  is backgrounded/closed. Invalid tokens are pruned automatically.
+- Messages are **data-only** — no `notification` block (`helpers/fcm.py`,
+  `_build_message`). That is deliberate and load-bearing: a `notification` block
+  makes the firebase SDK on the device build and post the notification itself,
+  inside Google's code, and the app then cannot put its logo on it. The large
+  icon is the only full-colour slot a notification has — the small icon is an
+  alpha mask, so the mark would flatten to a blob — and FCM has no field for a
+  large icon. Adding a `notification` block back takes the logo away silently.
+  `tests/test_fcm_message.py` in siLNt pins this.
+- With the app backgrounded/closed, the notification is therefore built by the
+  app: `android/app/src/main/java/.../notify/PaymentNotificationReceiver.kt`.
+  A broadcast receiver on `com.google.android.c2dm.intent.RECEIVE`, not a
+  `FirebaseMessagingService` — a second service would displace the one
+  `@react-native-firebase/messaging` declares and cut JS off from messages
+  entirely. It needs no JavaScript, so a notification costs no React Native
+  startup. Invalid tokens are pruned automatically.
+- The logo is bundled (`res/drawable-xxhdpi/ic_notification_large.png`, generated
+  from `src/assets/icon.png`). FCM's `image` field would have been far less code,
+  but it makes the phone fetch a URL for every notification — a timestamped,
+  per-IP record of when a user is paid, held by whoever serves it. Wrong trade
+  for this wallet, and a bundled asset also works offline.
+- The receiver's foreground check has to agree with
+  `SharedUtils.isAppInForeground` in `@react-native-firebase`, which is what
+  decides whether the library routes a message to JS or to the headless task.
+  If both decided "foreground" the user would see nothing at all: a banner
+  posted into a UI nobody is looking at, and no system notification.
 - When the app is in the **foreground**, Android suppresses the system banner, so
   the app displays its own in-app banner instead (`src/components/PushBanner.tsx`,
   fed by the `messaging().onMessage` handler in `src/services/push.ts`).
