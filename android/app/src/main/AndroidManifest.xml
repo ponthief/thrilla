@@ -77,17 +77,20 @@
       </activity>
 
       <!-- What a push notification looks like.
-           Without these, FCM falls back to the launcher icon and no tint: the
-           small icon is masked to a white silhouette of a full-colour icon,
-           which is the featureless blob a notification showed before. The
-           icon is res/drawable/ic_notification.xml, the same ₿ as the balance
-           on the Wallet tab. -->
+           Without this, FCM falls back to the launcher icon: the small icon is
+           masked to a white silhouette of a full-colour icon, which is the
+           featureless blob a notification showed before. The icon is
+           res/drawable/ic_notification.xml, the same ₿ as the balance on the
+           Wallet tab.
+
+           The matching default_notification_color is NOT set here.
+           @react-native-firebase/messaging declares that meta-data itself,
+           from a manifest placeholder, so a second declaration here fails the
+           manifest merger outright. Its value comes from firebase.json in the
+           repo root, which is the library's own knob for it. -->
       <meta-data
         android:name="com.google.firebase.messaging.default_notification_icon"
         android:resource="@drawable/ic_notification" />
-      <meta-data
-        android:name="com.google.firebase.messaging.default_notification_color"
-        android:resource="@color/notification_accent" />
 
       <!-- Serves the downloaded APK to Android's installer. From API 24 a
            file:// URI handed to another app throws, so the installer is given a

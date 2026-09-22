@@ -1,7 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <color name="ic_launcher_background">#070404</color>
-    <!-- Tints the notification's small icon and app name. Same value as
+    <!-- Tints the notification's small icon and app name; wired up in
+         firebase.json, not the manifest, because the messaging library
+         declares that meta-data itself. Same value as
          colors.primary in src/theme.ts; there is no way to share one literal
          across a React Native theme and an Android resource, so if one moves
          the other has to move with it. -->
