@@ -21,12 +21,28 @@ The client automatically requests notification permission and registers its FCM
 token with the backend after login (`src/services/push.ts`).
 
 ## 2. Backend (siLNt) — sender credentials
-1. In the Firebase project, create a **service account** key with the Firebase
-   Cloud Messaging API enabled and download its JSON.
+1. In **the same Firebase project as step 1**, create a **service account** key
+   with the Firebase Cloud Messaging API enabled and download its JSON.
 2. Put it on the siLNt server and set the environment variable:
    `SILNT_FCM_CREDENTIALS=/absolute/path/to/service-account.json`
 3. Restart LNbits. If the var is unset/missing, the backend simply doesn't send
    (no error).
+
+> **The two halves must be the same project, and getting it wrong destroys
+> tokens.** A token minted from one project's `google-services.json` cannot be
+> sent to with another project's service account: FCM answers `404 UNREGISTERED`,
+> which `helpers/fcm.py` cannot tell apart from a genuinely dead token — so it
+> calls `remove_fcm_token` and deletes a valid one. The app re-registers, the
+> next send purges it again, and push never works. Check both ends agree:
+>
+> ```bash
+> jq -r '.project_info.project_id' android/app/google-services.json
+> jq -r '.type, .project_id' /path/to/service-account.json
+> ```
+>
+> This happened once for real, when the app moved to a new Firebase project
+> (`whispa-…`) while `SILNT_FCM_CREDENTIALS` still pointed at a service account
+> for the old one (`thrilla-…`).
 
 ## Verifying it works
 
