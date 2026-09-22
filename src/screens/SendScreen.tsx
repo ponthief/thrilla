@@ -152,6 +152,13 @@ export default function SendScreen() {
   const [bitmailWarning, setBitmailWarning] = useState('');
   const [bitmailInvalid, setBitmailInvalid] = useState(false);
   const [bitmailChecking, setBitmailChecking] = useState(false);
+  // What the last checked BitMail resolved to. Kept so the self-send warning
+  // can compare the ADDRESS rather than the typed string — a BitMail is never
+  // equal to an sp1…, so comparing text alone never fires for one.
+  const [resolvedSp, setResolvedSp] = useState('');
+  // Set once the user has said "send to myself", so the second (build-time)
+  // check does not ask again about the same send.
+  const selfAcked = useRef(false);
 
   // A catch-up scan (often thousands of blocks) can be running server-side after
   // login. While it is, this wallet's coin set is still incomplete, so sending
@@ -287,9 +294,19 @@ export default function SendScreen() {
   // and it costs a fee to move coins to yourself while publicly linking the
   // inputs to the new output. Legitimate for consolidation, so warn rather
   // than block.
+  //
+  // Three ways to name your own wallet, and text equality only catches the
+  // first: the sp1… itself, this wallet's own BitMail (hr_address), and any
+  // BitMail that RESOLVES to this wallet. The last one is why a BitMail
+  // self-send went through unwarned — it is not the same string as anything
+  // this wallet calls itself.
+  const own = (wallet?.sp_address || '').trim().toLowerCase();
+  const ownBitmail = (wallet?.hr_address || '').trim().toLowerCase();
+  const typed = recipient.trim().toLowerCase();
   const isSelfSend =
-    !!wallet?.sp_address &&
-    recipient.trim().toLowerCase() === wallet.sp_address.trim().toLowerCase();
+    (!!own && typed === own) ||
+    (!!ownBitmail && typed === ownBitmail) ||
+    (!!own && !!resolvedSp && resolvedSp.trim().toLowerCase() === own);
   const saveable = rKind === 'sp' || rKind === 'bitmail';
   const alreadySaved = contacts.some(
     (c) => c.value.trim().toLowerCase() === recipient.trim().toLowerCase(),
@@ -415,6 +432,13 @@ export default function SendScreen() {
   // Only a verdict about the address blocks. A 502, or a request that never
   // landed, says the lookup didn't complete — not that the address is bad — so
   // it warns and lets them carry on; the resolve at build time decides.
+  // A new recipient is a new question: neither the old resolution nor the old
+  // "yes, send to myself" applies to it.
+  useEffect(() => {
+    setResolvedSp('');
+    selfAcked.current = false;
+  }, [recipient]);
+
   const validateBitmail = useCallback(
     async (value: string) => {
       const v = (value || '').trim();
@@ -423,7 +447,7 @@ export default function SendScreen() {
       if (!v.includes('@') || !inkey) return;
       setBitmailChecking(true);
       try {
-        await api.resolveBip353(inkey, v);
+        setResolvedSp(api.spFromResolve(await api.resolveBip353(inkey, v)));
       } catch (e: any) {
         const transient = !e?.status || e.status >= 500;
         setBitmailWarning(
@@ -439,6 +463,39 @@ export default function SendScreen() {
       }
     },
     [inkey],
+  );
+
+  // Sign the planned transaction on this device and move to review. Split out
+  // of doBuild so the self-send prompt can carry on from the plan it already
+  // has instead of asking the server the same question twice.
+  const signAndReview = useCallback(
+    async (plan: api.PreparedTx, keys: { spendKey: string; scanSecret: string }) => {
+      const result = buildSignedTx({
+        recipient: plan.recipient,
+        recipientScriptHex: plan.recipient_script || undefined,
+        amount: plan.amount,
+        feeRate: plan.fee_rate,
+        utxos: plan.utxos,
+        spendKey: keys.spendKey,
+        scanSecret: keys.scanSecret,
+        network: plan.network,
+      });
+
+      // The server quoted these before anything was signed; the signature
+      // commits to them. A disagreement means the two sides computed different
+      // transactions, and the only safe move is to stop rather than broadcast
+      // one of them.
+      if (result.fee !== plan.fee || result.change !== plan.change) {
+        throw new Error(
+          `Refusing to send: this phone and the server disagree on the ` +
+            `amounts (fee ${result.fee} vs ${plan.fee}, change ${result.change} ` +
+            `vs ${plan.change}). Try again in a moment.`,
+        );
+      }
+      setBuilt(result);
+      setStep('review');
+    },
+    [],
   );
 
   const doBuild = useCallback(async () => {
@@ -468,30 +525,48 @@ export default function SendScreen() {
         utxos: selectedUtxos,
       });
 
-      const result = buildSignedTx({
-        recipient: plan.recipient,
-        recipientScriptHex: plan.recipient_script || undefined,
-        amount: plan.amount,
-        feeRate: plan.fee_rate,
-        utxos: plan.utxos,
-        spendKey: keys.spendKey,
-        scanSecret: keys.scanSecret,
-        network: plan.network,
-      });
-
-      // The server quoted these before anything was signed; the signature
-      // commits to them. A disagreement means the two sides computed different
-      // transactions, and the only safe move is to stop rather than broadcast
-      // one of them.
-      if (result.fee !== plan.fee || result.change !== plan.change) {
-        throw new Error(
-          `Refusing to send: this phone and the server disagree on the ` +
-            `amounts (fee ${result.fee} vs ${plan.fee}, change ${result.change} ` +
-            `vs ${plan.change}). Try again in a moment.`,
+      // The authoritative self-send check. The pre-review one can only work
+      // from what the screen knows, and a TYPED BitMail is never pre-resolved —
+      // the lookup runs on paste, scan and contacts only, by design. /tx/prepare
+      // is where a BitMail actually becomes an address, so this is the first
+      // point at which "am I paying myself?" is answerable for every recipient.
+      //
+      // Nothing is signed or sent yet, so asking here costs only the round trip.
+      if (
+        wallet.sp_address &&
+        plan.recipient.trim().toLowerCase() ===
+          wallet.sp_address.trim().toLowerCase() &&
+        !selfAcked.current
+      ) {
+        setBusy(false);
+        Alert.alert(
+          'This is your own address',
+          `${recipient.trim()} is this wallet's own address. It works, but it ` +
+            'costs a fee and links the coins you spend to the new output ' +
+            'on-chain. Send elsewhere unless you meant to consolidate.',
+          [
+            { text: 'Cancel', style: 'cancel' },
+            {
+              text: 'Send to myself',
+              onPress: () => {
+                selfAcked.current = true;
+                // Continue with the plan already fetched rather than asking
+                // for another: the answer would be identical and it is a round
+                // trip the user waits on.
+                setBusy(true);
+                signAndReview(plan, keys)
+                  .catch((e: any) =>
+                    failed('Couldn’t send', e?.message || 'Could not build the transaction.'),
+                  )
+                  .finally(() => setBusy(false));
+              },
+            },
+          ],
         );
+        return;
       }
-      setBuilt(result);
-      setStep('review');
+
+      await signAndReview(plan, keys);
     } catch (e: any) {
       // The recipient is the overwhelmingly common reason a build fails, and
       // the backend's message already says which address and what to do about
@@ -503,7 +578,18 @@ export default function SendScreen() {
     } finally {
       setBusy(false);
     }
-  }, [wallet, adminkey, inkey, recipient, amountSats, feeRate, selectedUtxos, rKind, failed]);
+  }, [
+    wallet,
+    adminkey,
+    inkey,
+    recipient,
+    amountSats,
+    feeRate,
+    selectedUtxos,
+    rKind,
+    failed,
+    signAndReview,
+  ]);
 
   const doBroadcast = useCallback(async () => {
     if (!built || !wallet || !adminkey) return;
