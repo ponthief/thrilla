@@ -405,6 +405,7 @@ export default function PayjoinScreen({ onBack }: { onBack?: () => void } = {}) 
         const witnesses = pj.signOwnInputs(assembled, all, mine, keys.spendKey);
         const done = await api.signPayjoinSp(adminkey, row.id, {
           witnesses,
+          unsigned_tx: assembled.unsignedHex,
           change_spk: role === 'payer' && changeSpk ? toHex(changeSpk) : null,
         });
         setMsg(

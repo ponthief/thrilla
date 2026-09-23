@@ -1343,7 +1343,12 @@ export async function contributePayjoinSp(
 export async function signPayjoinSp(
   inkey: string,
   rid: string,
-  body: { witnesses: Record<string, string>; change_spk?: string | null },
+  body: {
+    witnesses: Record<string, string>;
+    change_spk?: string | null;
+    /** What this device assembled and signed, so the server can compare. */
+    unsigned_tx?: string;
+  },
 ): Promise<PayjoinSpRequestRow> {
   return req(`${SILNT}/api/v1/payjoin/sp/requests/${rid}/sign`, {
     method: 'POST',

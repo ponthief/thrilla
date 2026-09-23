@@ -354,6 +354,7 @@ async function sign(row) {
     const witnesses = pj.signOwnInputs(assembled, all, mine, keys.spendKey)
     const done = await api.payjoinSpSign(auth.adminkey, row.id, {
       witnesses,
+      unsigned_tx: assembled.unsignedHex,
       change_spk: role === 'payer' && changeSpk ? toHex(changeSpk) : null,
     })
     pushToast(
