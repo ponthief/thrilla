@@ -109,7 +109,7 @@ export interface BuiltTx {
 
 // ── bytes ────────────────────────────────────────────────────────────────────
 
-function fromHex(s: string): Uint8Array {
+export function fromHex(s: string): Uint8Array {
   const clean = s.startsWith('0x') ? s.slice(2) : s;
   if (clean.length % 2) throw new Error('odd-length hex');
   const out = new Uint8Array(clean.length / 2);
@@ -119,11 +119,11 @@ function fromHex(s: string): Uint8Array {
   return out;
 }
 
-function toHex(u8: Uint8Array): string {
+export function toHex(u8: Uint8Array): string {
   return Array.from(u8, (b) => b.toString(16).padStart(2, '0')).join('');
 }
 
-function concat(...parts: Uint8Array[]): Uint8Array {
+export function concat(...parts: Uint8Array[]): Uint8Array {
   const len = parts.reduce((n, p) => n + p.length, 0);
   const out = new Uint8Array(len);
   let at = 0;
@@ -155,7 +155,7 @@ function u64le(n: number): Uint8Array {
   return b;
 }
 
-function u32be(n: number): Uint8Array {
+export function u32be(n: number): Uint8Array {
   const b = new Uint8Array(4);
   new DataView(b.buffer).setUint32(0, n >>> 0, false);
   return b;
@@ -168,16 +168,16 @@ function varint(n: number): Uint8Array {
   return concat(new Uint8Array([0xfe]), u32le(n));
 }
 
-function bigToBytes(x: bigint): Uint8Array {
+export function bigToBytes(x: bigint): Uint8Array {
   const hex = x.toString(16).padStart(64, '0');
   return fromHex(hex);
 }
 
-function bytesToBig(b: Uint8Array): bigint {
+export function bytesToBig(b: Uint8Array): bigint {
   return BigInt('0x' + (toHex(b) || '0'));
 }
 
-function taggedHash(tag: string, ...data: Uint8Array[]): Uint8Array {
+export function taggedHash(tag: string, ...data: Uint8Array[]): Uint8Array {
   // utf8ToBytes rather than TextEncoder: React Native's TS lib config has no
   // DOM globals, and this is already a dependency.
   const tagHash = sha256(utf8ToBytes(tag));
@@ -300,16 +300,33 @@ export function spScriptPubKey(
 }
 
 /** The m=0 labelled address this wallet sends its change to. */
+/**
+ * B_m = B_spend + TaggedHash("BIP0352/Label", b_scan || ser32(m))·G.
+ *
+ * Split out of labelledChangeAddress because a PayJoin needs the POINT and
+ * never the address: its change output is derived from the labelled spend key
+ * (services/spPayjoin.ts), and folding the label in before the derivation
+ * rather than after is what keeps the whole thing on full points with no
+ * parity to guess. Same reason wallet.py does it that way round.
+ */
+export function labelledSpendPub(
+  scanSecretHex: string,
+  spendPub: Uint8Array,
+  m: number,
+): Uint8Array {
+  const tweak = bytesToBig(taggedHash('BIP0352/Label', fromHex(scanSecretHex), u32be(m))) % N;
+  return secp256k1.ProjectivePoint.fromHex(spendPub)
+    .add(secp256k1.ProjectivePoint.BASE.multiply(tweak))
+    .toRawBytes(true);
+}
+
 export function labelledChangeAddress(
   scanSecretHex: string,
   spendPub: Uint8Array,
   m: number,
   hrp: string,
 ): string {
-  const tweak = bytesToBig(taggedHash('BIP0352/Label', fromHex(scanSecretHex), u32be(m))) % N;
-  const labelled = secp256k1.ProjectivePoint.fromHex(spendPub)
-    .add(secp256k1.ProjectivePoint.BASE.multiply(tweak))
-    .toRawBytes(true);
+  const labelled = labelledSpendPub(scanSecretHex, spendPub, m);
   const scanPub = secp256k1.getPublicKey(fromHex(scanSecretHex), true);
   const words = [0, ...bech32m.toWords(concat(scanPub, labelled))];
   return bech32m.encode(hrp, words, BECH32M_LIMIT);
@@ -370,10 +387,16 @@ export function computeAmounts(
 
 // ── transaction ──────────────────────────────────────────────────────────────
 
-interface TxIn { txid: string; vout: number; }
-interface TxOut { value: number; script: Uint8Array; }
+// Exported because services/spPayjoin.ts builds and signs the same shape of
+// transaction. A PayJoin's inputs are P2TR key-path spends exactly as a send's
+// are, and a second copy of the serialisation or the sighash is precisely the
+// duplication this codebase keeps getting bitten by: one of the two copies
+// would eventually disagree, and the symptom is a signature that verifies
+// against nothing.
+export interface TxIn { txid: string; vout: number; }
+export interface TxOut { value: number; script: Uint8Array; }
 
-function serializeUnsigned(vin: TxIn[], vout: TxOut[]): Uint8Array {
+export function serializeUnsigned(vin: TxIn[], vout: TxOut[]): Uint8Array {
   return concat(
     u32le(2),
     varint(vin.length),
@@ -395,7 +418,7 @@ function serializeUnsigned(vin: TxIn[], vout: TxOut[]): Uint8Array {
  * script path, so ext_flag and spend_type are both zero and the common
  * signature message is the whole of it.
  */
-function taprootSighash(
+export function taprootSighash(
   vin: TxIn[],
   vout: TxOut[],
   index: number,

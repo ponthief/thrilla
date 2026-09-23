@@ -84,13 +84,24 @@ is only compiled by a real Gradle build, so a change there needs one:
 npm run apk:signet          # or apk:signet:lowmem
 ```
 
-`check:signing` holds `src/services/spSign.ts` and `src/services/plainSign.ts`
-to vectors generated from the backend's own builders. Both apps now build and
-sign every send on the device, so a change to a fee formula, an output
-ordering or a derivation — **on either side** — needs the vectors regenerated:
+`check:signing` holds `src/services/spSign.ts`, `src/services/plainSign.ts` and
+`src/services/spPayjoin.ts` to vectors generated from the backend's own
+builders. Both apps now build and sign every send on the device, so a change to
+a fee formula, an output ordering or a derivation — **on either side** — needs
+the vectors regenerated:
 
 ```bash
 cd ../siLNt
 python3 helpers/_client_signing_fixtures.py > fixtures/client-signing.json
 python3 helpers/_plain_signing_fixtures.py  > fixtures/plain-signing.json
+python3 helpers/_payjoin_sp_fixtures.py     > fixtures/payjoin-sp.json
 ```
+
+The PayJoin one carries the most weight of the three. An ordinary send that
+derives wrongly makes an output the recipient cannot find — one party's bug. A
+PayJoin has two parties deriving different outputs of the *same* transaction
+from the *same* frozen input set, each signing over both: if the client's
+`A_sum` or `input_hash` differs from the server's by a byte, both outputs
+belong to nobody, both signatures still verify, and the network accepts it.
+Nothing anywhere reports an error. That is why `A_sum` is compared compressed,
+parity byte included.
