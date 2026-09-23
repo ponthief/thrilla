@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { Alert, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Alert, StyleSheet, Text, TextInput, View } from 'react-native';
 import * as api from '@services/api';
 import { useAuthStore } from '@stores/authStore';
 import { getWalletKeys } from '@services/secureKeys';
@@ -7,7 +7,7 @@ import { useBalancesHidden, MASK } from '@stores/balancePrivacy';
 import * as pj from '@services/spPayjoin';
 import { parseSpAddress, fromHex, toHex } from '@services/spSign';
 import { colors, space, type as type_ } from '@/theme';
-import { Block, Button, Field, Group, InfoRow, Note, Page } from './ui';
+import { Block, Button, Field, Group, InfoRow, Note, Page } from './settings/ui';
 
 // Silent Payments PayJoin, from this device.
 //
@@ -35,8 +35,20 @@ function parseInputs(raw?: string | null): pj.PayjoinInput[] {
   }
 }
 
-export default function PayjoinPage({ onBack }: { onBack: () => void }) {
+// A tab of its own rather than a page buried in Settings. A PayJoin is a
+// two-party exchange that the OTHER side can start, so it has to be somewhere
+// the user passes without going looking — the same reason Send and Receive are
+// tabs. onBack stays optional so nothing breaks if it is ever pushed as a page
+// again; as a tab there is nowhere to go back to.
+export default function PayjoinScreen({ onBack }: { onBack?: () => void } = {}) {
+  // Two keys, and which one goes where is not cosmetic. Reading the queues is
+  // require_trusted_device (invoice key); proposing, contributing, signing and
+  // cancelling are require_trusted_device_admin, because each of them commits
+  // a coin. Sending the invoice key to those four is what produced "invalid
+  // admin key" — the web view had it right and this page did not, which is why
+  // a PayJoin could be started in the browser and not accepted on the phone.
   const inkey = useAuthStore((s) => s.inkey);
+  const adminkey = useAuthStore((s) => s.adminkey);
   const hidden = useBalancesHidden();
 
   const [walletId, setWalletId] = useState<string | null>(null);
@@ -131,7 +143,7 @@ export default function PayjoinPage({ onBack }: { onBack: () => void }) {
 
   // ── payer: propose ──
   const propose = useCallback(async () => {
-    if (!inkey || !walletId) return;
+    if (!inkey || !adminkey || !walletId) return;
     const sats = Number(amount);
     if (!Number.isFinite(sats) || sats <= 0) {
       setError('Enter an amount in sats.');
@@ -150,7 +162,7 @@ export default function PayjoinPage({ onBack }: { onBack: () => void }) {
     setBusy('propose');
     setError(null);
     try {
-      await api.proposePayjoinSp(inkey, {
+      await api.proposePayjoinSp(adminkey, {
         payer_wallet_id: walletId,
         payee_username: payee.trim(),
         amount_sats: sats,
@@ -167,12 +179,12 @@ export default function PayjoinPage({ onBack }: { onBack: () => void }) {
     } finally {
       setBusy(null);
     }
-  }, [inkey, walletId, amount, payee, network, pickCoin, load]);
+  }, [inkey, adminkey, walletId, amount, payee, network, pickCoin, load]);
 
   // ── payee: contribute, which means deriving the payment output here ──
   const contribute = useCallback(
     async (row: Row) => {
-      if (!inkey || !walletId) return;
+      if (!inkey || !adminkey || !walletId) return;
       setBusy(row.id);
       setError(null);
       try {
@@ -192,7 +204,7 @@ export default function PayjoinPage({ onBack }: { onBack: () => void }) {
         const { spend } = parseSpAddress(spAddress);
         const paymentSpk = pj.paymentScript(keys.scanSecret, spend, all);
 
-        await api.contributePayjoinSp(inkey, row.id, {
+        await api.contributePayjoinSp(adminkey, row.id, {
           payee_wallet_id: walletId,
           inputs: [wire(coin)],
           payment_spk: toHex(paymentSpk),
@@ -205,13 +217,13 @@ export default function PayjoinPage({ onBack }: { onBack: () => void }) {
         setBusy(null);
       }
     },
-    [inkey, walletId, spAddress, pickCoin, load],
+    [inkey, adminkey, walletId, spAddress, pickCoin, load],
   );
 
   // ── both: sign, after the checks ──
   const sign = useCallback(
     async (row: Row) => {
-      if (!inkey || !walletId) return;
+      if (!inkey || !adminkey || !walletId) return;
       setBusy(row.id);
       setError(null);
       try {
@@ -267,7 +279,7 @@ export default function PayjoinPage({ onBack }: { onBack: () => void }) {
         });
 
         const witnesses = pj.signOwnInputs(assembled, all, mine, keys.spendKey);
-        const done = await api.signPayjoinSp(inkey, row.id, {
+        const done = await api.signPayjoinSp(adminkey, row.id, {
           witnesses,
           change_spk: role === 'payer' && changeSpk ? toHex(changeSpk) : null,
         });
@@ -283,7 +295,7 @@ export default function PayjoinPage({ onBack }: { onBack: () => void }) {
         setBusy(null);
       }
     },
-    [inkey, walletId, spAddress, load],
+    [inkey, adminkey, walletId, spAddress, load],
   );
 
   const cancel = useCallback(
@@ -297,10 +309,10 @@ export default function PayjoinPage({ onBack }: { onBack: () => void }) {
             text: 'Cancel it',
             style: 'destructive',
             onPress: async () => {
-              if (!inkey) return;
+              if (!adminkey) return;
               setBusy(row.id);
               try {
-                await api.cancelPayjoinSp(inkey, row.id);
+                await api.cancelPayjoinSp(adminkey, row.id);
                 setMsg('Cancelled.');
                 await load();
               } catch (e) {
@@ -313,7 +325,7 @@ export default function PayjoinPage({ onBack }: { onBack: () => void }) {
         ],
       );
     },
-    [inkey, load],
+    [adminkey, load],
   );
 
   const sats = (n?: number | null) =>
@@ -377,7 +389,6 @@ export default function PayjoinPage({ onBack }: { onBack: () => void }) {
       title="PayJoin"
       subtitle="Pay someone who pays in too, so the inputs are not all yours."
       onBack={onBack}>
-      <ScrollView>
         {error ? (
           <Block>
             <Note kind="error">{error}</Note>
@@ -441,7 +452,6 @@ export default function PayjoinPage({ onBack }: { onBack: () => void }) {
             <Text style={styles.rowMeta}>Loading…</Text>
           </Block>
         ) : null}
-      </ScrollView>
     </Page>
   );
 }

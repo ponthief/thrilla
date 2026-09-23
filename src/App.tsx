@@ -17,6 +17,7 @@ import WalletScreen from './screens/WalletScreen';
 import SendScreen from './screens/SendScreen';
 import ReceiveScreen from './screens/ReceiveScreen';
 import SettingsScreen from './screens/SettingsScreen';
+import PayjoinScreen from './screens/PayjoinScreen';
 import LoginScreen from './screens/LoginScreen';
 import RegisterScreen from './screens/RegisterScreen';
 import ForgotPasswordScreen from './screens/ForgotPasswordScreen';
@@ -39,6 +40,7 @@ import PushBanner from './components/PushBanner';
 import BitcoinSign from './components/BitcoinSign';
 import { useSendConfirmations } from './hooks/useSendConfirmations';
 import { usePlainWatch } from './hooks/usePlainWatch';
+import { usePayjoinWatch } from './hooks/usePayjoinWatch';
 import { useNavStore, TabKey as NavTabKey } from '@stores/navStore';
 import { useTxLabelStore } from '@stores/txLabelStore';
 import { usePlainHistory } from '@stores/plainHistoryStore';
@@ -63,6 +65,10 @@ const TABS: {
   { key: 'wallet', label: 'Wallet', Icon: BitcoinSign, Screen: WalletScreen },
   { key: 'send', label: 'Send', icon: '↑', Screen: SendScreen },
   { key: 'receive', label: 'Receive', icon: '↓', Screen: ReceiveScreen },
+  // Its own tab, not a Settings page. The other party can start a PayJoin,
+  // and something you did not start has to be somewhere you pass without
+  // going looking — the same argument as Send and Receive.
+  { key: 'payjoin', label: 'PayJoin', icon: '⇆', Screen: PayjoinScreen },
   { key: 'settings', label: 'Settings', icon: '⚙', Screen: SettingsScreen },
 ];
 
@@ -88,6 +94,9 @@ function TabBar({
   onSelect: (key: TabKey) => void;
 }) {
   const insets = useSafeAreaInsets();
+  // A PayJoin waiting on you is the one thing in this app that goes stale on
+  // its own — they expire in a day — so it gets a count, not just a dot.
+  const payjoinPending = useNavStore((s) => s.payjoinPending);
   return (
     <View style={[styles.tabBar, { paddingBottom: Math.max(insets.bottom, 8) }]}>
       {TABS.map((tab) => {
@@ -103,6 +112,13 @@ function TabBar({
             accessibilityLabel={tab.label}>
             <View style={styles.tabIconBox}>
               {TabIconFor(tab, color)}
+              {tab.key === 'payjoin' && payjoinPending > 0 ? (
+                <View style={styles.tabBadge}>
+                  <Text style={styles.tabBadgeText}>
+                    {payjoinPending > 9 ? '9+' : payjoinPending}
+                  </Text>
+                </View>
+              ) : null}
             </View>
             <Text style={[styles.tabLabel, { color }]}>{tab.label}</Text>
           </TouchableOpacity>
@@ -123,6 +139,9 @@ function Shell() {
   // Coins arriving on the plain bech32 chain: nothing else would notice them,
   // since they are not Silent Payments outputs the scanner finds.
   usePlainWatch();
+  // Whose turn it is in an SP PayJoin. App-wide rather than on the PayJoin tab,
+  // because the point is to notice one while you are somewhere else.
+  usePayjoinWatch();
   // Device-only transaction labels: read once from the keystore so the wallet
   // list can render them synchronously.
   const loadTxLabels = useTxLabelStore((s) => s.load);
@@ -392,6 +411,27 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: 2,
+  },
+  // Sits over the icon's top-right. The box is only 26pt tall, so the badge
+  // overhangs it rather than fitting inside — overflow stays visible, which it
+  // is by default on both platforms for a View.
+  tabBadge: {
+    position: 'absolute',
+    top: -2,
+    right: -12,
+    minWidth: 16,
+    height: 16,
+    paddingHorizontal: 4,
+    borderRadius: 8,
+    backgroundColor: colors.primary,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  tabBadgeText: {
+    color: colors.onPrimary,
+    fontSize: 10,
+    fontWeight: '700',
+    lineHeight: 16,
   },
   tabIcon: {
     fontSize: 20,
