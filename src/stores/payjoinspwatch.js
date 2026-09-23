@@ -44,6 +44,12 @@ let _primed = false   // no toasts on the first poll: those items already existe
 // Whose move each state is. Mirrors payjoin_sp.py::whose_turn.
 const TURN = {
   PROPOSED: 'payee',
+  // The advertised flow's extra step. The payee could not derive its payment
+  // script when it posted the offer — half the input set did not exist — so it
+  // must come back once a contact claims. Omitting this leaves every
+  // advertised PayJoin stalled with nobody told, which is the one state this
+  // watcher exists to prevent.
+  CLAIMED: 'payee',
   CONTRIBUTED: 'payer',
   PAYER_SIGNED: 'payee',
 }
@@ -81,9 +87,11 @@ async function _poll() {
       const what =
         r.status === 'PROPOSED'
           ? `${who || 'Someone'} wants to PayJoin with you — open PayJoin to accept or decline.`
-          : r.status === 'CONTRIBUTED'
-            ? `${who || 'They'} accepted your PayJoin — open PayJoin to sign it.`
-            : `${who || 'They'} signed your PayJoin — open PayJoin to finish it.`
+          : r.status === 'CLAIMED'
+            ? `${who || 'Someone'} took your PayJoin offer — open PayJoin to carry on.`
+            : r.status === 'CONTRIBUTED'
+              ? `${who || 'They'} accepted your PayJoin — open PayJoin to sign it.`
+              : `${who || 'They'} signed your PayJoin — open PayJoin to finish it.`
       // No amount in the toast. Not for the FCM reason — nothing here passes
       // through Google — but because a toast is the one message that appears
       // over whatever is on screen, in front of whoever is looking at it.

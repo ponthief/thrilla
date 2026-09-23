@@ -424,13 +424,17 @@ export default function PayjoinScreen({ onBack }: { onBack?: () => void } = {}) 
 
   const cancel = useCallback(
     (row: Row) => {
+      // An unclaimed offer has no other side to tell.
+      const open = row.status === 'OPEN';
       Alert.alert(
-        'Cancel this PayJoin?',
-        'The other side is told. Nothing has been broadcast, so no coins move.',
+        open ? 'Withdraw this offer?' : 'Cancel this PayJoin?',
+        open
+          ? 'It disappears from your contacts’ boards. Nothing was committed, so no coins move.'
+          : 'The other side is told. Nothing has been broadcast, so no coins move.',
         [
           { text: 'Keep it', style: 'cancel' },
           {
-            text: 'Cancel it',
+            text: open ? 'Withdraw' : 'Cancel it',
             style: 'destructive',
             onPress: async () => {
               if (!adminkey) return;

@@ -51,6 +51,13 @@ const payee = ref('')
 const amount = ref(null)
 const feeRate = ref(2)
 
+// The board, and the form for posting to it. Two halves of one feature, split
+// by a segment rather than stacked: a single scroll made neither findable.
+const offers = ref([])
+const offerAmount = ref(null)
+const offerMemo = ref('')
+const view = ref('active')   // 'active' | 'offers'
+
 const wallet = computed(() =>
   wallets.value.find((w) => w.id === selectedWallet.value) || null,
 )
@@ -97,10 +104,14 @@ async function load() {
       error.value = 'No Silent Payments wallet on this network.'
       return
     }
-    const res = await api.getUtxos(auth.inkey, selectedWallet.value)
+    const [res, board] = await Promise.all([
+      api.getUtxos(auth.inkey, selectedWallet.value),
+      api.payjoinSpListOffers(auth.inkey, wallet.value?.network),
+    ])
     coins.value = (res.utxos || []).filter(
       (u) => u.utxo_state === 'unspent' && !u.frozen,
     )
+    offers.value = board.offers || []
     // Not awaited alongside the coins: a poll that fails is the watcher's
     // problem to retry on its next tick, and it must not leave this page
     // saying it could not load when the coins arrived perfectly well.
@@ -147,6 +158,102 @@ async function propose() {
     await load()
   } catch (e) {
     error.value = e.detail || e.message || 'Could not propose that PayJoin.'
+  } finally {
+    busy.value = ''
+  }
+}
+
+async function postOffer() {
+  const sats = Number(offerAmount.value)
+  if (!Number.isFinite(sats) || sats <= 0) {
+    error.value = 'Enter an amount in sats.'
+    return
+  }
+  busy.value = 'offer'
+  error.value = ''
+  try {
+    // Any coin will do here, unlike a claim: the payee's input comes straight
+    // back out in the payment, so it is there to make the inputs ambiguous
+    // rather than to cover anything. The smallest exposes least.
+    const coin = pickCoin(1)
+    if (!coin) throw new Error('You have no coin to contribute.')
+    await api.payjoinSpOffer(auth.adminkey, {
+      payee_wallet_id: selectedWallet.value,
+      amount_sats: sats,
+      fee_rate: Number(feeRate.value),
+      inputs: [wire(coin)],
+      memo: offerMemo.value.trim() || null,
+      network: wallet.value?.network || 'signet',
+    })
+    offerAmount.value = null
+    offerMemo.value = ''
+    pushToast(
+      'Posted. You will need to come back once someone takes it — the ' +
+      'payment address depends on their coins too.',
+      { type: 'success' },
+    )
+    await load()
+  } catch (e) {
+    error.value = e.detail || e.message || 'Could not post that offer.'
+  } finally {
+    busy.value = ''
+  }
+}
+
+async function claim(offer) {
+  busy.value = offer.id
+  error.value = ''
+  try {
+    const need = offer.amount_sats + pj.estimateFee(2, 2, offer.fee_rate).fee
+    const coin = pickCoin(need)
+    if (!coin) {
+      throw new Error(
+        `No single coin covers ${offer.amount_sats} sats plus the fee. ` +
+        `Consolidating first would link those coins, so this does not do it ` +
+        `for you.`,
+      )
+    }
+    await api.payjoinSpClaim(auth.adminkey, offer.id, {
+      payer_wallet_id: selectedWallet.value,
+      inputs: [wire(coin)],
+    })
+    pushToast('Taken. They derive their address next, then you sign.',
+      { type: 'success' })
+    view.value = 'active'
+    await load()
+  } catch (e) {
+    error.value = e.detail || e.message || 'Could not take that offer.'
+  } finally {
+    busy.value = ''
+  }
+}
+
+// The step the directed flow folds into /contribute. The payee's inputs went
+// in when it posted; the claimant's arrived just now. This is the first moment
+// the whole set exists, and an SP output cannot be derived from anything less.
+async function derive(row) {
+  busy.value = row.id
+  error.value = ''
+  try {
+    const keys = await auth.getWalletKeys(selectedWallet.value)
+    if (!keys) throw new Error('This browser does not hold this wallet\u2019s keys.')
+    const fresh = await api.payjoinSpGet(auth.adminkey, row.id)
+    const all = [
+      ...parseInputs(fresh.payer_inputs),
+      ...parseInputs(fresh.payee_inputs),
+    ]
+    const { spend } = parseSpAddress(wallet.value.sp_address)
+    const paymentSpk = pj.paymentScript(keys.scanSecret, spend, all)
+    await api.payjoinSpDerive(auth.adminkey, row.id, {
+      payee_wallet_id: selectedWallet.value,
+      inputs: [],
+      payment_spk: toHex(paymentSpk),
+    })
+    pushToast('Done. They sign next, then it comes back to you.',
+      { type: 'success' })
+    await load()
+  } catch (e) {
+    error.value = e.detail || e.message || 'Could not continue that PayJoin.'
   } finally {
     busy.value = ''
   }
@@ -264,10 +371,14 @@ async function sign(row) {
 }
 
 async function cancel(row) {
-  if (!window.confirm(
-    'Cancel this PayJoin? The other side is told. Nothing has been broadcast, ' +
-    'so no coins move.',
-  )) return
+  // An unclaimed offer has no other side to tell, and saying otherwise about
+  // a privacy feature is exactly the wrong thing to be vague about.
+  const question = row.status === 'OPEN'
+    ? 'Withdraw this offer? It disappears from your contacts\u2019 boards. ' +
+      'Nothing was committed, so no coins move.'
+    : 'Cancel this PayJoin? The other side is told. Nothing has been ' +
+      'broadcast, so no coins move.'
+  if (!window.confirm(question)) return
   busy.value = row.id
   try {
     await api.payjoinSpCancel(auth.adminkey, row.id)
@@ -282,12 +393,17 @@ async function cancel(row) {
 
 // Whose move it is. Mirrors payjoin_sp.py::whose_turn, which is the authority;
 // this only decides which button to draw, and the endpoint refuses anyway.
+const TURN = {
+  PROPOSED: 'payee',
+  // The advertised flow's extra step: the payee derives, which it could not
+  // do when it posted because half the input set did not exist yet.
+  CLAIMED: 'payee',
+  CONTRIBUTED: 'payer',
+  PAYER_SIGNED: 'payee',
+}
+
 function myTurn(row, role) {
-  return (
-    (row.status === 'PROPOSED' && role === 'payee') ||
-    (row.status === 'CONTRIBUTED' && role === 'payer') ||
-    (row.status === 'PAYER_SIGNED' && role === 'payee')
-  )
+  return TURN[row.status] === role
 }
 
 const sats = (n) => (n == null ? '—' : `${Number(n).toLocaleString()} sats`)
@@ -329,6 +445,75 @@ const sats = (n) => (n == null ? '—' : `${Number(n).toLocaleString()} sats`)
 
     <div v-if="error" class="alert alert-warn">{{ error }}</div>
 
+    <div class="pj-tabs">
+      <button class="btn btn-sm" :class="view === 'active' ? 'btn-primary' : 'btn-ghost'"
+              @click="view = 'active'">Under way</button>
+      <button class="btn btn-sm" :class="view === 'offers' ? 'btn-primary' : 'btn-ghost'"
+              @click="view = 'offers'">Offers</button>
+    </div>
+
+    <template v-if="view === 'offers'">
+      <div class="card">
+        <div class="card-header">Offer one</div>
+        <div class="card-body">
+          <p class="muted">
+            Your contacts see the amount and can take it. You contribute a coin,
+            which comes straight back to you inside the payment — it is there to
+            make the inputs ambiguous, not to cost you anything.
+          </p>
+          <p class="muted">
+            You will need to come back once someone takes it. The payment
+            address depends on their coins as well as yours, so it cannot exist
+            until they are in.
+          </p>
+          <div class="row">
+            <label>
+              Amount you want (sats)
+              <input v-model.number="offerAmount" type="number" min="1" placeholder="0" />
+            </label>
+            <label>
+              Note (optional)
+              <input v-model="offerMemo" type="text" placeholder="what it is for" />
+            </label>
+          </div>
+          <button class="btn btn-primary"
+                  :disabled="busy === 'offer' || !offerAmount || !hasKeys"
+                  @click="postOffer">
+            {{ busy === 'offer' ? 'Posting…' : 'Offer' }}
+          </button>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-header">On the board</div>
+        <div class="card-body">
+          <p v-if="!offers.length" class="muted">
+            Nothing offered right now, by you or your contacts. An offer is only
+            visible to people you have connected with.
+          </p>
+          <div v-for="o in offers" :key="o.id" class="pj-row">
+            <div class="pj-head">
+              <strong>{{ o.mine ? 'Yours' : o.payee_username }}</strong>
+              <span class="pill">{{ o.mine ? 'waiting' : 'open' }}</span>
+            </div>
+            <div>{{ sats(o.amount_sats) }}</div>
+            <div v-if="o.memo" class="muted small">{{ o.memo }}</div>
+            <div class="pj-actions">
+              <button v-if="o.mine" class="btn btn-sm btn-ghost"
+                      :disabled="busy === o.id" @click="cancel(o)">
+                Withdraw
+              </button>
+              <button v-else class="btn btn-sm btn-primary"
+                      :disabled="busy === o.id || !hasKeys" @click="claim(o)">
+                {{ busy === o.id ? 'Taking…' : 'Take it' }}
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </template>
+
+    <template v-else>
     <div class="card">
       <div class="card-header">Start one</div>
       <div class="card-body">
@@ -383,6 +568,13 @@ const sats = (n) => (n == null ? '—' : `${Number(n).toLocaleString()} sats`)
               :disabled="busy === r.id || !hasKeys"
               @click="contribute(r)">
               {{ busy === r.id ? 'Accepting…' : 'Accept' }}
+            </button>
+            <button
+              v-else-if="myTurn(r, 'payee') && r.status === 'CLAIMED'"
+              class="btn btn-sm btn-primary"
+              :disabled="busy === r.id || !hasKeys"
+              @click="derive(r)">
+              {{ busy === r.id ? 'Working…' : 'Continue' }}
             </button>
             <button
               v-else-if="myTurn(r, 'payee')"
@@ -440,11 +632,14 @@ const sats = (n) => (n == null ? '—' : `${Number(n).toLocaleString()} sats`)
       </div>
     </div>
 
+    </template>
+
     <p v-if="loading" class="muted">Loading…</p>
   </div>
 </template>
 
 <style scoped>
+.pj-tabs { display: flex; gap: 8px; margin-bottom: 12px; }
 .row { display: flex; flex-wrap: wrap; gap: 12px; margin-bottom: 12px; }
 .row label { display: flex; flex-direction: column; gap: 4px; font-size: 13px; }
 .pj-row {

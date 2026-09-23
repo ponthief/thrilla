@@ -1110,3 +1110,38 @@ export async function payjoinSpCancel(inkey, rid) {
     headers: keyHeaders(inkey),
   })
 }
+
+// ── advertised PayJoins ─────────────────────────────────────────────────────
+// The payee posts an amount; a connected contact takes it. /derive is the step
+// the directed flow folds into /contribute: at advertisement time half the
+// input set does not exist, so the payee cannot derive its payment script
+// until someone claims. See siLNt migrations.py::m032.
+
+export async function payjoinSpOffer(adminkey, body) {
+  return req(`${SILNT}/api/v1/payjoin/sp/offers`, {
+    method: 'POST',
+    headers: keyHeaders(adminkey),
+    body: JSON.stringify(body),
+  })
+}
+
+export async function payjoinSpListOffers(inkey, network) {
+  const q = network ? `?network=${encodeURIComponent(network)}` : ''
+  return req(`${SILNT}/api/v1/payjoin/sp/offers${q}`, { headers: keyHeaders(inkey) })
+}
+
+export async function payjoinSpClaim(adminkey, rid, body) {
+  return req(`${SILNT}/api/v1/payjoin/sp/offers/${encodeURIComponent(rid)}/claim`, {
+    method: 'POST',
+    headers: keyHeaders(adminkey),
+    body: JSON.stringify(body),
+  })
+}
+
+export async function payjoinSpDerive(adminkey, rid, body) {
+  return req(`${SILNT}/api/v1/payjoin/sp/requests/${encodeURIComponent(rid)}/derive`, {
+    method: 'POST',
+    headers: keyHeaders(adminkey),
+    body: JSON.stringify(body),
+  })
+}
