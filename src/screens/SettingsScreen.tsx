@@ -6,6 +6,7 @@ import { useNotifyStore } from '@stores/notifyStore';
 import AboutPage from './settings/AboutPage';
 import AccountPage from './settings/AccountPage';
 import NotificationsPage from './settings/NotificationsPage';
+import PayjoinPage from './settings/PayjoinPage';
 import ScanningPage from './settings/ScanningPage';
 import SecurityPage from './settings/SecurityPage';
 import WalletPage from './settings/WalletPage';
@@ -29,6 +30,7 @@ type PageKey =
   | 'security'
   | 'notifications'
   | 'scanning'
+  | 'payjoin'
   | 'wallet'
   | 'about';
 
@@ -59,6 +61,7 @@ export default function SettingsScreen() {
   if (page === 'account') return <AccountPage onBack={back} />;
   if (page === 'security') return <SecurityPage onBack={back} />;
   if (page === 'notifications') return <NotificationsPage onBack={back} />;
+  if (page === 'payjoin') return <PayjoinPage onBack={back} />;
   if (page === 'scanning') return <ScanningPage onBack={back} />;
   if (page === 'wallet') return <WalletPage onBack={back} />;
   if (page === 'about') return <AboutPage onBack={back} />;
@@ -113,6 +116,11 @@ export default function SettingsScreen() {
           title="Scanning"
           help="Background scanning, and how much catches up quietly"
           onPress={() => setPage('scanning')}
+        />
+        <NavRow
+          title="PayJoin"
+          help="Pay someone who pays in too, so the inputs are not all yours"
+          onPress={() => setPage('payjoin')}
         />
         <NavRow
           title="Wallet"

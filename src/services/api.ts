@@ -1248,3 +1248,116 @@ export async function deleteSilntWallet(
     headers: apiKey(inkey),
   });
 }
+
+// ── Silent Payments PayJoin ─────────────────────────────────────────────────
+// The coordination calls. Nothing here sends a key: the payee's payment script
+// and the payer's change script are derived on this device
+// (services/spPayjoin.ts) and posted as scripts, and the witnesses are
+// signatures. See siLNt views_api.py for the state machine and why it has a
+// step the PSBT PayJoin does not.
+
+export interface PayjoinSpWireInput {
+  txid: string;
+  vout: number;
+  pub_key: string;
+  amount: number;
+}
+
+export interface PayjoinSpRequestRow {
+  id: string;
+  status: string;
+  network: string;
+  payer_username: string;
+  payee_username: string;
+  payer_wallet_id: string;
+  payee_wallet_id?: string | null;
+  amount_sats: number;
+  fee_rate: number;
+  payer_in_sats?: number | null;
+  payee_in_sats?: number | null;
+  payment_sats?: number | null;
+  change_sats?: number | null;
+  fee_sats?: number | null;
+  vsize?: number | null;
+  payer_inputs?: string | null;
+  payee_inputs?: string | null;
+  payment_spk?: string | null;
+  change_spk?: string | null;
+  txid?: string | null;
+  reject_reason?: string | null;
+  expires_at?: number | null;
+  /** Only on the single-request fetch. */
+  role?: 'payer' | 'payee';
+  my_inputs?: number[];
+}
+
+export async function proposePayjoinSp(
+  inkey: string,
+  body: {
+    payer_wallet_id: string;
+    payee_username: string;
+    amount_sats: number;
+    fee_rate: number;
+    inputs: PayjoinSpWireInput[];
+    network: string;
+  },
+): Promise<PayjoinSpRequestRow> {
+  return req(`${SILNT}/api/v1/payjoin/sp/requests`, {
+    method: 'POST',
+    headers: apiKey(inkey),
+    body: JSON.stringify(body),
+  });
+}
+
+export async function listPayjoinSp(
+  inkey: string,
+): Promise<{ incoming: PayjoinSpRequestRow[]; outgoing: PayjoinSpRequestRow[] }> {
+  return req(`${SILNT}/api/v1/payjoin/sp/requests`, { headers: apiKey(inkey) });
+}
+
+export async function getPayjoinSp(
+  inkey: string,
+  rid: string,
+): Promise<PayjoinSpRequestRow> {
+  return req(`${SILNT}/api/v1/payjoin/sp/requests/${rid}`, {
+    headers: apiKey(inkey),
+  });
+}
+
+export async function contributePayjoinSp(
+  inkey: string,
+  rid: string,
+  body: {
+    payee_wallet_id: string;
+    inputs: PayjoinSpWireInput[];
+    payment_spk: string;
+  },
+): Promise<PayjoinSpRequestRow> {
+  return req(`${SILNT}/api/v1/payjoin/sp/requests/${rid}/contribute`, {
+    method: 'POST',
+    headers: apiKey(inkey),
+    body: JSON.stringify(body),
+  });
+}
+
+export async function signPayjoinSp(
+  inkey: string,
+  rid: string,
+  body: { witnesses: Record<string, string>; change_spk?: string | null },
+): Promise<PayjoinSpRequestRow> {
+  return req(`${SILNT}/api/v1/payjoin/sp/requests/${rid}/sign`, {
+    method: 'POST',
+    headers: apiKey(inkey),
+    body: JSON.stringify(body),
+  });
+}
+
+export async function cancelPayjoinSp(
+  inkey: string,
+  rid: string,
+): Promise<PayjoinSpRequestRow> {
+  return req(`${SILNT}/api/v1/payjoin/sp/requests/${rid}/cancel`, {
+    method: 'POST',
+    headers: apiKey(inkey),
+  });
+}
