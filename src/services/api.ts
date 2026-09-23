@@ -1361,3 +1361,67 @@ export async function cancelPayjoinSp(
     headers: apiKey(inkey),
   });
 }
+
+// ── advertised PayJoins ─────────────────────────────────────────────────────
+// The payee posts an amount; a connected contact takes it. The extra step
+// versus the directed flow is structural, not an API wart: an SP output is
+// derived from the whole input set, and at advertisement time half of it does
+// not exist — so the payee derives at /derive, after a claim, rather than when
+// it posts. See siLNt migrations.py::m032.
+
+export interface PayjoinSpOffer extends PayjoinSpRequestRow {
+  memo?: string | null;
+  /** Ours, so the UI offers Withdraw rather than Take. */
+  mine?: boolean;
+}
+
+export async function offerPayjoinSp(
+  adminkey: string,
+  body: {
+    payee_wallet_id: string;
+    amount_sats: number;
+    fee_rate: number;
+    inputs: PayjoinSpWireInput[];
+    memo?: string | null;
+    network: string;
+  },
+): Promise<PayjoinSpOffer> {
+  return req(`${SILNT}/api/v1/payjoin/sp/offers`, {
+    method: 'POST',
+    headers: apiKey(adminkey),
+    body: JSON.stringify(body),
+  });
+}
+
+export async function listPayjoinSpOffers(
+  inkey: string,
+  network?: string,
+): Promise<{ offers: PayjoinSpOffer[] }> {
+  const q = network ? `?network=${encodeURIComponent(network)}` : '';
+  return req(`${SILNT}/api/v1/payjoin/sp/offers${q}`, { headers: apiKey(inkey) });
+}
+
+export async function claimPayjoinSp(
+  adminkey: string,
+  rid: string,
+  body: { payer_wallet_id: string; inputs: PayjoinSpWireInput[] },
+): Promise<PayjoinSpRequestRow> {
+  return req(`${SILNT}/api/v1/payjoin/sp/offers/${rid}/claim`, {
+    method: 'POST',
+    headers: apiKey(adminkey),
+    body: JSON.stringify(body),
+  });
+}
+
+/** The payee's payment script, once a claim has frozen the input set. */
+export async function derivePayjoinSp(
+  adminkey: string,
+  rid: string,
+  body: { payee_wallet_id: string; inputs: PayjoinSpWireInput[]; payment_spk: string },
+): Promise<PayjoinSpRequestRow> {
+  return req(`${SILNT}/api/v1/payjoin/sp/requests/${rid}/derive`, {
+    method: 'POST',
+    headers: apiKey(adminkey),
+    body: JSON.stringify(body),
+  });
+}

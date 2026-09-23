@@ -7,7 +7,7 @@ import { useBalancesHidden, MASK } from '@stores/balancePrivacy';
 import * as pj from '@services/spPayjoin';
 import { parseSpAddress, fromHex, toHex } from '@services/spSign';
 import { colors, space, type as type_ } from '@/theme';
-import { Block, Button, Field, Group, InfoRow, Note, Page } from './settings/ui';
+import { Block, Button, Chips, Field, Group, InfoRow, Note, Page } from './settings/ui';
 
 // Silent Payments PayJoin, from this device.
 //
@@ -64,6 +64,13 @@ export default function PayjoinScreen({ onBack }: { onBack?: () => void } = {}) 
 
   const [payee, setPayee] = useState('');
   const [amount, setAmount] = useState('');
+  // The board, and the form for posting to it.
+  const [offers, setOffers] = useState<api.PayjoinSpOffer[]>([]);
+  const [offerAmount, setOfferAmount] = useState('');
+  const [offerMemo, setOfferMemo] = useState('');
+  // Two halves of one feature, but a long single scroll made neither easy to
+  // find. 'active' is PayJoins under way; 'offers' is the board.
+  const [view, setView] = useState<'active' | 'offers'>('active');
 
   const load = useCallback(async () => {
     if (!inkey) {
@@ -82,13 +89,15 @@ export default function PayjoinScreen({ onBack }: { onBack?: () => void } = {}) 
       setWalletId(w.id);
       setNetwork(w.network);
       setSpAddress(w.sp_address);
-      const [utxos, queues] = await Promise.all([
+      const [utxos, queues, board] = await Promise.all([
         api.getUtxos(inkey, w.id),
         api.listPayjoinSp(inkey),
+        api.listPayjoinSpOffers(inkey, w.network),
       ]);
       setCoins(utxos.filter((u) => u.utxo_state === 'unspent' && !u.frozen));
       setIncoming(queues.incoming);
       setOutgoing(queues.outgoing);
+      setOffers(board.offers || []);
     } catch (e: any) {
       setError(e?.message || 'Could not load PayJoins.');
     } finally {
@@ -180,6 +189,114 @@ export default function PayjoinScreen({ onBack }: { onBack?: () => void } = {}) 
       setBusy(null);
     }
   }, [inkey, adminkey, walletId, amount, payee, network, pickCoin, load]);
+
+  // ── payee: advertise ──
+  const postOffer = useCallback(async () => {
+    if (!adminkey || !walletId) return;
+    const sats = Number(offerAmount);
+    if (!Number.isFinite(sats) || sats <= 0) {
+      setError('Enter an amount in sats.');
+      return;
+    }
+    setBusy('offer');
+    setError(null);
+    try {
+      // The payee's coin comes straight back out in the payment, so any coin
+      // will do and the smallest exposes least. Unlike the payer, the payee
+      // does not have to cover the amount — the payer brings that.
+      const coin = pickCoin(1);
+      if (!coin) throw new Error('You have no coin to contribute.');
+      await api.offerPayjoinSp(adminkey, {
+        payee_wallet_id: walletId,
+        amount_sats: sats,
+        fee_rate: 2,
+        inputs: [wire(coin)],
+        memo: offerMemo.trim() || null,
+        network,
+      });
+      setOfferAmount('');
+      setOfferMemo('');
+      setMsg(
+        'Posted. Your contacts can see it. You will need to come back once ' +
+          'someone takes it — the payment address cannot be worked out until ' +
+          'their coins are in.',
+      );
+      await load();
+    } catch (e) {
+      fail(e);
+    } finally {
+      setBusy(null);
+    }
+  }, [adminkey, walletId, offerAmount, offerMemo, network, pickCoin, load]);
+
+  // ── payer: take someone's offer ──
+  const claim = useCallback(
+    async (offer: api.PayjoinSpOffer) => {
+      if (!adminkey || !walletId) return;
+      setBusy(offer.id);
+      setError(null);
+      try {
+        const need = offer.amount_sats + pj.estimateFee(2, 2, offer.fee_rate).fee;
+        const coin = pickCoin(need);
+        if (!coin) {
+          throw new Error(
+            `No single coin covers ${offer.amount_sats} sats plus the fee. ` +
+              `Consolidating first would link those coins, so this does not ` +
+              `do it for you.`,
+          );
+        }
+        await api.claimPayjoinSp(adminkey, offer.id, {
+          payer_wallet_id: walletId,
+          inputs: [wire(coin)],
+        });
+        setMsg('Taken. They derive their address next, then you sign.');
+        setView('active');
+        await load();
+      } catch (e) {
+        fail(e);
+      } finally {
+        setBusy(null);
+      }
+    },
+    [adminkey, walletId, pickCoin, load],
+  );
+
+  // ── payee: derive, once a claim has frozen the input set ──
+  //
+  // The step the directed flow folds into /contribute. Here the payee's inputs
+  // went in when it posted, and the claimant's only arrived just now — this is
+  // the first moment the whole set exists, which is the first moment anything
+  // can be derived from it.
+  const derive = useCallback(
+    async (row: Row) => {
+      if (!adminkey || !walletId) return;
+      setBusy(row.id);
+      setError(null);
+      try {
+        const keys = await getWalletKeys(walletId);
+        if (!keys) throw new Error('This device does not hold this wallet\u2019s keys.');
+        const fresh = await api.getPayjoinSp(inkey!, row.id);
+        const all = [
+          ...parseInputs(fresh.payer_inputs),
+          ...parseInputs(fresh.payee_inputs),
+        ];
+        const { spend } = parseSpAddress(spAddress);
+        const paymentSpk = pj.paymentScript(keys.scanSecret, spend, all);
+        await api.derivePayjoinSp(adminkey, row.id, {
+          payee_wallet_id: walletId,
+          inputs: [],
+          payment_spk: toHex(paymentSpk),
+        });
+        setMsg('Done. They sign next, then it comes back to you.');
+        await load();
+      } catch (e) {
+        fail(e);
+      } finally {
+        setBusy(null);
+      }
+    },
+    [adminkey, inkey, walletId, spAddress, load],
+  );
 
   // ── payee: contribute, which means deriving the payment output here ──
   const contribute = useCallback(
@@ -332,10 +449,17 @@ export default function PayjoinScreen({ onBack }: { onBack?: () => void } = {}) 
     n == null ? '—' : hidden ? MASK : `${n.toLocaleString()} sats`;
 
   const renderRow = (row: Row, role: 'payer' | 'payee') => {
-    const turn =
-      (row.status === 'PROPOSED' && role === 'payee') ||
-      (row.status === 'CONTRIBUTED' && role === 'payer') ||
-      (row.status === 'PAYER_SIGNED' && role === 'payee');
+    // Mirrors payjoin_sp.py::whose_turn, which stays the authority — this
+    // only decides which button to draw, and the endpoint refuses an
+    // out-of-turn call whatever this says. CLAIMED is the advertised flow's
+    // extra step: the payee derives, which it could not do when it posted.
+    const TURN: Record<string, 'payer' | 'payee'> = {
+      PROPOSED: 'payee',
+      CLAIMED: 'payee',
+      CONTRIBUTED: 'payer',
+      PAYER_SIGNED: 'payee',
+    };
+    const turn = TURN[row.status] === role;
     const other = role === 'payer' ? row.payee_username : row.payer_username;
     return (
       <View key={row.id} style={styles.row}>
@@ -362,7 +486,15 @@ export default function PayjoinScreen({ onBack }: { onBack?: () => void } = {}) 
               onPress={() => contribute(row)}
             />
           ) : null}
-          {turn && row.status !== 'PROPOSED' ? (
+          {turn && row.status === 'CLAIMED' ? (
+            <Button
+              small
+              label="Continue"
+              busy={busy === row.id}
+              onPress={() => derive(row)}
+            />
+          ) : null}
+          {turn && row.status !== 'PROPOSED' && row.status !== 'CLAIMED' ? (
             <Button
               small
               label="Sign"
@@ -400,6 +532,95 @@ export default function PayjoinScreen({ onBack }: { onBack?: () => void } = {}) 
           </Block>
         ) : null}
 
+        <Block>
+          <Chips
+            options={[
+              { key: 'active' as const, label: 'Under way' },
+              { key: 'offers' as const, label: 'Offers' },
+            ]}
+            selected={view}
+            onSelect={setView}
+          />
+        </Block>
+
+        {view === 'offers' ? (
+          <>
+            <Group
+              title="Offer one"
+              footer="Your contacts see the amount and can take it. You contribute a coin, which comes straight back to you in the payment — it is there to make the inputs ambiguous, not to cost you anything. You will need to come back once someone takes it: the payment address depends on their coins as well as yours, so it cannot exist until they are in.">
+              <Block>
+                <TextInput
+                  value={offerMemo}
+                  onChangeText={setOfferMemo}
+                  placeholder="what it is for (optional)"
+                  placeholderTextColor={colors.faint}
+                  style={styles.input}
+                />
+                <View style={{ height: space.sm }} />
+                <Field
+                  value={offerAmount}
+                  onChangeText={setOfferAmount}
+                  placeholder="sats you want"
+                  keyboardType="number-pad"
+                  action="Offer"
+                  onAction={postOffer}
+                  actionBusy={busy === 'offer'}
+                  actionDisabled={!offerAmount || !walletId}
+                />
+              </Block>
+            </Group>
+
+            <Group
+              title="On the board"
+              footer={
+                offers.length
+                  ? undefined
+                  : 'Nothing offered right now — by you or by your contacts. An offer is only visible to people you have connected with.'
+              }>
+              {offers.length ? (
+                <Block>
+                  {offers.map((o) => (
+                    <View key={o.id} style={styles.row}>
+                      <View style={styles.rowHead}>
+                        <Text style={styles.rowWho}>
+                          {o.mine ? 'Yours' : o.payee_username}
+                        </Text>
+                        <Text style={styles.rowStatus}>
+                          {o.mine ? 'waiting' : 'open'}
+                        </Text>
+                      </View>
+                      <Text style={styles.rowAmount}>{sats(o.amount_sats)}</Text>
+                      {o.memo ? (
+                        <Text style={styles.rowMeta} numberOfLines={2}>
+                          {o.memo}
+                        </Text>
+                      ) : null}
+                      <View style={styles.rowActions}>
+                        {o.mine ? (
+                          <Button
+                            small
+                            kind="danger"
+                            label="Withdraw"
+                            busy={busy === o.id}
+                            onPress={() => cancel(o as Row)}
+                          />
+                        ) : (
+                          <Button
+                            small
+                            label="Take it"
+                            busy={busy === o.id}
+                            onPress={() => claim(o)}
+                          />
+                        )}
+                      </View>
+                    </View>
+                  ))}
+                </Block>
+              ) : null}
+            </Group>
+          </>
+        ) : (
+          <>
         <Group
           title="Start one"
           footer="Both of you must be WhiSPa users and connected to each other. They contribute a coin, which comes straight back to them in the payment, so it costs them nothing but the round trip — and it is what makes the transaction ambiguous about whose coins are whose.">
@@ -446,6 +667,8 @@ export default function PayjoinScreen({ onBack }: { onBack?: () => void } = {}) 
             <Block>{outgoing.map((r) => renderRow(r, 'payer'))}</Block>
           ) : null}
         </Group>
+          </>
+        )}
 
         {loading ? (
           <Block>

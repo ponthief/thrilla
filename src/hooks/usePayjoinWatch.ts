@@ -32,6 +32,12 @@ const POLL_MS = 20000;
 // whatever this says.
 const TURN: Record<string, 'payer' | 'payee'> = {
   PROPOSED: 'payee',
+  // The advertised flow's extra step. The payee could not derive its payment
+  // script when it posted the offer — half the input set did not exist yet —
+  // so it has to come back once a contact claims. Missing this from the table
+  // would leave an advertised PayJoin stalled with nobody told, which is the
+  // one state this whole hook exists to prevent.
+  CLAIMED: 'payee',
   CONTRIBUTED: 'payer',
   PAYER_SIGNED: 'payee',
 };
@@ -86,9 +92,11 @@ export function usePayjoinWatch(): void {
           const body =
             r.status === 'PROPOSED'
               ? `${who || 'Someone'} wants to PayJoin with you.`
-              : r.status === 'CONTRIBUTED'
-                ? `${who || 'They'} accepted — it needs your signature.`
-                : `${who || 'They'} signed — one more from you finishes it.`;
+              : r.status === 'CLAIMED'
+                ? `${who || 'Someone'} took your offer — open it to carry on.`
+                : r.status === 'CONTRIBUTED'
+                  ? `${who || 'They'} accepted — it needs your signature.`
+                  : `${who || 'They'} signed — one more from you finishes it.`;
           usePushBanner.getState().show({ title: 'PayJoin', body });
         }
       }
