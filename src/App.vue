@@ -58,7 +58,13 @@ const baseNav = [
   { name: 'send',    label: 'Send',     icon: '↗' },
   ...(LIGHTNING_ENABLED ? [{ name: 'lightning', label: 'Lightning', icon: '⚡' }] : []),
   ...(SWAP_ENABLED ? [{ name: 'swap', label: 'Swap ⚡', icon: '⇌' }] : []),
-  ...(PAYJOIN_ENABLED ? [{ name: 'payjoin', label: 'PayJoin', icon: '⇆' }] : []),
+  // Two PayJoins, two protocols. "PayJoin" is the Silent Payments one —
+  // both parties are WhiSPa wallets, both sign in their own app — and it is
+  // the one a WhiSPa user wants. "PayJoin (PSBT)" is the descriptor and
+  // Sparrow flavour, which cannot carry Silent Payments and is kept for the
+  // watch-only wallets people already imported.
+  ...(PAYJOIN_ENABLED ? [{ name: 'payjoin-sp', label: 'PayJoin', icon: '⇆' }] : []),
+  ...(PAYJOIN_ENABLED ? [{ name: 'payjoin', label: 'PayJoin (PSBT)', icon: '⇆' }] : []),
   { name: 'transactions', label: 'Activity', icon: '⇄' },
   { name: 'bitmail', label: 'BitMail',  icon: '⌖' },
   { name: 'config',  label: 'Settings', icon: '⚙' },

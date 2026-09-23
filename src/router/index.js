@@ -24,6 +24,7 @@ const userRoutes = [
   { path: '/swap',   name: 'swap',    component: () => import('@/views/SwapView.vue')     },
   { path: '/lightning', name: 'lightning', component: () => import('@/views/LightningView.vue') },
   { path: '/payjoin', name: 'payjoin', component: () => import('@/views/PayJoinView.vue') },
+  { path: '/payjoin-sp', name: 'payjoin-sp', component: () => import('@/views/PayJoinSpView.vue') },
   { path: '/scan',   name: 'scan',    component: () => import('@/views/ScanView.vue')     },
   { path: '/bitmail', name: 'bitmail', component: () => import('@/views/BitMailView.vue') },
   { path: '/config', name: 'config',  component: () => import('@/views/ConfigView.vue')  },
@@ -73,8 +74,14 @@ router.beforeEach((to) => {
     const lock = import.meta.env.VITE_NETWORK_LOCK || null
     if (lock !== 'regtest') return { name: 'wallets' }
   }
-  // PayJoin is behind an explicit build flag (default off).
-  if (to.name === 'payjoin') {
+  // Both PayJoins are behind the same explicit build flag (default off).
+  // Same flag on purpose: they are one feature to a user, they are enabled and
+  // disabled together, and a second switch would be one more thing to get out
+  // of step. They are separate VIEWS because they are separate protocols —
+  // PayJoinView is descriptors, P2WPKH and a PSBT for an external signer, and
+  // it cannot carry Silent Payments at all (a PSBT identifies its inputs by
+  // derivation path, and an SP UTXO's key is a one-off from a tweak).
+  if (to.name === 'payjoin' || to.name === 'payjoin-sp') {
     if (import.meta.env.VITE_PAYJOIN_ENABLED !== 'true') return { name: 'wallets' }
   }
 })

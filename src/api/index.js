@@ -1063,3 +1063,50 @@ export async function adminAccountDelete(adminkey, identifier, confirmUsername, 
     body: JSON.stringify({ identifier, confirm_username: confirmUsername, delete_bitmail: deleteBitmail }),
   })
 }
+
+// ── Silent Payments PayJoin ─────────────────────────────────────────────────
+// Mirrors services/api.ts. Nothing here carries a key: the payee's payment
+// script and the payer's change script are derived in the page
+// (services/spPayjoin.ts) and posted as scripts, and the witnesses are
+// signatures. The two API layers are parallel by design — see CLAUDE.md.
+
+export async function payjoinSpPropose(inkey, body) {
+  return req(`${SILNT}/api/v1/payjoin/sp/requests`, {
+    method: 'POST',
+    headers: keyHeaders(inkey),
+    body: JSON.stringify(body),
+  })
+}
+
+export async function payjoinSpList(inkey) {
+  return req(`${SILNT}/api/v1/payjoin/sp/requests`, { headers: keyHeaders(inkey) })
+}
+
+export async function payjoinSpGet(inkey, rid) {
+  return req(`${SILNT}/api/v1/payjoin/sp/requests/${encodeURIComponent(rid)}`, {
+    headers: keyHeaders(inkey),
+  })
+}
+
+export async function payjoinSpContribute(inkey, rid, body) {
+  return req(`${SILNT}/api/v1/payjoin/sp/requests/${encodeURIComponent(rid)}/contribute`, {
+    method: 'POST',
+    headers: keyHeaders(inkey),
+    body: JSON.stringify(body),
+  })
+}
+
+export async function payjoinSpSign(inkey, rid, body) {
+  return req(`${SILNT}/api/v1/payjoin/sp/requests/${encodeURIComponent(rid)}/sign`, {
+    method: 'POST',
+    headers: keyHeaders(inkey),
+    body: JSON.stringify(body),
+  })
+}
+
+export async function payjoinSpCancel(inkey, rid) {
+  return req(`${SILNT}/api/v1/payjoin/sp/requests/${encodeURIComponent(rid)}/cancel`, {
+    method: 'POST',
+    headers: keyHeaders(inkey),
+  })
+}
