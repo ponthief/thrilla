@@ -25,14 +25,24 @@ import * as api from '@/api'
 import { pushToast } from '@/stores/toasts'
 import * as pj from '@/services/spPayjoin'
 import { parseSpAddress, fromHex, toHex } from '@/services/spSign'
+import {
+  payjoinSpIncoming as incoming,
+  payjoinSpOutgoing as outgoing,
+  refreshPayjoinSpWatch,
+} from '@/stores/payjoinspwatch'
 
 const auth = useAuthStore()
 
+// The queues come from the watch store, which polls every 20s whether or not
+// this page is open — that poller is what makes a browser tab notice its turn
+// at all, since there is no push here. Reading its refs rather than fetching a
+// second copy keeps one number on the nav badge and the same number on this
+// page; two pollers against one endpoint would disagree for a few seconds
+// after every action, and on this screen disagreeing means a Sign button drawn
+// from stale state.
 const wallets = ref([])
 const selectedWallet = ref('')
 const coins = ref([])
-const incoming = ref([])
-const outgoing = ref([])
 const loading = ref(true)
 const error = ref('')
 const busy = ref('')
@@ -87,15 +97,14 @@ async function load() {
       error.value = 'No Silent Payments wallet on this network.'
       return
     }
-    const [res, queues] = await Promise.all([
-      api.getUtxos(auth.inkey, selectedWallet.value),
-      api.payjoinSpList(auth.inkey),
-    ])
+    const res = await api.getUtxos(auth.inkey, selectedWallet.value)
     coins.value = (res.utxos || []).filter(
       (u) => u.utxo_state === 'unspent' && !u.frozen,
     )
-    incoming.value = queues.incoming || []
-    outgoing.value = queues.outgoing || []
+    // Not awaited alongside the coins: a poll that fails is the watcher's
+    // problem to retry on its next tick, and it must not leave this page
+    // saying it could not load when the coins arrived perfectly well.
+    refreshPayjoinSpWatch()
   } catch (e) {
     error.value = e.detail || e.message || 'Could not load PayJoins.'
   } finally {
@@ -134,7 +143,7 @@ async function propose() {
     })
     payee.value = ''
     amount.value = null
-    pushToast('PayJoin proposed. Nothing is signed until they accept.', 'ok')
+    pushToast('PayJoin proposed. Nothing is signed until they accept.', { type: 'success' })
     await load()
   } catch (e) {
     error.value = e.detail || e.message || 'Could not propose that PayJoin.'
@@ -167,7 +176,7 @@ async function contribute(row) {
       inputs: [wire(coin)],
       payment_spk: toHex(paymentSpk),
     })
-    pushToast('Accepted. They sign next, then it comes back to you.', 'ok')
+    pushToast('Accepted. They sign next, then it comes back to you.', { type: 'success' })
     await load()
   } catch (e) {
     error.value = e.detail || e.message || 'Could not accept that PayJoin.'
@@ -238,7 +247,7 @@ async function sign(row) {
       done.status === 'BROADCAST'
         ? 'Broadcast. Both of you spent a coin into it.'
         : 'Signed. Waiting on the other side.',
-      'ok',
+      { type: 'success' },
     )
     await load()
   } catch (e) {
@@ -256,7 +265,7 @@ async function cancel(row) {
   busy.value = row.id
   try {
     await api.payjoinSpCancel(auth.adminkey, row.id)
-    pushToast('PayJoin cancelled.', 'ok')
+    pushToast('PayJoin cancelled.', { type: 'success' })
     await load()
   } catch (e) {
     error.value = e.detail || e.message || 'Could not cancel that PayJoin.'

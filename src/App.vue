@@ -10,6 +10,7 @@ import { getPendingSends, removePendingSend } from '@/stores/pendingsends'
 import { verifyBitmailTamper } from '@/stores/bitmailpins'
 import { setBitmailTamper, bitmailTampered } from '@/stores/bitmailalert'
 import { startPayjoinWatch, stopPayjoinWatch, payjoinPending } from '@/stores/payjoinwatch'
+import { startPayjoinSpWatch, stopPayjoinSpWatch, payjoinSpPending } from '@/stores/payjoinspwatch'
 import { scanWatchWallets, scanStartedAt, clearScanWatch, notifyScanStarted } from '@/stores/scanwatch'
 import * as api from '@/api'
 import { onMounted, onBeforeUnmount, onErrorCaptured, ref, watch } from 'vue'
@@ -113,6 +114,7 @@ watch(() => auth.isLoggedIn, (loggedIn) => {
     stopSwapPolling()
     stopBitmailChecks()
     stopPayjoinWatch()
+    stopPayjoinSpWatch()
     stopSendWatch()
     stopLnReceiveWatch()
     stopScanWatch()
@@ -161,6 +163,9 @@ function startLoggedInTasks() {
   kickSendWatch()
   if (LIGHTNING_ENABLED) startLnReceiveWatch()
   if (PAYJOIN_ENABLED) startPayjoinWatch()
+  // The SP PayJoin's own poller. A browser tab gets no push, and an SP
+  // PayJoin needs its turn taken three times before it is on the network.
+  if (PAYJOIN_ENABLED) startPayjoinSpWatch()
   seedScanWatch()   // one-time check for a scan already running server-side
 }
 
@@ -577,6 +582,7 @@ onBeforeUnmount(() => {
   stopLnReceiveWatch()
   stopScanWatch()
   stopPayjoinWatch()
+  stopPayjoinSpWatch()
 })
 
 function logout() {
@@ -619,6 +625,7 @@ function logout() {
             <span>{{ item.label }}</span>
             <span v-if="item.name === 'bitmail' && bitmailTampered" class="nav-alert-badge" title="BitMail tampering detected — open BitMail">⛔</span>
             <span v-if="item.name === 'payjoin' && payjoinPending > 0" class="nav-count-badge" :title="payjoinPending + ' PayJoin request(s) need your attention'">{{ payjoinPending }}</span>
+            <span v-if="item.name === 'payjoin-sp' && payjoinSpPending > 0" class="nav-count-badge" :title="payjoinSpPending + ' PayJoin(s) waiting on you'">{{ payjoinSpPending }}</span>
           </router-link>
         </div>
         <button v-if="!IS_ADMIN_BUILD" class="unit-toggle" @click="units.toggleUnit()" :title="units.haveRate ? 'Switch sats / USD' : 'USD rate unavailable'">
@@ -678,7 +685,7 @@ function logout() {
       <nav class="bottom-nav">
         <router-link v-for="item in nav" :key="item.name" :to="{ name: item.name }"
           class="bottom-nav-item" :class="{ active: route.name === item.name }">
-          <span class="bottom-nav-icon">{{ item.icon }}<span v-if="item.name === 'bitmail' && bitmailTampered" class="bottom-nav-alert-dot"></span><span v-if="item.name === 'payjoin' && payjoinPending > 0" class="bottom-nav-count">{{ payjoinPending }}</span></span>
+          <span class="bottom-nav-icon">{{ item.icon }}<span v-if="item.name === 'bitmail' && bitmailTampered" class="bottom-nav-alert-dot"></span><span v-if="item.name === 'payjoin' && payjoinPending > 0" class="bottom-nav-count">{{ payjoinPending }}</span><span v-if="item.name === 'payjoin-sp' && payjoinSpPending > 0" class="bottom-nav-count">{{ payjoinSpPending }}</span></span>
           <span class="bottom-nav-label">{{ item.label }}</span>
         </router-link>
         <button class="bottom-nav-item bottom-nav-logout" @click="logout">
