@@ -354,7 +354,14 @@ export default function PayjoinScreen({ onBack }: { onBack?: () => void } = {}) 
         const payerInputs = parseInputs(fresh.payer_inputs);
         const payeeInputs = parseInputs(fresh.payee_inputs);
         const all = [...payerInputs, ...payeeInputs];
-        const mine = role === 'payer' ? payerInputs : payeeInputs;
+        // The server's copy carries no tweak — it must not — so the coins
+        // this device is about to sign are rebuilt from its OWN records.
+        // Parsing them straight off the row is what produced "no tweak for
+        // it" on every signature attempt.
+        const mine = pj.withLocalTweaks(
+          role === 'payer' ? payerInputs : payeeInputs,
+          coins,
+        );
         if (!fresh.payment_spk) throw new Error('This PayJoin has no payment output yet.');
 
         const amounts: pj.PayjoinAmounts = {
@@ -412,7 +419,7 @@ export default function PayjoinScreen({ onBack }: { onBack?: () => void } = {}) 
         setBusy(null);
       }
     },
-    [inkey, adminkey, walletId, spAddress, load],
+    [inkey, adminkey, walletId, spAddress, coins, load],
   );
 
   const cancel = useCallback(

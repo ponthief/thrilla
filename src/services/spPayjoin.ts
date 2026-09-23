@@ -546,3 +546,51 @@ export function signOwnInputs(
   }
   return out;
 }
+
+/**
+ * Join the server's copy of an input set onto this device's own coin records,
+ * so the tweaks come from the wallet and not from the wire.
+ *
+ * THE BUG THIS EXISTS TO END. A PayJoin row carries inputs as
+ * {txid, vout, pub_key, amount} — public data, deliberately, because the
+ * coordinator must never hold a tweak. So `JSON.parse(row.payee_inputs)` can
+ * never produce anything signable, and passing it to signOwnInputs fails with
+ * "no tweak for it" every single time. Both clients did exactly that.
+ *
+ * The tweak lives in this device's UTXO list, keyed by outpoint. Matching them
+ * up is the caller's job in exactly one place now, and the error names the
+ * coin rather than leaving the user with an outpoint and no idea why their own
+ * wallet disowned it.
+ *
+ * `local` is the wallet's spendable coins as the Coins screen has them. Extra
+ * entries are ignored; the result is in the order `serverInputs` gave, since
+ * the caller pairs it against positions in the frozen set.
+ */
+export function withLocalTweaks(
+  serverInputs: PayjoinInput[],
+  local: { txid: string; vout: number; priv_key_tweak: string; pub_key: string }[],
+): PayjoinInput[] {
+  const byOutpoint = new Map(
+    local.map((c) => [`${c.txid.toLowerCase()}:${c.vout}`, c]),
+  );
+  return serverInputs.map((i) => {
+    const key = `${i.txid.toLowerCase()}:${i.vout}`;
+    const coin = byOutpoint.get(key);
+    if (!coin) {
+      throw new Error(
+        `This PayJoin uses a coin this device does not have (${i.txid.slice(0, 12)}…:${i.vout}). ` +
+          `If the wallet was restored elsewhere, scan it here first.`,
+      );
+    }
+    // The key on chain must be the key the server listed. A mismatch means the
+    // row is not describing the coin we think it is, and signing would produce
+    // a signature against the wrong output.
+    if (coin.pub_key.toLowerCase() !== i.pub_key.toLowerCase()) {
+      throw new Error(
+        `The server lists a different key for ${i.txid.slice(0, 12)}…:${i.vout} ` +
+          `than this wallet has. Cancel this PayJoin.`,
+      );
+    }
+    return { ...i, priv_key_tweak: coin.priv_key_tweak };
+  });
+}

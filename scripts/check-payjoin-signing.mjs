@@ -255,6 +255,53 @@ console.log('\nguards');
   ok('the wrong spend key cannot sign a coin',
     err !== null && /does not match this coin/.test(err.message),
     err ? err.message : 'it was signed');
+
+  // ── the wire set is never signable on its own ──
+  //
+  // The regression this ends. A PayJoin row stores inputs WITHOUT tweaks,
+  // because the coordinator must not hold one — so the set parsed off the row
+  // can never be signed, and both clients tried to. withLocalTweaks is the
+  // join back onto the device's own coins, and it is the only supported way
+  // to get from a row to something signable.
+  const wire = payeeIn.map(({ priv_key_tweak, ...rest }) => rest);
+  const localCoins = payeeIn.map((i) => ({
+    txid: i.txid, vout: i.vout,
+    priv_key_tweak: i.priv_key_tweak, pub_key: i.pub_key,
+  }));
+
+  err = null;
+  try {
+    pj.signOwnInputs(pj.assemble(all, amounts, paymentSpk, changeSpk), all, wire,
+      c.payee.spend_secret);
+  } catch (e2) { err = e2; }
+  ok('the wire input set alone cannot be signed',
+    err !== null && /no tweak for it/.test(err.message),
+    err ? err.message : 'it was signed');
+
+  const rejoined = pj.withLocalTweaks(wire, localCoins);
+  err = null;
+  let sigs = null;
+  try {
+    sigs = pj.signOwnInputs(pj.assemble(all, amounts, paymentSpk, changeSpk), all,
+      rejoined, c.payee.spend_secret);
+  } catch (e2) { err = e2; }
+  ok('and it can once the device\'s own tweaks are joined back on',
+    err === null && sigs && Object.keys(sigs).length === payeeIn.length,
+    err ? err.message : 'no signatures');
+
+  err = null;
+  try { pj.withLocalTweaks(wire, []); } catch (e2) { err = e2; }
+  ok('a coin this device does not hold is named, not silently skipped',
+    err !== null && /does not have/.test(err.message),
+    err ? err.message : 'it was accepted');
+
+  err = null;
+  try {
+    pj.withLocalTweaks(wire, localCoins.map((c2) => ({ ...c2, pub_key: 'ff'.repeat(32) })));
+  } catch (e2) { err = e2; }
+  ok('a server key that disagrees with the wallet is refused',
+    err !== null && /different key/.test(err.message),
+    err ? err.message : 'it was accepted');
 }
 
 console.log(

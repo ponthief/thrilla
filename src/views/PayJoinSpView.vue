@@ -199,7 +199,13 @@ async function sign(row) {
     const payerInputs = parseInputs(fresh.payer_inputs)
     const payeeInputs = parseInputs(fresh.payee_inputs)
     const all = [...payerInputs, ...payeeInputs]
-    const mine = role === 'payer' ? payerInputs : payeeInputs
+    // The server's copy carries no tweak, by design, so the coins this page
+    // is about to sign are rebuilt from the wallet's own records. Parsing
+    // them straight off the row is what produced "no tweak for it".
+    const mine = pj.withLocalTweaks(
+      role === 'payer' ? payerInputs : payeeInputs,
+      coins.value,
+    )
     if (!fresh.payment_spk) throw new Error('This PayJoin has no payment output yet.')
 
     const amounts = {
