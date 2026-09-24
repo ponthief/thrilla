@@ -251,24 +251,32 @@ export default function TangoScreen() {
             ? 'Connected. Either of you can propose a Tango now.'
             : what === 'decline'
               ? 'Declined.'
-              : 'Connection removed.',
+              : 'Connection removed. Any unfinished Tango with them is off.',
         );
         await refreshPeople();
+        // Removing a connection cancels its unfinished rounds server-side, so
+        // the rounds this screen is holding are stale the moment it returns.
+        if (what === 'remove') await load();
       } catch (e) {
         fail(e);
       } finally {
         setBusy(null);
       }
     },
-    [inkey, refreshPeople],
+    // `load` is here because a removal cancels rounds server-side, so this
+    // has to refetch them. Left out, the closure would refetch against
+    // whatever the first render captured.
+    [inkey, refreshPeople, load],
   );
 
   const removeWithConfirm = useCallback(
     (c: api.Connection) => {
       Alert.alert(
         `Remove ${c.counterparty_username}?`,
-        'Either side can, and it stops you starting a Tango with them. ' +
-          'Nothing already broadcast is affected.',
+        'Either side can. Any unfinished Tango with them is cancelled and ' +
+          'both sides get their coins back. Nothing already broadcast is ' +
+          'affected, and this does not touch another network\u2019s ' +
+          'connections.',
         [
           { text: 'Keep' },
           {

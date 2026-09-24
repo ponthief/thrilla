@@ -153,13 +153,18 @@ async function declineContact(c) {
 }
 async function removeContact(c) {
   if (!confirm(
-    'Remove this connection? Either side can, and it stops you starting a ' +
-    'Tango with them. Nothing already broadcast is affected.',
+    'Remove this connection? Any unfinished Tango with them is cancelled and ' +
+    'both sides get their coins back. Nothing already broadcast is affected, ' +
+    'and this does not touch another network\u2019s connections.',
   )) return
   try {
     await api.payjoinContactRemove(auth.inkey, c.id)
-    pushToast('Connection removed.', { type: 'success' })
+    pushToast('Connection removed. Any unfinished Tango with them is off.',
+      { type: 'success' })
     await loadContacts(); await loadPartners()
+    // Removing a connection cancels its unfinished rounds server-side, so the
+    // list this page is holding is stale the moment it returns.
+    await load()
   } catch (e) { pushToast(e.detail || e.message || 'Failed.', { type: 'error' }) }
 }
 async function dismissDeclined(c) {
