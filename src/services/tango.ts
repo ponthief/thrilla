@@ -430,32 +430,58 @@ export const MIX_LABEL = 'Tango mix';
 export const CHANGE_LABEL = 'Tango change';
 
 /**
- * A short, stable tag for one round: "#7c2e".
+ * The day a coin was made, for the label: "· 2026-09-24".
  *
- * Two rounds with the same person used to produce two coins with identical
- * labels — a wallet showing "Tango change - alice" twice, with no way to tell
- * which round either came from. Four characters of the round id is enough to
- * tell them apart in a list and short enough to read. It is not a secret: the
- * id is the server's own key for a round both parties took part in.
+ * WHY A DATE AND NOT A ROUND ID. Two rounds with the same person produce two
+ * coins whose labels would otherwise read identically, so something has to
+ * separate them. This was four characters of the round id, which separated
+ * them and told the owner nothing — "#fagk" is noise in a coin list.
+ *
+ * ISO order rather than "24 Sep": it needs no locale to read, it sorts, and it
+ * is the same width every time. The year is included because the label is
+ * written once and never revised.
+ *
+ * Two rounds with one person ON THE SAME DAY still collide. They are
+ * distinguishable by amount in the list beside it, and the refusal that reads
+ * these labels does not use the marker at all — it goes by kind.
  */
-export function roundMarker(roundId?: string | null): string {
-  const hexish = (roundId || '').toLowerCase().replace(/[^a-z0-9]/g, '');
-  return hexish ? `#${hexish.slice(0, 4)}` : '';
+export function dayMarker(when?: string | Date | null): string {
+  if (!when) return '';
+  if (when instanceof Date) {
+    if (Number.isNaN(when.getTime())) return '';
+    return `· ${when.toISOString().slice(0, 10)}`;
+  }
+  const text = String(when).trim().slice(0, 10);
+  return text ? `· ${text}` : '';
 }
 
-function named(prefix: string, other?: string | null, roundId?: string | null): string {
+function named(prefix: string, other?: string | null, when?: string | Date | null): string {
   const parts = [prefix];
   const who = (other || '').trim();
   if (who) parts.push(`- ${who}`);
-  const mark = roundMarker(roundId);
+  const mark = dayMarker(when);
   if (mark) parts.push(mark);
   return parts.join(' ');
 }
 
-export const mixLabel = (other?: string | null, roundId?: string | null) =>
-  named(MIX_LABEL, other, roundId);
-export const changeLabel = (other?: string | null, roundId?: string | null) =>
-  named(CHANGE_LABEL, other, roundId);
+export const mixLabel = (other?: string | null, when?: string | Date | null) =>
+  named(MIX_LABEL, other, when);
+export const changeLabel = (other?: string | null, when?: string | Date | null) =>
+  named(CHANGE_LABEL, other, when);
+
+// The markers this module has written: the date, and the round-id tag it
+// replaced. Both have to be recognised — coins carrying the old one are in
+// wallets right now, and a rule that stopped seeing them would stop refusing
+// them silently.
+const MARKERS = [' · ', ' #'];
+
+function stripMarker(rest: string): string {
+  for (const sep of MARKERS) {
+    const at = rest.lastIndexOf(sep);
+    if (at !== -1) return rest.slice(0, at).trim();
+  }
+  return rest;
+}
 
 /**
  * The counterparty named in one of our labels, or null if it is not one.
@@ -463,8 +489,9 @@ export const changeLabel = (other?: string | null, roundId?: string | null) =>
  * Matched from the start and only up to a separator we wrote, never as a
  * substring: a coin the user named "my Tango mix money" is theirs, not ours,
  * and refusing to spend it would be us reading our own meaning into their
- * words. Accepts every shape this has written, including the ones with no
- * marker — those are the coins most likely to be in a wallet right now.
+ * words. Accepts every shape this has written — with either marker and with
+ * none — because coins labelled by the earlier versions are the ones in
+ * wallets right now.
  */
 function party(label: string, prefix: string): string | null {
   const text = (label || '').trim();
@@ -472,11 +499,9 @@ function party(label: string, prefix: string): string | null {
   if (!text.startsWith(`${prefix} `)) return null;
   let rest = text.slice(prefix.length + 1).trim();
   if (rest.startsWith('- ')) rest = rest.slice(2).trim();
-  else if (rest.startsWith('#')) return '';
+  else if (rest.startsWith('#') || rest.startsWith('·')) return '';
   else return null;   // "Tango mix something we never wrote" is the user's
-  const at = rest.lastIndexOf(' #');
-  if (at !== -1) rest = rest.slice(0, at).trim();
-  return rest;
+  return stripMarker(rest);
 }
 
 /**

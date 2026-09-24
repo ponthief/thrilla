@@ -258,12 +258,19 @@ console.log('\nlabels');
     `js ${t.changeLabel('alice')} vs py ${L.change}`);
   ok('an unnamed round still names its coins',
     t.mixLabel(null) === L.bare_mix && t.changeLabel('') === L.bare_change);
-  ok('a round marker distinguishes two rounds with one person',
-    t.mixLabel('alice', '7c2ef019-dead-beef') === L.marked_mix &&
-    t.changeLabel('alice', '3f9a1122-dead-beef') === L.marked_change,
-    `js ${t.mixLabel('alice', '7c2ef019-dead-beef')} vs py ${L.marked_mix}`);
-  ok('a marker with no name still reads',
-    t.mixLabel('', '7c2ef019') === L.marker_only);
+  ok('the day distinguishes two rounds with one person',
+    t.mixLabel('alice', '2026-09-24') === L.dated_mix &&
+    t.changeLabel('alice', '2026-10-01') === L.dated_change,
+    `js ${t.mixLabel('alice', '2026-09-24')} vs py ${L.dated_mix}`);
+  ok('a date with no name still reads',
+    t.mixLabel('', '2026-09-24') === L.marker_only);
+  // Rows come back as text or as a timestamp depending on the driver, and two
+  // coins of one round must not end up dated differently.
+  ok('a timestamp is cut to its day, the same way on both sides',
+    t.changeLabel('alice', '2026-09-24T13:05:00Z') === L.date_from_timestamp,
+    `js ${t.changeLabel('alice', '2026-09-24T13:05:00Z')} vs py ${L.date_from_timestamp}`);
+  ok('and a Date object gives the same string',
+    t.mixLabel('alice', new Date('2026-09-24T13:05:00Z')) === L.dated_mix);
 
   let agree = true;
   let where = '';
@@ -285,6 +292,10 @@ console.log('\nlabels');
   ok('a share with ANOTHER round\'s change is refused too',
     t.undoesARound(['Tango mix - alice', 'Tango change - bob']) === 'alice');
   ok('a marker does not make a pair safe',
+    t.undoesARound([
+      'Tango mix - alice · 2026-09-24', 'Tango change - alice · 2026-10-01',
+    ]) === 'alice');
+  ok('and the round-id marker it replaced is still recognised',
     t.undoesARound(['Tango mix - alice #7c2e', 'Tango change - alice #3f9a'])
       === 'alice');
   ok('two shares together are not this failure',
