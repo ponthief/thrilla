@@ -565,7 +565,11 @@ function statusLabel(r) {
     case 'ACCEPTED':  return `${actor(r, 'b')} matched it`
     case 'A_SIGNED':  return `${actor(r, 'a')} approved it`
     case 'BROADCAST': return 'Sent'
-    case 'CANCELLED': return 'Cancelled'
+    // The sweeper closes a round nobody finished, and that is a different
+    // outcome from someone deciding to stop: nothing was refused, the time
+    // simply ran out and the coins went back.
+    case 'CANCELLED':
+      return r.reject_reason === 'expired' ? 'Expired' : 'Cancelled'
     default:          return r.status
   }
 }
@@ -1013,7 +1017,9 @@ function expiresIn(r) {
                     <a class="mono tg-txid" :href="explorerTxUrl(r.txid)"
                        target="_blank" rel="noopener">{{ shortTxid(r.txid) }}</a>
                   </span>
-                  <span v-if="r.reject_reason"> · {{ r.reject_reason }}</span>
+                  <span v-if="r.reject_reason && r.reject_reason !== 'expired'">
+                    · {{ r.reject_reason }}
+                  </span>
                 </div>
                 <div v-if="r.status === 'BROADCAST'" class="text-xs"
                      :class="r.clean ? 'text-green' : 'text-amber'">

@@ -8,7 +8,7 @@ import * as tango from '@services/tango';
 import * as commits from '@services/tangoCommit';
 import { parseSpAddress, fromHex, toHex } from '@services/spSign';
 import { colors, space, type as type_ } from '@/theme';
-import { Block, Button, Field, Group, Note, Page } from './settings/ui';
+import { Block, Button, Chips, Field, Group, Note, Page } from './settings/ui';
 
 // Tango: a two-party mix.
 //
@@ -28,6 +28,9 @@ import { Block, Button, Field, Group, Note, Page } from './settings/ui';
 // signature exists; this file is the wiring.
 
 type Row = api.TangoRoundRow;
+type Tab = 'mix' | 'people' | 'rounds' | 'past';
+
+const TERMINAL = ['BROADCAST', 'CANCELLED'];
 
 function parseInputs(raw?: string | null): tango.PayjoinInput[] {
   if (!raw) return [];
@@ -53,8 +56,22 @@ export default function TangoScreen() {
   const [error, setError] = useState<string | null>(null);
   const [msg, setMsg] = useState<string | null>(null);
 
+  // Four tabs, the same four the web has. One scroll held the coin picker, the
+  // proposal form, every round and the caveats at once, which meant the thing
+  // you came for was never the thing on screen.
+  const [tab, setTab] = useState<Tab>('mix');
+
   const [partner, setPartner] = useState('');
   const [denom, setDenom] = useState('');
+
+  // The connection graph. A Tango needs mutual consent — the propose endpoint
+  // refuses a partner who is not an accepted contact — so the phone needs the
+  // whole of it, not just a username field that fails after the fact.
+  const [people, setPeople] = useState<api.Connections>({
+    accepted: [], incoming: [], outgoing: [], declined: [],
+  });
+  const [newPerson, setNewPerson] = useState('');
+  const [labels, setLabels] = useState<Record<string, string>>({});
   // The coins THIS user has chosen, by outpoint. Explicit on purpose: which of
   // your coins go into a mix is the decision the mix is made of, and a picker
   // that chooses for you has made it without saying so.
@@ -93,6 +110,17 @@ export default function TangoScreen() {
         api.listTango(inkey),
       ]);
       setCoins(utxos.filter((u) => u.utxo_state === 'unspent' && !u.frozen));
+      // Not in the Promise.all above: a connection list that fails is not a
+      // reason to tell someone their coins would not load.
+      api
+        .listConnections(inkey)
+        .then((p) => {
+          setPeople(p);
+          setLabels(
+            Object.fromEntries(p.accepted.map((c) => [c.id, c.label || ''])),
+          );
+        })
+        .catch(() => {});
       const live = list.rounds || [];
       setRounds(live);
       // Forget what was committed to rounds that are over: the list is only
@@ -102,7 +130,7 @@ export default function TangoScreen() {
         await commits.pruneTangoCommits(
           stored,
           live
-            .filter((r) => r.status !== 'BROADCAST' && r.status !== 'CANCELLED')
+            .filter((r) => !TERMINAL.includes(r.status))
             .map((r) => r.id),
         ),
       );
@@ -162,6 +190,103 @@ export default function TangoScreen() {
       return next;
     });
   };
+
+  // ── connections ──
+  // Every one of these takes the inkey: they are read-and-consent calls on a
+  // contact list, not spends.
+  const refreshPeople = useCallback(async () => {
+    if (!inkey) return;
+    try {
+      const p = await api.listConnections(inkey);
+      setPeople(p);
+      setLabels(Object.fromEntries(p.accepted.map((c) => [c.id, c.label || ''])));
+    } catch (e) {
+      fail(e);
+    }
+  }, [inkey]);
+
+  const askConnect = useCallback(async () => {
+    if (!inkey) return;
+    const username = newPerson.trim();
+    if (!username) {
+      setError('Enter a username.');
+      return;
+    }
+    setBusy('connect');
+    setError(null);
+    try {
+      await api.requestConnection(inkey, username);
+      setNewPerson('');
+      setMsg('If that username belongs to a user, they will get your request.');
+      await refreshPeople();
+    } catch (e) {
+      fail(e);
+    } finally {
+      setBusy(null);
+    }
+  }, [inkey, newPerson, refreshPeople]);
+
+  const respond = useCallback(
+    async (c: api.Connection, what: 'approve' | 'decline' | 'remove') => {
+      if (!inkey) return;
+      setBusy(c.id);
+      setError(null);
+      try {
+        if (what === 'approve') await api.approveConnection(inkey, c.id);
+        else if (what === 'decline') await api.declineConnection(inkey, c.id);
+        else await api.removeConnection(inkey, c.id);
+        setMsg(
+          what === 'approve'
+            ? 'Connected. Either of you can propose a Tango now.'
+            : what === 'decline'
+              ? 'Declined.'
+              : 'Connection removed.',
+        );
+        await refreshPeople();
+      } catch (e) {
+        fail(e);
+      } finally {
+        setBusy(null);
+      }
+    },
+    [inkey, refreshPeople],
+  );
+
+  const removeWithConfirm = useCallback(
+    (c: api.Connection) => {
+      Alert.alert(
+        `Remove ${c.counterparty_username}?`,
+        'Either side can, and it stops you starting a Tango with them. ' +
+          'Nothing already broadcast is affected.',
+        [
+          { text: 'Keep' },
+          {
+            text: 'Remove',
+            style: 'destructive',
+            onPress: () => respond(c, 'remove'),
+          },
+        ],
+      );
+    },
+    [respond],
+  );
+
+  const saveLabel = useCallback(
+    async (c: api.Connection) => {
+      if (!inkey) return;
+      setBusy(c.id);
+      try {
+        await api.labelConnection(inkey, c.id, (labels[c.id] || '').trim());
+        setMsg('Label saved. Only you see it.');
+        await refreshPeople();
+      } catch (e) {
+        fail(e);
+      } finally {
+        setBusy(null);
+      }
+    },
+    [inkey, labels, refreshPeople],
+  );
 
   // ── A: propose ──
   const propose = useCallback(async () => {
@@ -390,7 +515,11 @@ export default function TangoScreen() {
       case 'ACCEPTED': return `${actor(r, 'b')} matched it`;
       case 'A_SIGNED': return `${actor(r, 'a')} approved it`;
       case 'BROADCAST': return 'Sent';
-      case 'CANCELLED': return 'Cancelled';
+      // The sweeper closes a round nobody finished, and that is a different
+      // outcome from someone deciding to stop: nothing was refused, the time
+      // simply ran out and the coins went back.
+      case 'CANCELLED':
+        return r.reject_reason === 'expired' ? 'Expired' : 'Cancelled';
       default: return r.status;
     }
   };
@@ -451,10 +580,23 @@ export default function TangoScreen() {
     );
   };
 
-  const waiting = rounds.filter(
-    (r) => TURN[r.status] === r.role && r.status !== 'BROADCAST',
-  );
-  const others = rounds.filter((r) => !waiting.includes(r));
+  const mineNow = (r: Row) => !!r.role && TURN[r.status] === r.role;
+  const waiting = rounds.filter(mineNow);
+  const theirs = rounds.filter((r) => !TERMINAL.includes(r.status) && !mineNow(r));
+  const past = rounds
+    .filter((r) => TERMINAL.includes(r.status))
+    .slice()
+    .sort((a, b) =>
+      String(b.updated_at || b.created_at || '').localeCompare(
+        String(a.updated_at || a.created_at || ''),
+      ),
+    );
+
+  const partnerLabel = (c: api.ConnectedPartner | api.Connection) => {
+    const name = 'username' in c ? c.username : c.counterparty_username;
+    const l = ('label' in c ? c.label : '') || '';
+    return l.trim() ? `${l.trim()} (${name})` : name;
+  };
 
   return (
     <Page
@@ -465,114 +607,289 @@ export default function TangoScreen() {
       ) : null}
       {msg ? <Block><Note kind="ok">{msg}</Note></Block> : null}
 
-      {waiting.length ? (
-        <Group title="Waiting on you">
-          <Block>{waiting.map(renderRound)}</Block>
-        </Group>
-      ) : null}
+      <Block>
+        <Chips<Tab>
+          options={[
+            { key: 'mix', label: 'Mix' },
+            { key: 'people', label: 'People' },
+            {
+              key: 'rounds',
+              label: waiting.length ? `Rounds (${waiting.length})` : 'Rounds',
+            },
+            { key: 'past', label: 'Past' },
+          ]}
+          selected={tab}
+          onSelect={setTab}
+        />
+      </Block>
 
-      <Group
-        title="Your coins"
-        footer={
-          preview?.error
-            ? undefined
-            : preview
-              ? preview.change
-                ? `This selection leaves ${preview.change.toLocaleString()} sats of change. The mix still works, but change plus your share adds up to what you put in — which is often enough for someone to tell the two apart. A selection close to the amount plus your fee share is stronger.`
-                : 'No change from this selection. That is the strongest shape: two coins in, two identical coins out, nothing to add up.'
-              : 'Pick the coins that go in. Which ones you choose is the decision a mix is made of, so nothing here chooses for you.'
-        }>
-        <Block>
-          {coins.length === 0 ? (
-            <Text style={styles.rowMeta}>No spendable coins.</Text>
-          ) : (
-            coins.map((c) => {
-              const on = picked.has(key(c));
-              return (
-                <Pressable
-                  key={key(c)}
-                  onPress={() => toggle(c)}
-                  accessibilityRole="checkbox"
-                  accessibilityState={{ checked: on }}
-                  style={[styles.coin, on && styles.coinOn]}>
-                  <View style={[styles.tick, on && styles.tickOn]}>
-                    {on ? <Text style={styles.tickMark}>✓</Text> : null}
-                  </View>
-                  <View style={{ flex: 1 }}>
-                    <Text style={styles.coinAmount}>{sats(c.amount)}</Text>
-                    <Text style={styles.coinMeta} numberOfLines={1}>
-                      {c.label ? `${c.label} · ` : ''}{c.txid.slice(0, 16)}…:{c.vout}
-                    </Text>
-                  </View>
-                </Pressable>
-              );
-            })
-          )}
-        </Block>
-        {chosen.length ? (
-          <Block>
-            <Text style={styles.rowMeta}>
-              {chosen.length} chosen · {sats(chosenTotal)}
-              {preview && !preview.error
-                ? ` · your fee about ${preview.fee.toLocaleString()} sats`
-                : ''}
-            </Text>
-            {preview?.error ? (
-              <Note kind="error">{preview.error}</Note>
+      {tab === 'mix' ? (
+        <>
+          <Group
+            title="Your coins"
+            footer={
+              preview?.error
+                ? undefined
+                : preview
+                  ? preview.change
+                    ? `This selection leaves ${preview.change.toLocaleString()} sats of change. The mix still works, but change plus your share adds up to what you put in — which is often enough for someone to tell the two apart. A selection close to the amount plus your fee share is stronger.`
+                    : 'No change from this selection. That is the strongest shape: coins in, two identical coins out, nothing to add up.'
+                  : 'Pick the coins that go in. Which ones you choose is the decision a mix is made of, so nothing here chooses for you.'
+            }>
+            <Block>
+              {coins.length === 0 ? (
+                <Text style={styles.rowMeta}>No spendable coins.</Text>
+              ) : (
+                coins.map((c) => {
+                  const on = picked.has(key(c));
+                  return (
+                    <Pressable
+                      key={key(c)}
+                      onPress={() => toggle(c)}
+                      accessibilityRole="checkbox"
+                      accessibilityState={{ checked: on }}
+                      style={[styles.coin, on && styles.coinOn]}>
+                      <View style={[styles.tick, on && styles.tickOn]}>
+                        {on ? <Text style={styles.tickMark}>✓</Text> : null}
+                      </View>
+                      <View style={{ flex: 1 }}>
+                        <Text style={styles.coinAmount}>{sats(c.amount)}</Text>
+                        <Text style={styles.coinMeta} numberOfLines={1}>
+                          {c.label ? `${c.label} · ` : ''}{c.txid.slice(0, 16)}…:{c.vout}
+                        </Text>
+                      </View>
+                    </Pressable>
+                  );
+                })
+              )}
+            </Block>
+            {chosen.length ? (
+              <Block>
+                <Text style={styles.rowMeta}>
+                  {chosen.length} chosen · {sats(chosenTotal)}
+                  {preview && !preview.error
+                    ? ` · your fee about ${preview.fee.toLocaleString()} sats`
+                    : ''}
+                </Text>
+                {preview?.error ? (
+                  <Note kind="error">{preview.error}</Note>
+                ) : null}
+              </Block>
             ) : null}
-          </Block>
-        ) : null}
-      </Group>
+          </Group>
 
-      <Group
-        title="Start one"
-        footer="They have to be a connected user, and they choose their own coins. Both of you get the same amount back, so nobody is paying anybody — the point is that the two outputs look the same.">
-        <Block>
-          <TextInput
-            value={partner}
-            onChangeText={setPartner}
-            placeholder="their username"
-            placeholderTextColor={colors.faint}
-            autoCapitalize="none"
-            style={styles.input}
-          />
-          <View style={{ height: space.sm }} />
-          <Field
-            value={denom}
-            onChangeText={setDenom}
-            placeholder="sats each"
-            keyboardType="number-pad"
-            action="Propose"
-            onAction={propose}
-            actionBusy={busy === 'propose'}
-            actionDisabled={
-              !partner.trim() || !denom || !chosen.length || !walletId ||
-              !!preview?.error
-            }
-          />
-        </Block>
-      </Group>
+          <Group
+            title="Start one"
+            footer="Both of you get the same amount back, so nobody is paying anybody — the point is that the two outputs look the same. They choose their own coins.">
+            <Block>
+              {people.accepted.length === 0 ? (
+                <Text style={styles.rowMeta}>
+                  No connections yet. Add one under People — they approve, then
+                  they appear here.
+                </Text>
+              ) : (
+                people.accepted.map((c) => {
+                  const on = partner === c.counterparty_username;
+                  return (
+                    <Pressable
+                      key={c.id}
+                      onPress={() => setPartner(on ? '' : c.counterparty_username)}
+                      accessibilityRole="radio"
+                      accessibilityState={{ selected: on }}
+                      style={[styles.coin, on && styles.coinOn]}>
+                      <View style={[styles.tick, styles.tickRound, on && styles.tickOn]}>
+                        {on ? <Text style={styles.tickMark}>✓</Text> : null}
+                      </View>
+                      <Text style={styles.coinAmount}>{partnerLabel(c)}</Text>
+                    </Pressable>
+                  );
+                })
+              )}
+            </Block>
+            <Block>
+              <Field
+                value={denom}
+                onChangeText={setDenom}
+                placeholder="sats each"
+                keyboardType="number-pad"
+                action="Propose"
+                onAction={propose}
+                actionBusy={busy === 'propose'}
+                actionDisabled={
+                  !partner || !denom || !chosen.length || !walletId ||
+                  !!preview?.error
+                }
+              />
+            </Block>
+          </Group>
 
-      {others.length ? (
-        <Group title="Rounds">
-          <Block>{others.map(renderRound)}</Block>
-        </Group>
+          <Group title="What this hides">
+            <Block>
+              <Text style={styles.rowMeta}>
+                Both shares are the same size, so nothing on chain says which is
+                yours. That is an anonymity set of two — a coin flip, not
+                anonymity, though it compounds if you do it again with someone
+                else.
+              </Text>
+              <View style={{ height: space.sm }} />
+              <Text style={styles.rowMeta}>
+                It hides nothing from the server running this: it sees both
+                sides. Tango is protection against someone reading the chain.
+              </Text>
+            </Block>
+          </Group>
+        </>
       ) : null}
 
-      <Group title="What this hides">
-        <Block>
-          <Text style={styles.rowMeta}>
-            Both shares are the same size, so nothing on chain says which is
-            yours. That is an anonymity set of two — a coin flip, not anonymity,
-            though it compounds if you do it again with someone else.
-          </Text>
-          <View style={{ height: space.sm }} />
-          <Text style={styles.rowMeta}>
-            It hides nothing from the server running this: it sees both sides.
-            Tango is protection against someone reading the chain.
-          </Text>
-        </Block>
-      </Group>
+      {tab === 'people' ? (
+        <>
+          <Group
+            title="Add someone"
+            footer="Connect by WhiSPa username. They approve, then either of you can propose a Tango — it stays connected until one side removes it. This is one list of people, shared with the PSBT PayJoin on the web.">
+            <Block>
+              <Field
+                value={newPerson}
+                onChangeText={setNewPerson}
+                placeholder="their username"
+                autoCapitalize="none"
+                action="Ask"
+                onAction={askConnect}
+                actionBusy={busy === 'connect'}
+                actionDisabled={!newPerson.trim()}
+              />
+            </Block>
+          </Group>
+
+          {people.incoming.length ? (
+            <Group title="Asking to connect">
+              <Block>
+                {people.incoming.map((c) => (
+                  <View key={c.id} style={styles.row}>
+                    <Text style={styles.rowWho}>{c.counterparty_username}</Text>
+                    <View style={styles.rowActions}>
+                      <Button small label="Approve" busy={busy === c.id}
+                        onPress={() => respond(c, 'approve')} />
+                      <Button small kind="secondary" label="Decline"
+                        busy={busy === c.id} onPress={() => respond(c, 'decline')} />
+                    </View>
+                  </View>
+                ))}
+              </Block>
+            </Group>
+          ) : null}
+
+          <Group
+            title="Connected"
+            footer="A label is yours alone — it never leaves this account, and the other side never sees it.">
+            <Block>
+              {people.accepted.length === 0 ? (
+                <Text style={styles.rowMeta}>Nobody yet.</Text>
+              ) : (
+                people.accepted.map((c) => (
+                  <View key={c.id} style={styles.row}>
+                    <Text style={styles.rowWho}>{c.counterparty_username}</Text>
+                    <View style={{ height: space.xs }} />
+                    <Field
+                      value={labels[c.id] || ''}
+                      onChangeText={(t) =>
+                        setLabels((prev) => ({ ...prev, [c.id]: t }))
+                      }
+                      placeholder="private label"
+                      action="Save"
+                      onAction={() => saveLabel(c)}
+                      actionBusy={busy === c.id}
+                    />
+                    <View style={styles.rowActions}>
+                      <Button small kind="danger" label="Remove"
+                        busy={busy === c.id} onPress={() => removeWithConfirm(c)} />
+                    </View>
+                  </View>
+                ))
+              )}
+            </Block>
+          </Group>
+
+          {people.outgoing.length ? (
+            <Group title="Waiting for them">
+              <Block>
+                {people.outgoing.map((c) => (
+                  <View key={c.id} style={styles.row}>
+                    <Text style={styles.rowWho}>{c.counterparty_username}</Text>
+                    <Text style={styles.rowMeta}>asked, not answered yet</Text>
+                    <View style={styles.rowActions}>
+                      <Button small kind="secondary" label="Withdraw"
+                        busy={busy === c.id} onPress={() => respond(c, 'remove')} />
+                    </View>
+                  </View>
+                ))}
+              </Block>
+            </Group>
+          ) : null}
+
+          {people.declined.length ? (
+            <Group title="Declined">
+              <Block>
+                {people.declined.map((c) => (
+                  <View key={c.id} style={styles.row}>
+                    <Text style={styles.rowWho}>{c.counterparty_username}</Text>
+                    <Text style={styles.rowMeta}>declined your request</Text>
+                    <View style={styles.rowActions}>
+                      <Button small kind="secondary" label="Dismiss"
+                        busy={busy === c.id} onPress={() => respond(c, 'remove')} />
+                    </View>
+                  </View>
+                ))}
+              </Block>
+            </Group>
+          ) : null}
+        </>
+      ) : null}
+
+      {tab === 'rounds' ? (
+        <>
+          <Group
+            title="Waiting on you"
+            footer={
+              waiting.some((r) => r.status === 'PROPOSED')
+                ? 'Matching one derives your outputs from the whole input set, so choose your coins under Mix first.'
+                : undefined
+            }>
+            <Block>
+              {waiting.length === 0 ? (
+                <Text style={styles.rowMeta}>
+                  Nothing waiting on you. A round someone proposes shows up here.
+                </Text>
+              ) : (
+                waiting.map(renderRound)
+              )}
+            </Block>
+          </Group>
+
+          <Group title="Waiting on them">
+            <Block>
+              {theirs.length === 0 ? (
+                <Text style={styles.rowMeta}>Nothing waiting on the other side.</Text>
+              ) : (
+                theirs.map(renderRound)
+              )}
+            </Block>
+          </Group>
+        </>
+      ) : null}
+
+      {tab === 'past' ? (
+        <Group
+          title="Past rounds"
+          footer="A round that ran out of time is closed by the server and both sides' coins go back into circulation.">
+          <Block>
+            {past.length === 0 ? (
+              <Text style={styles.rowMeta}>No finished rounds yet.</Text>
+            ) : (
+              past.map(renderRound)
+            )}
+          </Block>
+        </Group>
+      ) : null}
 
       {loading ? <Block><Text style={styles.rowMeta}>Loading…</Text></Block> : null}
     </Page>
@@ -607,6 +924,8 @@ const styles = StyleSheet.create({
     borderWidth: 1.5, borderColor: colors.border,
     alignItems: 'center', justifyContent: 'center',
   },
+  // A radio, not a checkbox: you mix with one person, not several.
+  tickRound: { borderRadius: 10 },
   tickOn: { borderColor: colors.primary, backgroundColor: colors.primary },
   tickMark: { color: colors.onPrimary, fontSize: 13, fontWeight: '700', lineHeight: 16 },
   coinAmount: { ...type_.body, color: colors.text },

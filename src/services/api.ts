@@ -1267,6 +1267,105 @@ export interface PayjoinSpWireInput {
   amount: number;
 }
 
+// ── Connections ─────────────────────────────────────────────────────────────
+// The mutual-consent graph a Tango needs: views_api.py::api_tango_propose
+// refuses a partner who is not an accepted contact. Not the address book at
+// /api/v1/contacts — that is a list of addresses this user typed, with no
+// other side to it.
+//
+// The routes sit under /payjoin/ because that is where they were first added,
+// and they back ONE list of people: approving someone connects you for Tango
+// and for the PSBT PayJoin alike, which is what a single list of people should
+// mean. Renaming live endpoints to tidy that up would break every client
+// mid-upgrade for no behaviour gained.
+
+export interface Connection {
+  id: string;
+  status: string;
+  counterparty_username: string;
+  /** This user's private label for them. Only they ever see it. */
+  label?: string | null;
+}
+
+export interface Connections {
+  accepted: Connection[];
+  incoming: Connection[];
+  outgoing: Connection[];
+  declined: Connection[];
+}
+
+export async function listConnections(inkey: string): Promise<Connections> {
+  const res = await req<any>(`${SILNT}/api/v1/payjoin/contacts`, {
+    headers: apiKey(inkey),
+  });
+  return {
+    accepted: res?.accepted || [],
+    incoming: res?.incoming || [],
+    outgoing: res?.outgoing || [],
+    declined: res?.declined || [],
+  };
+}
+
+export async function requestConnection(
+  inkey: string,
+  username: string,
+): Promise<unknown> {
+  return req(`${SILNT}/api/v1/payjoin/contacts`, {
+    method: 'POST',
+    headers: apiKey(inkey),
+    body: JSON.stringify({ username }),
+  });
+}
+
+export async function approveConnection(inkey: string, cid: string): Promise<unknown> {
+  return req(`${SILNT}/api/v1/payjoin/contacts/${encodeURIComponent(cid)}/approve`, {
+    method: 'POST',
+    headers: apiKey(inkey),
+  });
+}
+
+export async function declineConnection(inkey: string, cid: string): Promise<unknown> {
+  return req(`${SILNT}/api/v1/payjoin/contacts/${encodeURIComponent(cid)}/decline`, {
+    method: 'POST',
+    headers: apiKey(inkey),
+  });
+}
+
+export async function removeConnection(inkey: string, cid: string): Promise<unknown> {
+  return req(`${SILNT}/api/v1/payjoin/contacts/${encodeURIComponent(cid)}`, {
+    method: 'DELETE',
+    headers: apiKey(inkey),
+  });
+}
+
+export async function labelConnection(
+  inkey: string,
+  cid: string,
+  label: string,
+): Promise<unknown> {
+  return req(`${SILNT}/api/v1/payjoin/contacts/${encodeURIComponent(cid)}/label`, {
+    method: 'POST',
+    headers: apiKey(inkey),
+    body: JSON.stringify({ label }),
+  });
+}
+
+export interface ConnectedPartner {
+  user_id: string;
+  username: string;
+  label?: string | null;
+}
+
+/** Accepted connections only, for the partner picker. */
+export async function listConnectedPartners(
+  inkey: string,
+): Promise<ConnectedPartner[]> {
+  const res = await req<any>(`${SILNT}/api/v1/payjoin/payers`, {
+    headers: apiKey(inkey),
+  });
+  return res?.payers || [];
+}
+
 // ── Tango ───────────────────────────────────────────────────────────────────
 // A two-party equal-output mix. Nobody pays anybody: both sides put in the
 // same amount and take the same amount back. Nothing here carries a key — the
@@ -1301,6 +1400,8 @@ export interface TangoRoundRow {
   txid?: string | null;
   reject_reason?: string | null;
   expires_at?: number | null;
+  created_at?: string | null;
+  updated_at?: string | null;
   /** Which side you are. Only on the single-round fetch and the list. */
   role?: 'a' | 'b';
   my_inputs?: number[];
