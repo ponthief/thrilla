@@ -1145,3 +1145,51 @@ export async function payjoinSpDerive(adminkey, rid, body) {
     body: JSON.stringify(body),
   })
 }
+
+// ── Tango ───────────────────────────────────────────────────────────────────
+// A two-party equal-output mix. Nobody pays anybody: both sides put in the same
+// amount and take the same amount back, so the two mixed outputs are identical
+// and nothing on chain says which is whose. Mirrors services/api.ts, and like
+// the PayJoin endpoints above it carries no key — the scripts are derived in
+// the page and the witnesses are signatures.
+
+export async function tangoPropose(adminkey, body) {
+  return req(`${SILNT}/api/v1/tango/rounds`, {
+    method: 'POST',
+    headers: keyHeaders(adminkey),
+    body: JSON.stringify(body),
+  })
+}
+
+export async function tangoList(inkey) {
+  return req(`${SILNT}/api/v1/tango/rounds`, { headers: keyHeaders(inkey) })
+}
+
+export async function tangoGet(inkey, rid) {
+  return req(`${SILNT}/api/v1/tango/rounds/${encodeURIComponent(rid)}`, {
+    headers: keyHeaders(inkey),
+  })
+}
+
+export async function tangoAccept(adminkey, rid, body) {
+  return req(`${SILNT}/api/v1/tango/rounds/${encodeURIComponent(rid)}/accept`, {
+    method: 'POST',
+    headers: keyHeaders(adminkey),
+    body: JSON.stringify(body),
+  })
+}
+
+export async function tangoSign(adminkey, rid, body) {
+  return req(`${SILNT}/api/v1/tango/rounds/${encodeURIComponent(rid)}/sign`, {
+    method: 'POST',
+    headers: keyHeaders(adminkey),
+    body: JSON.stringify(body),
+  })
+}
+
+export async function tangoCancel(adminkey, rid) {
+  return req(`${SILNT}/api/v1/tango/rounds/${encodeURIComponent(rid)}/cancel`, {
+    method: 'POST',
+    headers: keyHeaders(adminkey),
+  })
+}

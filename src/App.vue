@@ -11,6 +11,7 @@ import { verifyBitmailTamper } from '@/stores/bitmailpins'
 import { setBitmailTamper, bitmailTampered } from '@/stores/bitmailalert'
 import { startPayjoinWatch, stopPayjoinWatch, payjoinPending } from '@/stores/payjoinwatch'
 import { startPayjoinSpWatch, stopPayjoinSpWatch, payjoinSpPending } from '@/stores/payjoinspwatch'
+import { startTangoWatch, stopTangoWatch, tangoPending } from '@/stores/tangowatch'
 import { scanWatchWallets, scanStartedAt, clearScanWatch, notifyScanStarted } from '@/stores/scanwatch'
 import * as api from '@/api'
 import { onMounted, onBeforeUnmount, onErrorCaptured, ref, watch } from 'vue'
@@ -45,6 +46,10 @@ const LIGHTNING_ENABLED = NETWORK_LOCK === 'regtest'
 // toggle, default OFF. Works on any network, so it's gated by an explicit build
 // flag rather than the network lock. Set VITE_PAYJOIN_ENABLED=true to show it.
 const PAYJOIN_ENABLED = import.meta.env.VITE_PAYJOIN_ENABLED === 'true'
+// Tango's own switch, not the PayJoin one: a PayJoin pays someone and a Tango
+// pays nobody, so they are separate features that will not be ready to turn on
+// at the same moment. Set VITE_TANGO_ENABLED=true to show it.
+const TANGO_ENABLED = import.meta.env.VITE_TANGO_ENABLED === 'true'
 
 // Build role: 'admin' builds the portal (admin.thrilla.me) with only the admin
 // surface; 'user' (default) builds the normal wallet UI with no admin screens.
@@ -66,6 +71,9 @@ const baseNav = [
   // watch-only wallets people already imported.
   ...(PAYJOIN_ENABLED ? [{ name: 'payjoin-sp', label: 'PayJoin', icon: '⇆' }] : []),
   ...(PAYJOIN_ENABLED ? [{ name: 'payjoin', label: 'PayJoin (PSBT)', icon: '⇆' }] : []),
+  // Not a PayJoin at all: both sides put in the same amount and take the same
+  // amount back, so nobody is paid and the two outputs are indistinguishable.
+  ...(TANGO_ENABLED ? [{ name: 'tango', label: 'Tango', icon: '⇄' }] : []),
   { name: 'transactions', label: 'Activity', icon: '⇄' },
   { name: 'bitmail', label: 'BitMail',  icon: '⌖' },
   { name: 'config',  label: 'Settings', icon: '⚙' },
@@ -115,6 +123,7 @@ watch(() => auth.isLoggedIn, (loggedIn) => {
     stopBitmailChecks()
     stopPayjoinWatch()
     stopPayjoinSpWatch()
+    stopTangoWatch()
     stopSendWatch()
     stopLnReceiveWatch()
     stopScanWatch()
@@ -166,6 +175,9 @@ function startLoggedInTasks() {
   // The SP PayJoin's own poller. A browser tab gets no push, and an SP
   // PayJoin needs its turn taken three times before it is on the network.
   if (PAYJOIN_ENABLED) startPayjoinSpWatch()
+  // Same reason again: a browser tab gets no push, and a Tango needs its turn
+  // taken three times before it is on the network.
+  if (TANGO_ENABLED) startTangoWatch()
   seedScanWatch()   // one-time check for a scan already running server-side
 }
 
@@ -583,6 +595,7 @@ onBeforeUnmount(() => {
   stopScanWatch()
   stopPayjoinWatch()
   stopPayjoinSpWatch()
+  stopTangoWatch()
 })
 
 function logout() {
@@ -626,6 +639,7 @@ function logout() {
             <span v-if="item.name === 'bitmail' && bitmailTampered" class="nav-alert-badge" title="BitMail tampering detected — open BitMail">⛔</span>
             <span v-if="item.name === 'payjoin' && payjoinPending > 0" class="nav-count-badge" :title="payjoinPending + ' PayJoin request(s) need your attention'">{{ payjoinPending }}</span>
             <span v-if="item.name === 'payjoin-sp' && payjoinSpPending > 0" class="nav-count-badge" :title="payjoinSpPending + ' PayJoin(s) waiting on you'">{{ payjoinSpPending }}</span>
+            <span v-if="item.name === 'tango' && tangoPending > 0" class="nav-count-badge" :title="tangoPending + ' Tango(s) waiting on you'">{{ tangoPending }}</span>
           </router-link>
         </div>
         <button v-if="!IS_ADMIN_BUILD" class="unit-toggle" @click="units.toggleUnit()" :title="units.haveRate ? 'Switch sats / USD' : 'USD rate unavailable'">
@@ -685,7 +699,7 @@ function logout() {
       <nav class="bottom-nav">
         <router-link v-for="item in nav" :key="item.name" :to="{ name: item.name }"
           class="bottom-nav-item" :class="{ active: route.name === item.name }">
-          <span class="bottom-nav-icon">{{ item.icon }}<span v-if="item.name === 'bitmail' && bitmailTampered" class="bottom-nav-alert-dot"></span><span v-if="item.name === 'payjoin' && payjoinPending > 0" class="bottom-nav-count">{{ payjoinPending }}</span><span v-if="item.name === 'payjoin-sp' && payjoinSpPending > 0" class="bottom-nav-count">{{ payjoinSpPending }}</span></span>
+          <span class="bottom-nav-icon">{{ item.icon }}<span v-if="item.name === 'bitmail' && bitmailTampered" class="bottom-nav-alert-dot"></span><span v-if="item.name === 'payjoin' && payjoinPending > 0" class="bottom-nav-count">{{ payjoinPending }}</span><span v-if="item.name === 'payjoin-sp' && payjoinSpPending > 0" class="bottom-nav-count">{{ payjoinSpPending }}</span><span v-if="item.name === 'tango' && tangoPending > 0" class="bottom-nav-count">{{ tangoPending }}</span></span>
           <span class="bottom-nav-label">{{ item.label }}</span>
         </router-link>
         <button class="bottom-nav-item bottom-nav-logout" @click="logout">

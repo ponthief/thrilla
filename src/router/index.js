@@ -25,6 +25,7 @@ const userRoutes = [
   { path: '/lightning', name: 'lightning', component: () => import('@/views/LightningView.vue') },
   { path: '/payjoin', name: 'payjoin', component: () => import('@/views/PayJoinView.vue') },
   { path: '/payjoin-sp', name: 'payjoin-sp', component: () => import('@/views/PayJoinSpView.vue') },
+  { path: '/tango', name: 'tango', component: () => import('@/views/TangoView.vue') },
   { path: '/scan',   name: 'scan',    component: () => import('@/views/ScanView.vue')     },
   { path: '/bitmail', name: 'bitmail', component: () => import('@/views/BitMailView.vue') },
   { path: '/config', name: 'config',  component: () => import('@/views/ConfigView.vue')  },
@@ -83,6 +84,13 @@ router.beforeEach((to) => {
   // derivation path, and an SP UTXO's key is a one-off from a tweak).
   if (to.name === 'payjoin' || to.name === 'payjoin-sp') {
     if (import.meta.env.VITE_PAYJOIN_ENABLED !== 'true') return { name: 'wallets' }
+  }
+  // Tango has a switch of its own, not the PayJoin one. They are different
+  // features to a user — a PayJoin pays someone, a Tango pays nobody — and
+  // they will not be ready to turn on at the same moment. Default off, like
+  // both PayJoins.
+  if (to.name === 'tango') {
+    if (import.meta.env.VITE_TANGO_ENABLED !== 'true') return { name: 'wallets' }
   }
 })
 
