@@ -321,8 +321,8 @@ export default function TangoScreen() {
             ' that part could not be checked.';
         setMsg(
           (done.status === 'BROADCAST'
-            ? 'Broadcast. Both shares are the same size, so nothing on chain says which is yours.'
-            : 'Signed. Waiting on the other side.') + unverified,
+            ? 'Sent. Both shares are the same size, so nothing on chain says which is yours.'
+            : 'Approved. Waiting on the other side.') + unverified,
         );
         await load();
       } catch (e) {
@@ -372,6 +372,36 @@ export default function TangoScreen() {
     PROPOSED: 'b', ACCEPTED: 'a', A_SIGNED: 'b',
   };
 
+  // Who did the last thing, named.
+  //
+  // The stored statuses carry the role names the protocol needs — A proposes,
+  // B matches, A_SIGNED means A has signed — and those names mean nothing to
+  // the person reading them. This row used to print the status raw, so it read
+  // "a_signed", which looks like a bug even when nothing is wrong. Nobody is
+  // "A": they are you, or they are whoever you are mixing with, by name.
+  const actor = (r: Row, which: 'a' | 'b') =>
+    r.role === which
+      ? 'You'
+      : (which === 'a' ? r.a_username : r.b_username) || 'They';
+
+  const statusLabel = (r: Row) => {
+    switch (r.status) {
+      case 'PROPOSED': return `${actor(r, 'a')} proposed it`;
+      case 'ACCEPTED': return `${actor(r, 'b')} matched it`;
+      case 'A_SIGNED': return `${actor(r, 'a')} approved it`;
+      case 'BROADCAST': return 'Sent';
+      case 'CANCELLED': return 'Cancelled';
+      default: return r.status;
+    }
+  };
+
+  // "Sign" is what the code does; it is not what the person is doing, and the
+  // two turns are not the same act. The first approves the mix and waits. The
+  // second finishes it, puts it on the network, and cannot be undone — which a
+  // button reading "Sign" for both gives no way to tell.
+  const signLabel = (r: Row) =>
+    r.status === 'A_SIGNED' ? 'Finish & send' : 'Approve';
+
   const renderRound = (r: Row) => {
     const side = r.role!;
     const mine = TURN[r.status] === side;
@@ -381,7 +411,7 @@ export default function TangoScreen() {
       <View key={r.id} style={styles.row}>
         <View style={styles.rowHead}>
           <Text style={styles.rowWho}>with {other}</Text>
-          <Text style={styles.rowStatus}>{r.status.toLowerCase()}</Text>
+          <Text style={styles.rowStatus}>{statusLabel(r)}</Text>
         </View>
         <Text style={styles.rowAmount}>{sats(r.denom_sats)} each</Text>
         {r.fee_sats != null ? (
@@ -409,7 +439,7 @@ export default function TangoScreen() {
               onPress={() => accept(r)} />
           ) : null}
           {mine && r.status !== 'PROPOSED' ? (
-            <Button small label="Sign" busy={busy === r.id}
+            <Button small label={signLabel(r)} busy={busy === r.id}
               onPress={() => sign(r)} />
           ) : null}
           {r.status !== 'BROADCAST' && r.status !== 'CANCELLED' ? (

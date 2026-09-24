@@ -206,17 +206,26 @@ const outpoint = (u) => `${u.txid}:${u.vout}`
 const mixPicked = ref(new Set())
 const matchPicked = ref(new Set())
 
-function toggleIn(setRef, u) {
-  // Reassigned rather than mutated: a Set is not reactive in place.
-  const next = new Set(setRef.value)
+// One per selection, taking no ref argument, and that is not style.
+//
+// A template unwraps refs: `toggleIn(mixPicked, c)` in the markup handed the
+// function the raw Set, so `setRef.value` was undefined, `new Set(undefined)`
+// was empty, and `setRef.value = next` set a dead property on a Set nobody
+// watched. The checkbox still ticked — a native checkbox flips its own DOM
+// state, and Vue only redraws it when reactive data changes — so every coin
+// looked selected while mixChosen stayed empty and Propose stayed disabled.
+function flip(set, u) {
+  const next = new Set(set)
   const k = outpoint(u)
   if (next.has(k)) next.delete(k)
   else next.add(k)
-  setRef.value = next
+  return next
 }
-const chosenFrom = (setRef) => coins.value.filter((c) => setRef.value.has(outpoint(c)))
-const mixChosen = computed(() => chosenFrom(mixPicked))
-const matchChosen = computed(() => chosenFrom(matchPicked))
+function toggleMix(u) { mixPicked.value = flip(mixPicked.value, u) }
+function toggleMatch(u) { matchPicked.value = flip(matchPicked.value, u) }
+
+const mixChosen = computed(() => coins.value.filter((c) => mixPicked.value.has(outpoint(c))))
+const matchChosen = computed(() => coins.value.filter((c) => matchPicked.value.has(outpoint(c))))
 const sumOf = (list) => list.reduce((s, c) => s + c.amount, 0)
 
 const localOf = (u) => ({
@@ -483,8 +492,8 @@ async function sign(r) {
         ' part could not be checked.'
     pushToast(
       (done.status === 'BROADCAST'
-        ? `Broadcast. Both shares are the same size, so nothing on chain says which is yours. txid ${String(done.txid || '').slice(0, 12)}…`
-        : 'Signed. Waiting on the other side.') + unverified,
+        ? `Sent. Both shares are the same size, so nothing on chain says which is yours. txid ${String(done.txid || '').slice(0, 12)}…`
+        : 'Approved. Waiting on the other side.') + unverified,
       { type: 'success', timeout: 12000 },
     )
     showSignConfirm.value = false
@@ -539,25 +548,47 @@ const partnerOf = (r) => (r.role === 'a' ? r.b_username : r.a_username)
 const myFee = (r) => (r.role === 'a' ? r.a_fee_sats : r.b_fee_sats)
 const myChangeOf = (r) => (r.role === 'a' ? r.a_change_sats : r.b_change_sats)
 
-const STATUS = {
-  PROPOSED: 'Proposed',
-  ACCEPTED: 'Matched — needs signatures',
-  A_SIGNED: 'One signature in',
-  BROADCAST: 'Broadcast',
-  CANCELLED: 'Cancelled',
+// Who did the last thing, named.
+//
+// The stored statuses carry the role names the protocol needs — A proposes, B
+// matches, A_SIGNED means A has signed — and those names mean nothing to the
+// person reading them. Shown raw they came out as "a_signed", which reads as a
+// bug even when nothing is wrong. Nobody is "A": they are you, or they are
+// whoever you are mixing with, by name.
+function actor(r, side) {
+  if (r.role === side) return 'You'
+  return (side === 'a' ? r.a_username : r.b_username) || 'They'
 }
-const statusLabel = (r) => STATUS[r.status] || r.status
+function statusLabel(r) {
+  switch (r.status) {
+    case 'PROPOSED':  return `${actor(r, 'a')} proposed it`
+    case 'ACCEPTED':  return `${actor(r, 'b')} matched it`
+    case 'A_SIGNED':  return `${actor(r, 'a')} approved it`
+    case 'BROADCAST': return 'Sent'
+    case 'CANCELLED': return 'Cancelled'
+    default:          return r.status
+  }
+}
+
+// "Sign" is what the code does; it is not what the person is doing, and the
+// two turns are not the same act. The first approves the mix and waits. The
+// second finishes it, puts it on the network, and cannot be undone — which a
+// button reading "Sign" for both gives no way to tell.
+const signLabel = (r) => (r.status === 'A_SIGNED' ? 'Finish & send' : 'Approve mix')
 
 // What the person looking at this row is being asked for, in their own terms.
 function whatNow(r) {
   if (TERMINAL.includes(r.status)) return ''
   if (!myTurn(r)) {
+    const who = partnerOf(r) || 'them'
     return r.status === 'PROPOSED'
-      ? 'Waiting for them to match it.'
-      : 'Waiting for their signature.'
+      ? `Waiting for ${who} to match it.`
+      : `Waiting for ${who} to approve it.`
   }
   if (r.status === 'PROPOSED') return 'Choose your coins and match it.'
-  return 'It needs your signature.'
+  return r.status === 'A_SIGNED'
+    ? 'Yours finishes it and sends it.'
+    : 'It needs your approval.'
 }
 
 function expiresIn(r) {
@@ -600,8 +631,7 @@ function expiresIn(r) {
           <p class="text-dim text-sm">
             <b>Both sides are WhiSPa wallets</b> and both sign in their own
             client — nothing leaves this browser but a scriptPubKey and a
-            signature. This is not the PSBT PayJoin: there is no descriptor to
-            import and no Sparrow step.
+            signature.
           </p>
           <div class="alert alert-warn tg-note">
             ⚠ <strong>Two is two.</strong> An anonymity set of two is a coin
@@ -686,10 +716,10 @@ function expiresIn(r) {
             <div v-if="!coins.length" class="text-dim text-xs">No spendable coins.</div>
             <table v-else class="tg-utxos">
               <tbody>
-                <tr v-for="c in coins" :key="outpoint(c)" @click="toggleIn(mixPicked, c)"
+                <tr v-for="c in coins" :key="outpoint(c)" @click="toggleMix(c)"
                     style="cursor:pointer;">
                   <td><input type="checkbox" :checked="mixPicked.has(outpoint(c))"
-                             @click.stop="toggleIn(mixPicked, c)" /></td>
+                             @click.stop="toggleMix(c)" /></td>
                   <td class="mono text-xs">{{ shortTxid(c.txid) }}:{{ c.vout }}</td>
                   <td class="text-xs text-dim">{{ c.label || '' }}</td>
                   <td class="mono text-xs r">{{ fmtSats(c.amount) }}</td>
@@ -860,7 +890,7 @@ function expiresIn(r) {
                 <button v-else-if="r.status !== 'PROPOSED'"
                         class="btn btn-sm btn-primary"
                         :disabled="busy === r.id || !hasKeys" @click="askSign(r)">
-                  {{ busy === r.id ? 'Signing…' : 'Sign' }}
+                  {{ busy === r.id ? 'Working…' : signLabel(r) }}
                 </button>
                 <button class="btn btn-ghost btn-sm" :disabled="busy === r.id"
                         @click="cancel(r)">Cancel</button>
@@ -877,10 +907,10 @@ function expiresIn(r) {
               <div v-if="!coins.length" class="text-dim text-xs">No spendable coins.</div>
               <table v-else class="tg-utxos">
                 <tbody>
-                  <tr v-for="c in coins" :key="outpoint(c)" @click="toggleIn(matchPicked, c)"
+                  <tr v-for="c in coins" :key="outpoint(c)" @click="toggleMatch(c)"
                       style="cursor:pointer;">
                     <td><input type="checkbox" :checked="matchPicked.has(outpoint(c))"
-                               @click.stop="toggleIn(matchPicked, c)" /></td>
+                               @click.stop="toggleMatch(c)" /></td>
                     <td class="mono text-xs">{{ shortTxid(c.txid) }}:{{ c.vout }}</td>
                     <td class="text-xs text-dim">{{ c.label || '' }}</td>
                     <td class="mono text-xs r">{{ fmtSats(c.amount) }}</td>
@@ -1002,13 +1032,20 @@ function expiresIn(r) {
     <div v-if="showSignConfirm && signConfirmRound" class="modal-overlay"
          @click.self="showSignConfirm = false">
       <div class="card modal" style="max-width:420px">
-        <div class="card-header"><h2>Confirm signature</h2></div>
+        <div class="card-header"><h2>Confirm this mix</h2></div>
         <div class="card-body" style="display:flex;flex-direction:column;gap:12px">
           <p class="text-sm text-dim" style="margin:0">
             Your device checks the whole transaction before it signs anything —
             both shares equal, the fee split as computed here, and your two
-            outputs the ones this browser derived. <b>If the other side has
-            already signed, this broadcasts immediately</b> and cannot be undone.
+            outputs the ones this browser derived.
+            <template v-if="signConfirmRound.status === 'A_SIGNED'">
+              <b>The other side has already approved it, so this sends it to the
+              network immediately</b> and cannot be undone.
+            </template>
+            <template v-else>
+              This approves your half. Nothing reaches the network until the
+              other side does the same.
+            </template>
           </p>
           <div class="tx-detail-row">
             <span>With</span><span class="mono">{{ partnerOf(signConfirmRound) }}</span>
@@ -1027,7 +1064,7 @@ function expiresIn(r) {
             <button class="btn btn-ghost" @click="showSignConfirm = false">Cancel</button>
             <button class="btn btn-success" :disabled="busy === signConfirmRound.id"
                     @click="sign(signConfirmRound)">
-              {{ busy === signConfirmRound.id ? 'Signing…' : 'Confirm & sign' }}
+              {{ busy === signConfirmRound.id ? 'Working…' : signLabel(signConfirmRound) }}
             </button>
           </div>
         </div>

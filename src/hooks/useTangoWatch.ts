@@ -79,8 +79,8 @@ export function useTangoWatch(): void {
             r.status === 'PROPOSED'
               ? `${who} wants to Tango with you.`
               : r.status === 'ACCEPTED'
-                ? `${who} matched you — it needs your signature.`
-                : `${who} signed — one more from you finishes it.`;
+                ? `${who} matched you — it needs your approval.`
+                : `${who} approved it — one more from you sends it.`;
           usePushBanner.getState().show({ title: 'Tango', body });
         }
       }

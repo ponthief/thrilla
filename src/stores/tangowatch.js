@@ -71,8 +71,8 @@ async function _poll() {
         r.status === 'PROPOSED'
           ? `${who} wants to Tango with you — open Tango to match it or decline.`
           : r.status === 'ACCEPTED'
-            ? `${who} matched your Tango — open Tango to sign it.`
-            : `${who} signed — open Tango to finish it.`
+            ? `${who} matched your Tango — open Tango to approve it.`
+            : `${who} approved it — open Tango to send it.`
       // No amount in the toast. Not for the FCM reason — nothing here passes
       // through Google — but because a toast is the one message that appears
       // over whatever is on screen, in front of whoever is looking at it.
