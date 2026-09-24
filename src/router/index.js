@@ -24,7 +24,6 @@ const userRoutes = [
   { path: '/swap',   name: 'swap',    component: () => import('@/views/SwapView.vue')     },
   { path: '/lightning', name: 'lightning', component: () => import('@/views/LightningView.vue') },
   { path: '/payjoin', name: 'payjoin', component: () => import('@/views/PayJoinView.vue') },
-  { path: '/payjoin-sp', name: 'payjoin-sp', component: () => import('@/views/PayJoinSpView.vue') },
   { path: '/tango', name: 'tango', component: () => import('@/views/TangoView.vue') },
   { path: '/scan',   name: 'scan',    component: () => import('@/views/ScanView.vue')     },
   { path: '/bitmail', name: 'bitmail', component: () => import('@/views/BitMailView.vue') },
@@ -75,14 +74,13 @@ router.beforeEach((to) => {
     const lock = import.meta.env.VITE_NETWORK_LOCK || null
     if (lock !== 'regtest') return { name: 'wallets' }
   }
-  // Both PayJoins are behind the same explicit build flag (default off).
-  // Same flag on purpose: they are one feature to a user, they are enabled and
-  // disabled together, and a second switch would be one more thing to get out
-  // of step. They are separate VIEWS because they are separate protocols —
-  // PayJoinView is descriptors, P2WPKH and a PSBT for an external signer, and
-  // it cannot carry Silent Payments at all (a PSBT identifies its inputs by
-  // derivation path, and an SP UTXO's key is a one-off from a tweak).
-  if (to.name === 'payjoin' || to.name === 'payjoin-sp') {
+  // PayJoin is behind an explicit build flag (default off). It is the PSBT
+  // flavour: descriptors, P2WPKH and an external signer, which is why it is
+  // still here — Sparrow is on the other end. It cannot carry Silent Payments
+  // at all (a PSBT identifies its inputs by derivation path, and an SP UTXO's
+  // key is a one-off from a tweak), and the Silent Payments PayJoin that used
+  // to sit beside it has been replaced by Tango on both clients.
+  if (to.name === 'payjoin') {
     if (import.meta.env.VITE_PAYJOIN_ENABLED !== 'true') return { name: 'wallets' }
   }
   // Tango has a switch of its own, not the PayJoin one. They are different

@@ -10,7 +10,6 @@ import { getPendingSends, removePendingSend } from '@/stores/pendingsends'
 import { verifyBitmailTamper } from '@/stores/bitmailpins'
 import { setBitmailTamper, bitmailTampered } from '@/stores/bitmailalert'
 import { startPayjoinWatch, stopPayjoinWatch, payjoinPending } from '@/stores/payjoinwatch'
-import { startPayjoinSpWatch, stopPayjoinSpWatch, payjoinSpPending } from '@/stores/payjoinspwatch'
 import { startTangoWatch, stopTangoWatch, tangoPending } from '@/stores/tangowatch'
 import { scanWatchWallets, scanStartedAt, clearScanWatch, notifyScanStarted } from '@/stores/scanwatch'
 import * as api from '@/api'
@@ -64,12 +63,10 @@ const baseNav = [
   { name: 'send',    label: 'Send',     icon: '↗' },
   ...(LIGHTNING_ENABLED ? [{ name: 'lightning', label: 'Lightning', icon: '⚡' }] : []),
   ...(SWAP_ENABLED ? [{ name: 'swap', label: 'Swap ⚡', icon: '⇌' }] : []),
-  // Two PayJoins, two protocols. "PayJoin" is the Silent Payments one —
-  // both parties are WhiSPa wallets, both sign in their own app — and it is
-  // the one a WhiSPa user wants. "PayJoin (PSBT)" is the descriptor and
-  // Sparrow flavour, which cannot carry Silent Payments and is kept for the
-  // watch-only wallets people already imported.
-  ...(PAYJOIN_ENABLED ? [{ name: 'payjoin-sp', label: 'PayJoin', icon: '⇆' }] : []),
+  // The descriptor and Sparrow flavour, kept for the watch-only wallets people
+  // already imported. It cannot carry Silent Payments; the Silent Payments
+  // PayJoin that used to sit beside it is gone from both clients, replaced by
+  // Tango below.
   ...(PAYJOIN_ENABLED ? [{ name: 'payjoin', label: 'PayJoin (PSBT)', icon: '⇆' }] : []),
   // Not a PayJoin at all: both sides put in the same amount and take the same
   // amount back, so nobody is paid and the two outputs are indistinguishable.
@@ -122,7 +119,6 @@ watch(() => auth.isLoggedIn, (loggedIn) => {
     stopSwapPolling()
     stopBitmailChecks()
     stopPayjoinWatch()
-    stopPayjoinSpWatch()
     stopTangoWatch()
     stopSendWatch()
     stopLnReceiveWatch()
@@ -174,9 +170,8 @@ function startLoggedInTasks() {
   if (PAYJOIN_ENABLED) startPayjoinWatch()
   // The SP PayJoin's own poller. A browser tab gets no push, and an SP
   // PayJoin needs its turn taken three times before it is on the network.
-  if (PAYJOIN_ENABLED) startPayjoinSpWatch()
-  // Same reason again: a browser tab gets no push, and a Tango needs its turn
-  // taken three times before it is on the network.
+  // A browser tab gets no push, and a Tango needs its turn taken three times
+  // before it is on the network.
   if (TANGO_ENABLED) startTangoWatch()
   seedScanWatch()   // one-time check for a scan already running server-side
 }
@@ -594,7 +589,6 @@ onBeforeUnmount(() => {
   stopLnReceiveWatch()
   stopScanWatch()
   stopPayjoinWatch()
-  stopPayjoinSpWatch()
   stopTangoWatch()
 })
 
@@ -638,7 +632,6 @@ function logout() {
             <span>{{ item.label }}</span>
             <span v-if="item.name === 'bitmail' && bitmailTampered" class="nav-alert-badge" title="BitMail tampering detected — open BitMail">⛔</span>
             <span v-if="item.name === 'payjoin' && payjoinPending > 0" class="nav-count-badge" :title="payjoinPending + ' PayJoin request(s) need your attention'">{{ payjoinPending }}</span>
-            <span v-if="item.name === 'payjoin-sp' && payjoinSpPending > 0" class="nav-count-badge" :title="payjoinSpPending + ' PayJoin(s) waiting on you'">{{ payjoinSpPending }}</span>
             <span v-if="item.name === 'tango' && tangoPending > 0" class="nav-count-badge" :title="tangoPending + ' Tango(s) waiting on you'">{{ tangoPending }}</span>
           </router-link>
         </div>
@@ -699,7 +692,7 @@ function logout() {
       <nav class="bottom-nav">
         <router-link v-for="item in nav" :key="item.name" :to="{ name: item.name }"
           class="bottom-nav-item" :class="{ active: route.name === item.name }">
-          <span class="bottom-nav-icon">{{ item.icon }}<span v-if="item.name === 'bitmail' && bitmailTampered" class="bottom-nav-alert-dot"></span><span v-if="item.name === 'payjoin' && payjoinPending > 0" class="bottom-nav-count">{{ payjoinPending }}</span><span v-if="item.name === 'payjoin-sp' && payjoinSpPending > 0" class="bottom-nav-count">{{ payjoinSpPending }}</span><span v-if="item.name === 'tango' && tangoPending > 0" class="bottom-nav-count">{{ tangoPending }}</span></span>
+          <span class="bottom-nav-icon">{{ item.icon }}<span v-if="item.name === 'bitmail' && bitmailTampered" class="bottom-nav-alert-dot"></span><span v-if="item.name === 'payjoin' && payjoinPending > 0" class="bottom-nav-count">{{ payjoinPending }}</span><span v-if="item.name === 'tango' && tangoPending > 0" class="bottom-nav-count">{{ tangoPending }}</span></span>
           <span class="bottom-nav-label">{{ item.label }}</span>
         </router-link>
         <button class="bottom-nav-item bottom-nav-logout" @click="logout">
