@@ -203,7 +203,13 @@ export default function TangoScreen() {
     } catch (e) {
       fail(e);
     }
-  }, [inkey]);
+    // `network` belongs here. Left out, this closure kept the useState default
+    // — 'signet' — for the life of the screen, however many times load() set
+    // it to the wallet's real network. The mainnet app was then asking the
+    // server about signet, which is where the off-network users it should have
+    // refused do have wallets, so the whole check passed for the exact case it
+    // was written for.
+  }, [inkey, network]);
 
   const askConnect = useCallback(async () => {
     if (!inkey) return;
@@ -228,7 +234,8 @@ export default function TangoScreen() {
     } finally {
       setBusy(null);
     }
-  }, [inkey, newPerson, refreshPeople]);
+    // See refreshPeople: `network` is read in the body, so it has to be here.
+  }, [inkey, newPerson, network, refreshPeople]);
 
   const respond = useCallback(
     async (c: api.Connection, what: 'approve' | 'decline' | 'remove') => {

@@ -202,13 +202,18 @@ export default function ScanPanel() {
   }, [inkey]);
 
   // Tick the scan cooldown once a second so the Start button re-enables on time.
+  // The id is lifted out rather than reaching through `wallet` inside: the
+  // effect only ever wanted the id, and depending on the whole object would
+  // restart the timer every time the wallet was refetched into a new object
+  // with the same contents.
+  const cooldownWalletId = wallet?.id;
   useEffect(() => {
-    if (!wallet) return undefined;
-    const tick = () => setCooldownSec(cooldownRemaining(wallet.id));
+    if (!cooldownWalletId) return undefined;
+    const tick = () => setCooldownSec(cooldownRemaining(cooldownWalletId));
     tick();
     const id = setInterval(tick, 1000);
     return () => clearInterval(id);
-  }, [wallet?.id]);
+  }, [cooldownWalletId]);
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
