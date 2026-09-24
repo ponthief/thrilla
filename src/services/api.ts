@@ -1285,6 +1285,13 @@ export interface Connection {
   counterparty_username: string;
   /** This user's private label for them. Only they ever see it. */
   label?: string | null;
+  /**
+   * Whether they have a wallet on the network we asked about. Absent when we
+   * did not ask. False means a Tango with them cannot be built — the picker
+   * leaves them out, and the list says so rather than hiding the row, since
+   * hiding it would leave no way to remove it.
+   */
+  on_network?: boolean;
 }
 
 export interface Connections {
@@ -1294,8 +1301,12 @@ export interface Connections {
   declined: Connection[];
 }
 
-export async function listConnections(inkey: string): Promise<Connections> {
-  const res = await req<any>(`${SILNT}/api/v1/payjoin/contacts`, {
+export async function listConnections(
+  inkey: string,
+  network?: string,
+): Promise<Connections> {
+  const q = network ? `?network=${encodeURIComponent(network)}` : '';
+  const res = await req<any>(`${SILNT}/api/v1/payjoin/contacts${q}`, {
     headers: apiKey(inkey),
   });
   return {
@@ -1309,11 +1320,18 @@ export async function listConnections(inkey: string): Promise<Connections> {
 export async function requestConnection(
   inkey: string,
   username: string,
+  network: string,
 ): Promise<unknown> {
+  // The network matters: an LNbits account is global, a wallet belongs to one
+  // network, and a connection to somebody with no wallet on yours can never
+  // produce a Tango. The server checks this against our own wallets, so it is
+  // not a claim we can make falsely — only one it needs to hear, since the
+  // account may hold wallets on more than one network while this build does
+  // not.
   return req(`${SILNT}/api/v1/payjoin/contacts`, {
     method: 'POST',
     headers: apiKey(inkey),
-    body: JSON.stringify({ username }),
+    body: JSON.stringify({ username, network }),
   });
 }
 
@@ -1356,11 +1374,18 @@ export interface ConnectedPartner {
   label?: string | null;
 }
 
-/** Accepted connections only, for the partner picker. */
+/**
+ * Accepted connections that could actually Tango with us: accepted, and on
+ * this network. Connections made before the request endpoint started refusing
+ * off-network ones are still in the table, and offering one here would offer a
+ * round that /accept refuses.
+ */
 export async function listConnectedPartners(
   inkey: string,
+  network?: string,
 ): Promise<ConnectedPartner[]> {
-  const res = await req<any>(`${SILNT}/api/v1/payjoin/payers`, {
+  const q = network ? `?network=${encodeURIComponent(network)}` : '';
+  const res = await req<any>(`${SILNT}/api/v1/payjoin/payers${q}`, {
     headers: apiKey(inkey),
   });
   return res?.payers || [];

@@ -113,7 +113,7 @@ export default function TangoScreen() {
       // Not in the Promise.all above: a connection list that fails is not a
       // reason to tell someone their coins would not load.
       api
-        .listConnections(inkey)
+        .listConnections(inkey, w.network)
         .then((p) => {
           setPeople(p);
           setLabels(
@@ -197,7 +197,7 @@ export default function TangoScreen() {
   const refreshPeople = useCallback(async () => {
     if (!inkey) return;
     try {
-      const p = await api.listConnections(inkey);
+      const p = await api.listConnections(inkey, network);
       setPeople(p);
       setLabels(Object.fromEntries(p.accepted.map((c) => [c.id, c.label || ''])));
     } catch (e) {
@@ -215,7 +215,7 @@ export default function TangoScreen() {
     setBusy('connect');
     setError(null);
     try {
-      await api.requestConnection(inkey, username);
+      await api.requestConnection(inkey, username, network);
       setNewPerson('');
       // Names the person back. The endpoint refuses a username nobody holds,
       // so reaching here means it went to a real account — and seeing which
@@ -596,6 +596,10 @@ export default function TangoScreen() {
       ),
     );
 
+  // Only people a round could actually be built with. on_network is absent
+  // when the server was not asked, in which case everyone stays offered.
+  const reachable = people.accepted.filter((c) => c.on_network !== false);
+
   const partnerLabel = (c: api.ConnectedPartner | api.Connection) => {
     const name = 'username' in c ? c.username : c.counterparty_username;
     const l = ('label' in c ? c.label : '') || '';
@@ -686,13 +690,16 @@ export default function TangoScreen() {
             title="Start one"
             footer="Both of you get the same amount back, so nobody is paying anybody — the point is that the two outputs look the same. They choose their own coins.">
             <Block>
-              {people.accepted.length === 0 ? (
+              {reachable.length === 0 ? (
                 <Text style={styles.rowMeta}>
-                  No connections yet. Add one under People — they approve, then
-                  they appear here.
+                  {people.accepted.length
+                    ? `None of your connections has a wallet on ${network}, so ` +
+                      'there is nobody to mix with here. See People.'
+                    : 'No connections yet. Add one under People — they approve, ' +
+                      'then they appear here.'}
                 </Text>
               ) : (
-                people.accepted.map((c) => {
+                reachable.map((c) => {
                   const on = partner === c.counterparty_username;
                   return (
                     <Pressable
@@ -824,8 +831,17 @@ export default function TangoScreen() {
                   <View key={c.id} style={styles.row}>
                     <View style={styles.rowHead}>
                       <Text style={styles.rowWho}>{c.counterparty_username}</Text>
-                      <Text style={styles.rowStatus}>connected</Text>
+                      <Text style={styles.rowStatus}>
+                        {c.on_network === false ? `not on ${network}` : 'connected'}
+                      </Text>
                     </View>
+                    {c.on_network === false ? (
+                      <Text style={styles.warn}>
+                        They have no wallet on {network}, so a Tango with them
+                        cannot be built. They appear here so you can remove
+                        them; they are not offered under Mix.
+                      </Text>
+                    ) : null}
                     <View style={{ height: space.xs }} />
                     <Field
                       value={labels[c.id] || ''}

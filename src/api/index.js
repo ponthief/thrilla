@@ -936,13 +936,25 @@ export async function payjoinResolvePayer(inkey, username) {
 }
 
 // Connections (consent-based curated list).
-export async function payjoinContactRequest(inkey, username) {
+// `network` matters: an LNbits account is global, a wallet belongs to one
+// network, and a connection to somebody with no wallet on yours can never
+// produce a Tango. The server checks it against the caller's own wallets, so
+// it is not a claim a client can make falsely — only one the server needs to
+// hear, since an account may hold wallets on several networks while a build
+// does not. Omitted by the PSBT PayJoin page, which is not network-scoped;
+// the server then falls back to every network the caller is on.
+export async function payjoinContactRequest(inkey, username, network) {
   return req(`${SILNT}/api/v1/payjoin/contacts`, {
-    method: 'POST', headers: keyHeaders(inkey), body: JSON.stringify({ username }),
+    method: 'POST', headers: keyHeaders(inkey),
+    body: JSON.stringify(network ? { username, network } : { username }),
   })
 }
-export async function payjoinListContacts(inkey) {
-  return req(`${SILNT}/api/v1/payjoin/contacts`, { headers: keyHeaders(inkey) })
+// With `network`, accepted rows carry `on_network`: whether that person could
+// actually take part. Annotated rather than filtered, so a connection made
+// before this check existed can still be seen and removed.
+export async function payjoinListContacts(inkey, network) {
+  const q = network ? `?network=${encodeURIComponent(network)}` : ''
+  return req(`${SILNT}/api/v1/payjoin/contacts${q}`, { headers: keyHeaders(inkey) })
 }
 export async function payjoinContactApprove(inkey, cid) {
   return req(`${SILNT}/api/v1/payjoin/contacts/${encodeURIComponent(cid)}/approve`, {
@@ -965,8 +977,9 @@ export async function payjoinContactLabel(inkey, cid, label) {
   })
 }
 // Accepted connections for the invoice payer-picker.
-export async function payjoinListPayers(inkey) {
-  return req(`${SILNT}/api/v1/payjoin/payers`, { headers: keyHeaders(inkey) })
+export async function payjoinListPayers(inkey, network) {
+  const q = network ? `?network=${encodeURIComponent(network)}` : ''
+  return req(`${SILNT}/api/v1/payjoin/payers${q}`, { headers: keyHeaders(inkey) })
 }
 
 // A (payee) creates a directed invoice for payer B (adminkey — build path).

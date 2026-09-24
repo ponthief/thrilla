@@ -103,7 +103,7 @@ const refreshingContacts = ref(false)
 
 async function loadContacts() {
   try {
-    const res = await api.payjoinListContacts(auth.inkey)
+    const res = await api.payjoinListContacts(auth.inkey, wallet.value?.network)
     contactsAccepted.value = res.accepted || []
     contactsIncoming.value = res.incoming || []
     contactsOutgoing.value = res.outgoing || []
@@ -111,7 +111,10 @@ async function loadContacts() {
   } catch { /* the Refresh button is the retry */ }
 }
 async function loadPartners() {
-  try { partners.value = (await api.payjoinListPayers(auth.inkey)).payers || [] }
+  try {
+    partners.value =
+      (await api.payjoinListPayers(auth.inkey, wallet.value?.network)).payers || []
+  }
   catch { partners.value = [] }
 }
 async function refreshContacts() {
@@ -123,7 +126,7 @@ async function sendContactRequest() {
   if (!username) { pushToast('Enter a username.', { type: 'warn' }); return }
   addingContact.value = true
   try {
-    await api.payjoinContactRequest(auth.inkey, username)
+    await api.payjoinContactRequest(auth.inkey, username, wallet.value?.network)
     newContact.value = ''
     // Names the person back. The endpoint refuses a username nobody holds,
     // so reaching here means it went to a real account — and seeing which one
@@ -845,7 +848,15 @@ function expiresIn(r) {
             <div class="tg-req-row" style="align-items:center;">
               <div class="text-sm" style="flex:1;">
                 <b>{{ c.counterparty_username }}</b>
-                <span class="tg-pill tg-pill-ok">connected</span>
+                <span v-if="c.on_network === false" class="tg-pill">
+                  not on {{ wallet?.network }}
+                </span>
+                <span v-else class="tg-pill tg-pill-ok">connected</span>
+                <div v-if="c.on_network === false" class="text-xs text-dim">
+                  They have no wallet on {{ wallet?.network }}, so a Tango with
+                  them cannot be built. Shown here so you can remove them; they
+                  are not offered under Mix.
+                </div>
               </div>
               <button class="btn btn-ghost btn-sm" @click="removeContact(c)">Remove</button>
             </div>
