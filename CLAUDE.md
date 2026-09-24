@@ -71,11 +71,25 @@ first, then mirror it.
 
 ```bash
 npx tsc --noEmit            # React Native side
+npm run lint                # stale hook closures (see below)
 npm run build:signet        # web app
 npm run check:signing       # both on-device signers vs the Python
 npm run check:update        # what the update path offers, vs a real release
 cd ../siLNt && python3 -m pytest tests/ -q
 ```
+
+`lint` is two rules, not a style pass: `react-hooks/exhaustive-deps` and
+`rules-of-hooks`. It had no config at all until 2026-09-24 and so had never
+run — which is how a `useCallback` that read `network` without listing it
+shipped. The closure kept the `useState` default for the life of the screen,
+the mainnet app asked the server about signet, and the network check passed
+for the exact case it was written to refuse. Typechecking cannot see it and
+review kept missing it, twice.
+
+The whole tree passes it, so a finding is yours. Prefer narrowing the value
+over suppressing the rule — an effect that wants `wallet.id` should depend on
+an `id` binding, not on `wallet` — and add rules only when you are willing to
+fix what they find.
 
 None of these touch the Android native code. `android/app/src/main/java/…/updater`
 is only compiled by a real Gradle build, so a change there needs one:
