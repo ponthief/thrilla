@@ -116,12 +116,12 @@ const mixedLabels = computed(() => {
   return null
 })
 
-// A Tango's own share spent together with its own change. Not a matter of
-// degree like the two warnings around it: a round's change and its share add
-// up to what that side put in, so the two shares — identical on chain, a coin
-// flip to an observer — become attributable the moment one transaction says
-// they have the same owner. It does not weaken that round, it undoes it, and
-// no later mix puts it back.
+// A Tango share spent together with Tango change — from any round, not only
+// its own. Not a matter of degree like the two warnings around it: change is
+// attributable by construction (its value plus a share is an input total), a
+// share is the coin that history was cut off from, and one transaction holding
+// both repairs the cut. It does not weaken that round, it undoes it, and no
+// later mix puts it back.
 //
 // services/tango.ts::undoesARound is the rule, mirrored from helpers/tango.py
 // and cross-checked by check:signing:tango. It reads the labels the backend
@@ -831,12 +831,13 @@ onBeforeUnmount(() => { if (scanWatchTimer) clearInterval(scanWatchTimer) })
         <div style="flex:1">
           <strong>This undoes your Tango with {{ tangoPairing }}</strong>
           <div class="text-sm text-dim" style="margin-top:2px">
-            You have selected both your share of that mix and the change from
-            it. The two add up to what you put in, so spending them together
-            tells anyone reading the chain that one person owns both — and the
-            two equal outputs, which were a coin flip until now, become
-            attributable. Nothing undoes that afterwards. Send them in separate
-            transactions, or drop one from the selection.
+            You have selected a Tango share and a Tango change coin. Change can
+            be traced back to the coins you put in — its value plus a share is
+            an input total. A share is the coin that history was cut off from.
+            Spending them together repairs the link: the share stops being one
+            of two indistinguishable outputs, and nothing undoes that
+            afterwards. It does not matter which round the change came from.
+            Send them in separate transactions, or drop one from the selection.
           </div>
           <label class="text-sm" style="margin-top:8px;display:flex;align-items:center;gap:8px">
             <input type="checkbox" v-model="tangoAck" />

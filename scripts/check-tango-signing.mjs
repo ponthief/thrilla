@@ -258,6 +258,12 @@ console.log('\nlabels');
     `js ${t.changeLabel('alice')} vs py ${L.change}`);
   ok('an unnamed round still names its coins',
     t.mixLabel(null) === L.bare_mix && t.changeLabel('') === L.bare_change);
+  ok('a round marker distinguishes two rounds with one person',
+    t.mixLabel('alice', '7c2ef019-dead-beef') === L.marked_mix &&
+    t.changeLabel('alice', '3f9a1122-dead-beef') === L.marked_change,
+    `js ${t.mixLabel('alice', '7c2ef019-dead-beef')} vs py ${L.marked_mix}`);
+  ok('a marker with no name still reads',
+    t.mixLabel('', '7c2ef019') === L.marker_only);
 
   let agree = true;
   let where = '';
@@ -274,12 +280,20 @@ console.log('\nlabels');
   // Stated separately from the table so the point is not just "they agree".
   ok('a share with its own change is refused',
     t.undoesARound(['Tango mix - alice', 'Tango change - alice']) === 'alice');
+  // This one read the other way round until the reasoning was corrected: the
+  // sums not meeting is not what makes it safe, and it is not safe.
+  ok('a share with ANOTHER round\'s change is refused too',
+    t.undoesARound(['Tango mix - alice', 'Tango change - bob']) === 'alice');
+  ok('a marker does not make a pair safe',
+    t.undoesARound(['Tango mix - alice #7c2e', 'Tango change - alice #3f9a'])
+      === 'alice');
   ok('two shares together are not this failure',
     t.undoesARound(['Tango mix - alice', 'Tango mix - bob']) === null);
-  ok('nor is one person\'s share with another\'s change',
-    t.undoesARound(['Tango mix - alice', 'Tango change - bob']) === null);
+  ok('nor are two changes',
+    t.undoesARound(['Tango change - alice', 'Tango change - bob']) === null);
   ok('a label the user wrote themselves is left alone',
-    t.undoesARound(['my Tango mix - alice', 'Tango change - alice']) === null);
+    t.undoesARound(['my Tango mix - alice', 'Tango change - alice']) === null &&
+    t.undoesARound(['Tango mixer fund', 'Tango change - alice']) === null);
 }
 
 console.log(

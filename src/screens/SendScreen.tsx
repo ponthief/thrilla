@@ -394,11 +394,11 @@ export default function SendScreen() {
   // about it would be noise. ~1 hour without scanning is worth flagging.
   const behind = !scanActive && blocksBehind > STALE_BLOCKS;
 
-  // A Tango's own share selected together with its own change. Not a matter of
-  // degree like the multi-input caution below it: a round's change and its
-  // share add up to what that side put in, so the two shares — identical on
-  // chain, a coin flip to an observer — become attributable the moment one
-  // transaction says they have the same owner. It does not weaken that round,
+  // A Tango share selected together with Tango change — from any round, not
+  // only its own. Not a matter of degree like the multi-input caution below
+  // it: change is attributable by construction (its value plus a share is an
+  // input total), a share is the coin that history was cut off from, and one
+  // transaction holding both repairs the cut. It does not weaken that round,
   // it undoes it, and no later mix puts it back.
   //
   // services/tango.ts::undoesARound is the rule, mirrored from
@@ -1174,12 +1174,13 @@ export default function SendScreen() {
             <View style={styles.privacyWarn}>
               <Text style={styles.privacyText}>
                 ⚠ This undoes your Tango with {tangoPairing}. You have selected
-                both your share of that mix and the change from it. The two add
-                up to what you put in, so spending them together tells anyone
-                reading the chain that one person owns both — and the two equal
-                outputs, which were a coin flip until now, become attributable.
-                Nothing undoes that afterwards. Send them in separate
-                transactions, or drop one from the selection.
+                a Tango share and a Tango change coin. Change can be traced back
+                to the coins you put in — its value plus a share is an input
+                total. A share is the coin that history was cut off from.
+                Spending them together repairs the link: the share stops being
+                one of two indistinguishable outputs, and nothing undoes that
+                afterwards. It does not matter which round the change came from.
+                Send them separately, or drop one from the selection.
               </Text>
               <TouchableOpacity
                 style={styles.ackRow}

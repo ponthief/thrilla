@@ -429,52 +429,91 @@ export function signOwnInputs(
 export const MIX_LABEL = 'Tango mix';
 export const CHANGE_LABEL = 'Tango change';
 
-export const mixLabel = (other?: string | null) => named(MIX_LABEL, other);
-export const changeLabel = (other?: string | null) => named(CHANGE_LABEL, other);
-
-function named(prefix: string, other?: string | null): string {
-  const who = (other || '').trim();
-  return who ? `${prefix} - ${who}` : prefix;
+/**
+ * A short, stable tag for one round: "#7c2e".
+ *
+ * Two rounds with the same person used to produce two coins with identical
+ * labels — a wallet showing "Tango change - alice" twice, with no way to tell
+ * which round either came from. Four characters of the round id is enough to
+ * tell them apart in a list and short enough to read. It is not a secret: the
+ * id is the server's own key for a round both parties took part in.
+ */
+export function roundMarker(roundId?: string | null): string {
+  const hexish = (roundId || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+  return hexish ? `#${hexish.slice(0, 4)}` : '';
 }
 
-function partyIn(label: string, prefix: string): string | null {
+function named(prefix: string, other?: string | null, roundId?: string | null): string {
+  const parts = [prefix];
+  const who = (other || '').trim();
+  if (who) parts.push(`- ${who}`);
+  const mark = roundMarker(roundId);
+  if (mark) parts.push(mark);
+  return parts.join(' ');
+}
+
+export const mixLabel = (other?: string | null, roundId?: string | null) =>
+  named(MIX_LABEL, other, roundId);
+export const changeLabel = (other?: string | null, roundId?: string | null) =>
+  named(CHANGE_LABEL, other, roundId);
+
+/**
+ * The counterparty named in one of our labels, or null if it is not one.
+ *
+ * Matched from the start and only up to a separator we wrote, never as a
+ * substring: a coin the user named "my Tango mix money" is theirs, not ours,
+ * and refusing to spend it would be us reading our own meaning into their
+ * words. Accepts every shape this has written, including the ones with no
+ * marker — those are the coins most likely to be in a wallet right now.
+ */
+function party(label: string, prefix: string): string | null {
   const text = (label || '').trim();
   if (text === prefix) return '';
-  // startsWith, never includes: substring matching would refuse a coin the
-  // user named themselves.
-  if (text.startsWith(`${prefix} - `)) return text.slice(prefix.length + 3).trim();
-  return null;
+  if (!text.startsWith(`${prefix} `)) return null;
+  let rest = text.slice(prefix.length + 1).trim();
+  if (rest.startsWith('- ')) rest = rest.slice(2).trim();
+  else if (rest.startsWith('#')) return '';
+  else return null;   // "Tango mix something we never wrote" is the user's
+  const at = rest.lastIndexOf(' #');
+  if (at !== -1) rest = rest.slice(0, at).trim();
+  return rest;
 }
 
 /**
- * The counterparty whose round a selection of coins would undo, or null.
+ * The round(s) a selection of coins would undo, named, or null.
  *
- * THE FAILURE THIS IS FOR. A round's own change and its own mixed share add up
- * to what that side put in. On chain the two shares are identical, so which
- * one is yours is a coin flip — until you spend your change together with your
- * share. That one transaction says "same owner", the arithmetic then says
- * which input total that owner had, and the coin flip becomes a certainty. It
- * does not weaken the round; it undoes it, retroactively, and no later mix
- * puts it back. That is why this is a refusal and not a caution.
+ * ANY TANGO SHARE WITH ANY TANGO CHANGE. Not only a share with its own
+ * round's change, which is what this checked first and was too narrow.
  *
- * Same-NAME granularity, not same-round. Two rounds with one person produce
- * two shares and two changes, and pairing them across rounds still links coins
- * whose whole purpose was to be unlinkable. It is also all a client has: a
- * coin's label is what the wallet knows about it, and asking the server which
- * round a coin came from would put the question back on the machine that
- * already knows too much.
+ * The reasoning that led there was that the two have to add up — a round's
+ * change plus its share is what that side put in, so the arithmetic resolves
+ * which of the two identical shares was theirs. True, and not the only way it
+ * goes wrong. A Tango change coin is attributable BY CONSTRUCTION: its value
+ * plus a share equals an input total, so an observer can tie it to the coins
+ * its owner brought, which is exactly the history that owner had before the
+ * mix. A share is the opposite: it is the coin that history was cut off from.
+ * Put the two in one transaction and the cut is repaired — the share inherits
+ * the change's attribution — whoever the round was with and whenever it
+ * happened. Change from the alice round reconnects a share from the bob round
+ * just as well.
+ *
+ * So the rule is by KIND, not by round, and the marker in a label is for the
+ * person reading it rather than for this.
+ *
+ * Returns the counterparty of the share(s) at risk, since the share is what
+ * loses its protection.
  */
 export function undoesARound(labels: (string | null | undefined)[]): string | null {
   const mixed = new Set<string>();
-  const changed = new Set<string>();
+  let hasChange = false;
   for (const raw of labels) {
-    const asMix = partyIn(raw || '', MIX_LABEL);
-    if (asMix !== null) mixed.add(asMix);
-    const asChange = partyIn(raw || '', CHANGE_LABEL);
-    if (asChange !== null) changed.add(asChange);
+    const asMix = party(raw || '', MIX_LABEL);
+    if (asMix !== null) {
+      mixed.add(asMix || 'someone');
+      continue;
+    }
+    if (party(raw || '', CHANGE_LABEL) !== null) hasChange = true;
   }
-  for (const who of changed) {
-    if (mixed.has(who)) return who || 'someone';
-  }
-  return null;
+  if (!mixed.size || !hasChange) return null;
+  return [...mixed].sort().join(' and ');
 }
