@@ -769,12 +769,43 @@ export default function TangoScreen() {
               <Block>
                 {people.incoming.map((c) => (
                   <View key={c.id} style={styles.row}>
-                    <Text style={styles.rowWho}>{c.counterparty_username}</Text>
+                    <View style={styles.rowHead}>
+                      <Text style={styles.rowWho}>{c.counterparty_username}</Text>
+                      <Text style={styles.rowStatus}>asking</Text>
+                    </View>
+                    <Text style={styles.rowMeta}>
+                      They want to connect. Accepting lets either of you propose
+                      a Tango.
+                    </Text>
                     <View style={styles.rowActions}>
                       <Button small label="Approve" busy={busy === c.id}
                         onPress={() => respond(c, 'approve')} />
                       <Button small kind="secondary" label="Decline"
                         busy={busy === c.id} onPress={() => respond(c, 'decline')} />
+                    </View>
+                  </View>
+                ))}
+              </Block>
+            </Group>
+          ) : null}
+
+          {people.outgoing.length ? (
+            <Group
+              title="Sent, not answered"
+              footer="They have to accept before either of you can propose a Tango. Nothing happens until they do, and you can withdraw a request at any time.">
+              <Block>
+                {people.outgoing.map((c) => (
+                  <View key={c.id} style={styles.row}>
+                    <View style={styles.rowHead}>
+                      <Text style={styles.rowWho}>{c.counterparty_username}</Text>
+                      <Text style={styles.rowStatus}>pending</Text>
+                    </View>
+                    <Text style={styles.rowMeta}>
+                      Waiting for them to accept or decline.
+                    </Text>
+                    <View style={styles.rowActions}>
+                      <Button small kind="secondary" label="Withdraw"
+                        busy={busy === c.id} onPress={() => respond(c, 'remove')} />
                     </View>
                   </View>
                 ))}
@@ -791,7 +822,10 @@ export default function TangoScreen() {
               ) : (
                 people.accepted.map((c) => (
                   <View key={c.id} style={styles.row}>
-                    <Text style={styles.rowWho}>{c.counterparty_username}</Text>
+                    <View style={styles.rowHead}>
+                      <Text style={styles.rowWho}>{c.counterparty_username}</Text>
+                      <Text style={styles.rowStatus}>connected</Text>
+                    </View>
                     <View style={{ height: space.xs }} />
                     <Field
                       value={labels[c.id] || ''}
@@ -813,30 +847,18 @@ export default function TangoScreen() {
             </Block>
           </Group>
 
-          {people.outgoing.length ? (
-            <Group title="Waiting for them">
-              <Block>
-                {people.outgoing.map((c) => (
-                  <View key={c.id} style={styles.row}>
-                    <Text style={styles.rowWho}>{c.counterparty_username}</Text>
-                    <Text style={styles.rowMeta}>asked, not answered yet</Text>
-                    <View style={styles.rowActions}>
-                      <Button small kind="secondary" label="Withdraw"
-                        busy={busy === c.id} onPress={() => respond(c, 'remove')} />
-                    </View>
-                  </View>
-                ))}
-              </Block>
-            </Group>
-          ) : null}
-
           {people.declined.length ? (
             <Group title="Declined">
               <Block>
                 {people.declined.map((c) => (
                   <View key={c.id} style={styles.row}>
-                    <Text style={styles.rowWho}>{c.counterparty_username}</Text>
-                    <Text style={styles.rowMeta}>declined your request</Text>
+                    <View style={styles.rowHead}>
+                      <Text style={styles.rowWho}>{c.counterparty_username}</Text>
+                      <Text style={styles.rowStatus}>declined</Text>
+                    </View>
+                    <Text style={styles.rowMeta}>
+                      They turned your request down. Dismiss it to clear it.
+                    </Text>
                     <View style={styles.rowActions}>
                       <Button small kind="secondary" label="Dismiss"
                         busy={busy === c.id} onPress={() => respond(c, 'remove')} />

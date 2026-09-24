@@ -799,11 +799,39 @@ function expiresIn(r) {
         <div class="card-body">
           <div v-for="c in contactsIncoming" :key="c.id" class="tg-req">
             <div class="tg-req-row">
-              <div class="text-sm"><b>{{ c.counterparty_username }}</b> wants to connect</div>
+              <div class="text-sm">
+                <b>{{ c.counterparty_username }}</b> wants to connect
+                <span class="tg-pill">asking</span>
+              </div>
               <div style="display:flex; gap:0.5rem;">
                 <button class="btn btn-sm btn-primary" @click="approveContact(c)">Approve</button>
                 <button class="btn btn-ghost btn-sm" @click="declineContact(c)">Decline</button>
               </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="card" v-if="contactsOutgoing.length">
+        <div class="card-header">Sent, not answered</div>
+        <div class="card-body">
+          <p class="text-dim text-sm">
+            They have to accept before either of you can propose a Tango.
+            Nothing happens until they do, and you can withdraw a request at
+            any time.
+          </p>
+          <div v-for="c in contactsOutgoing" :key="c.id" class="tg-req">
+            <div class="tg-req-row">
+              <div>
+                <div class="text-sm">
+                  <b>{{ c.counterparty_username }}</b>
+                  <span class="tg-pill">pending</span>
+                </div>
+                <div class="text-xs text-dim">
+                  Waiting for them to accept or decline.
+                </div>
+              </div>
+              <button class="btn btn-ghost btn-sm" @click="removeContact(c)">Withdraw</button>
             </div>
           </div>
         </div>
@@ -815,7 +843,10 @@ function expiresIn(r) {
           <div v-if="!contactsAccepted.length" class="text-dim text-sm">No connections yet.</div>
           <div v-for="c in contactsAccepted" :key="c.id" class="tg-req">
             <div class="tg-req-row" style="align-items:center;">
-              <div class="text-sm" style="flex:1;"><b>{{ c.counterparty_username }}</b></div>
+              <div class="text-sm" style="flex:1;">
+                <b>{{ c.counterparty_username }}</b>
+                <span class="tg-pill tg-pill-ok">connected</span>
+              </div>
               <button class="btn btn-ghost btn-sm" @click="removeContact(c)">Remove</button>
             </div>
             <div class="tg-label-row">
@@ -824,22 +855,13 @@ function expiresIn(r) {
               <button class="btn btn-ghost btn-sm" @click="saveLabel(c)">Save</button>
             </div>
           </div>
-          <div v-if="contactsOutgoing.length" style="margin-top:0.75rem;">
-            <div class="text-dim text-xs" style="margin-bottom:0.25rem;">Pending (awaiting their approval)</div>
-            <div v-for="c in contactsOutgoing" :key="c.id" class="tg-req">
-              <div class="tg-req-row">
-                <div class="text-sm text-dim"><b>{{ c.counterparty_username }}</b> · pending</div>
-                <button class="btn btn-ghost btn-sm" @click="removeContact(c)">Cancel</button>
-              </div>
-            </div>
-          </div>
           <div v-if="contactsDeclined.length" style="margin-top:0.75rem;">
             <div class="text-dim text-xs" style="margin-bottom:0.25rem;">Declined</div>
             <div v-for="c in contactsDeclined" :key="c.id" class="tg-req">
               <div class="tg-req-row">
                 <div class="text-sm">
                   <b>{{ c.counterparty_username }}</b>
-                  <span class="text-orange"> · declined your request</span>
+                  <span class="tg-pill tg-pill-off">declined</span>
                 </div>
                 <button class="btn btn-ghost btn-sm" @click="dismissDeclined(c)">Dismiss</button>
               </div>
@@ -1120,6 +1142,13 @@ function expiresIn(r) {
 .tg-cancelled { opacity: 0.55; }
 .tg-txid { color: inherit; text-decoration: underline dotted; }
 .tg-note { margin: 0.5rem 0; font-size: 0.8rem; line-height: 1.4; }
+.tg-pill {
+  display: inline-block; margin-left: 0.4rem; padding: 0.05rem 0.4rem;
+  border-radius: 999px; font-size: 0.65rem; vertical-align: middle;
+  background: rgba(255,180,0,0.18); color: #ffb400;
+}
+.tg-pill-ok { background: rgba(63,168,106,0.18); color: #3fa86a; }
+.tg-pill-off { background: rgba(255,255,255,0.08); color: var(--text-dim); }
 .tg-num { max-width: 110px; align-self: flex-start; }
 .tg-amt { max-width: 140px; align-self: flex-start; }
 .fee-tiers { display: grid; grid-template-columns: repeat(auto-fit, minmax(96px,1fr)); gap: 8px; }
