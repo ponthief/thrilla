@@ -943,7 +943,7 @@ export async function payjoinResolvePayer(inkey, username) {
 // hear, since an account may hold wallets on several networks while a build
 // does not. Omitted by the PSBT PayJoin page, which is not network-scoped;
 // the server then falls back to every network the caller is on.
-export async function payjoinContactRequest(inkey, username, network) {
+export async function payjoinContactRequest(inkey, username, network = NETWORK_LOCK) {
   return req(`${SILNT}/api/v1/payjoin/contacts`, {
     method: 'POST', headers: keyHeaders(inkey),
     body: JSON.stringify(network ? { username, network } : { username }),
@@ -952,7 +952,7 @@ export async function payjoinContactRequest(inkey, username, network) {
 // With `network`, accepted rows carry `on_network`: whether that person could
 // actually take part. Annotated rather than filtered, so a connection made
 // before this check existed can still be seen and removed.
-export async function payjoinListContacts(inkey, network) {
+export async function payjoinListContacts(inkey, network = NETWORK_LOCK) {
   const q = network ? `?network=${encodeURIComponent(network)}` : ''
   return req(`${SILNT}/api/v1/payjoin/contacts${q}`, { headers: keyHeaders(inkey) })
 }
@@ -977,7 +977,7 @@ export async function payjoinContactLabel(inkey, cid, label) {
   })
 }
 // Accepted connections for the invoice payer-picker.
-export async function payjoinListPayers(inkey, network) {
+export async function payjoinListPayers(inkey, network = NETWORK_LOCK) {
   const q = network ? `?network=${encodeURIComponent(network)}` : ''
   return req(`${SILNT}/api/v1/payjoin/payers${q}`, { headers: keyHeaders(inkey) })
 }
@@ -1092,8 +1092,12 @@ export async function tangoPropose(adminkey, body) {
   })
 }
 
-export async function tangoList(inkey) {
-  return req(`${SILNT}/api/v1/tango/rounds`, { headers: keyHeaders(inkey) })
+// Scoped to the build's network by default, like the calls above. Every Tango
+// surface reads this list — the Rounds and Past tabs, the nav badge, the
+// watcher's toasts — so unscoped it showed a signet round in a mainnet build.
+export async function tangoList(inkey, network = NETWORK_LOCK) {
+  const q = network ? `?network=${encodeURIComponent(network)}` : ''
+  return req(`${SILNT}/api/v1/tango/rounds${q}`, { headers: keyHeaders(inkey) })
 }
 
 export async function tangoGet(inkey, rid) {

@@ -1303,7 +1303,7 @@ export interface Connections {
 
 export async function listConnections(
   inkey: string,
-  network?: string,
+  network: string | undefined = Config.NETWORK_LOCK || undefined,
 ): Promise<Connections> {
   const q = network ? `?network=${encodeURIComponent(network)}` : '';
   const res = await req<any>(`${SILNT}/api/v1/payjoin/contacts${q}`, {
@@ -1320,7 +1320,7 @@ export async function listConnections(
 export async function requestConnection(
   inkey: string,
   username: string,
-  network: string,
+  network: string | undefined = Config.NETWORK_LOCK || undefined,
 ): Promise<unknown> {
   // The network matters: an LNbits account is global, a wallet belongs to one
   // network, and a connection to somebody with no wallet on yours can never
@@ -1382,7 +1382,7 @@ export interface ConnectedPartner {
  */
 export async function listConnectedPartners(
   inkey: string,
-  network?: string,
+  network: string | undefined = Config.NETWORK_LOCK || undefined,
 ): Promise<ConnectedPartner[]> {
   const q = network ? `?network=${encodeURIComponent(network)}` : '';
   const res = await req<any>(`${SILNT}/api/v1/payjoin/payers${q}`, {
@@ -1450,8 +1450,16 @@ export async function proposeTango(
   });
 }
 
-export async function listTango(inkey: string): Promise<{ rounds: TangoRoundRow[] }> {
-  return req(`${SILNT}/api/v1/tango/rounds`, { headers: apiKey(inkey) });
+// Scoped to the build's NETWORK_LOCK by default, the same as wallets, the
+// chain tip and the config. Every Tango surface reads this list — the Rounds
+// and Past tabs, the tab badge, the watcher's banners — so unscoped it showed
+// a signet round in the mainnet app.
+export async function listTango(
+  inkey: string,
+  network: string | undefined = Config.NETWORK_LOCK || undefined,
+): Promise<{ rounds: TangoRoundRow[] }> {
+  const q = network ? `?network=${encodeURIComponent(network)}` : '';
+  return req(`${SILNT}/api/v1/tango/rounds${q}`, { headers: apiKey(inkey) });
 }
 
 export async function getTango(inkey: string, rid: string): Promise<TangoRoundRow> {
