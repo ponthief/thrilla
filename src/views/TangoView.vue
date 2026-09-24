@@ -783,7 +783,9 @@ function expiresIn(r) {
             connected until one side removes it.
           </p>
           <p class="text-dim text-xs">
-            This is one list of people, shared with PayJoin — approving someone
+            Connections are per network: this list is your {{ wallet?.network }}
+            connections, and removing one here does not touch another network's.
+            It is shared with PayJoin on the same network — approving someone
             here connects you for both.
           </p>
           <label class="text-dim text-xs" style="display:block; margin-bottom:4px;">Username</label>
@@ -853,9 +855,9 @@ function expiresIn(r) {
                 </span>
                 <span v-else class="tg-pill tg-pill-ok">connected</span>
                 <div v-if="c.on_network === false" class="text-xs text-dim">
-                  They have no wallet on {{ wallet?.network }}, so a Tango with
-                  them cannot be built. Shown here so you can remove them; they
-                  are not offered under Mix.
+                  They no longer have a wallet on {{ wallet?.network }}, so a
+                  Tango with them cannot be built. Shown so you can see why and
+                  remove them; they are not offered under Mix.
                 </div>
               </div>
               <button class="btn btn-ghost btn-sm" @click="removeContact(c)">Remove</button>

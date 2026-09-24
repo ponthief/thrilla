@@ -763,7 +763,12 @@ export default function TangoScreen() {
         <>
           <Group
             title="Add someone"
-            footer="Connect by WhiSPa username. They approve, then either of you can propose a Tango — it stays connected until one side removes it. This is one list of people, shared with the PSBT PayJoin on the web.">
+            footer={
+              `Connect by WhiSPa username. They approve, then either of you can ` +
+              `propose a Tango — it stays connected until one side removes it. ` +
+              `Connections are per network: these are your ${network} ones, and ` +
+              `removing one here does not touch another network's.`
+            }>
             <Block>
               <Field
                 value={newPerson}
@@ -844,9 +849,9 @@ export default function TangoScreen() {
                     </View>
                     {c.on_network === false ? (
                       <Text style={styles.warn}>
-                        They have no wallet on {network}, so a Tango with them
-                        cannot be built. They appear here so you can remove
-                        them; they are not offered under Mix.
+                        They no longer have a wallet on {network}, so a Tango
+                        with them cannot be built. Shown so you can see why and
+                        remove them; they are not offered under Mix.
                       </Text>
                     ) : null}
                     <View style={{ height: space.xs }} />

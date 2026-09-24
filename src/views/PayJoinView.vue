@@ -6,6 +6,10 @@ import { pushToast } from '@/stores/toasts'
 import { refreshPayjoinWatch } from '@/stores/payjoinwatch'
 
 const auth = useAuthStore()
+// The network this build is locked to. Connections are per-network, and this
+// page has no single wallet to read one off — its descriptors are all on the
+// build's network, which is the same answer.
+const NETWORK = import.meta.env.VITE_NETWORK_LOCK || undefined
 const tab = ref('wallets')   // 'wallets' | 'create' | 'requests' | 'history'
 const refreshing = ref(false)
 const mempoolUrl = ref('https://mempool.space')
@@ -122,13 +126,20 @@ const invLoading = ref(false)
 const creating = ref(false)
 
 async function loadPayers() {
-  try { payers.value = (await api.payjoinListPayers(auth.inkey)).payers || [] }
+  // A connection belongs to one network. This build is locked to one, and the
+  // descriptors it imports are all on it, so that is the scope — without it
+  // the picker would offer a connection made on another network and the
+  // invoice endpoint would refuse it.
+  try {
+    payers.value =
+      (await api.payjoinListPayers(auth.inkey, NETWORK)).payers || []
+  }
   catch (e) { payers.value = [] }
 }
 
 async function loadContacts(silent = false) {
   try {
-    const res = await api.payjoinListContacts(auth.inkey)
+    const res = await api.payjoinListContacts(auth.inkey, NETWORK)
     const a = res.accepted || [], i = res.incoming || [], o = res.outgoing || [], d = res.declined || []
     if (JSON.stringify(contactsAccepted.value) !== JSON.stringify(a)) contactsAccepted.value = a
     if (JSON.stringify(contactsIncoming.value) !== JSON.stringify(i)) contactsIncoming.value = i
@@ -158,7 +169,7 @@ async function sendContactRequest() {
   if (!username) { pushToast('Enter a username.', { type: 'warn' }); return }
   addingContact.value = true
   try {
-    await api.payjoinContactRequest(auth.inkey, username)
+    await api.payjoinContactRequest(auth.inkey, username, NETWORK)
     newContact.value = ''
     // The endpoint now refuses a username nobody holds, so this no longer
     // has to hedge about whether anyone received it.
