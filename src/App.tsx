@@ -17,7 +17,7 @@ import WalletScreen from './screens/WalletScreen';
 import SendScreen from './screens/SendScreen';
 import ReceiveScreen from './screens/ReceiveScreen';
 import SettingsScreen from './screens/SettingsScreen';
-import PayjoinScreen from './screens/PayjoinScreen';
+import TangoScreen from './screens/TangoScreen';
 import LoginScreen from './screens/LoginScreen';
 import RegisterScreen from './screens/RegisterScreen';
 import ForgotPasswordScreen from './screens/ForgotPasswordScreen';
@@ -40,7 +40,7 @@ import PushBanner from './components/PushBanner';
 import BitcoinSign from './components/BitcoinSign';
 import { useSendConfirmations } from './hooks/useSendConfirmations';
 import { usePlainWatch } from './hooks/usePlainWatch';
-import { usePayjoinWatch } from './hooks/usePayjoinWatch';
+import { useTangoWatch } from './hooks/useTangoWatch';
 import { useNavStore, TabKey as NavTabKey } from '@stores/navStore';
 import { useTxLabelStore } from '@stores/txLabelStore';
 import { usePlainHistory } from '@stores/plainHistoryStore';
@@ -65,10 +65,10 @@ const TABS: {
   { key: 'wallet', label: 'Wallet', Icon: BitcoinSign, Screen: WalletScreen },
   { key: 'send', label: 'Send', icon: '↑', Screen: SendScreen },
   { key: 'receive', label: 'Receive', icon: '↓', Screen: ReceiveScreen },
-  // Its own tab, not a Settings page. The other party can start a PayJoin,
+  // Its own tab, not a Settings page. The other party can start a Tango,
   // and something you did not start has to be somewhere you pass without
   // going looking — the same argument as Send and Receive.
-  { key: 'payjoin', label: 'PayJoin', icon: '⇆', Screen: PayjoinScreen },
+  { key: 'tango', label: 'Tango', icon: '⇄', Screen: TangoScreen },
   { key: 'settings', label: 'Settings', icon: '⚙', Screen: SettingsScreen },
 ];
 
@@ -94,9 +94,10 @@ function TabBar({
   onSelect: (key: TabKey) => void;
 }) {
   const insets = useSafeAreaInsets();
-  // A PayJoin waiting on you is the one thing in this app that goes stale on
-  // its own — they expire in a day — so it gets a count, not just a dot.
-  const payjoinPending = useNavStore((s) => s.payjoinPending);
+  // A Tango waiting on you is the one thing in this app that goes stale on
+  // its own — rounds expire in a day, with both sides' coins reserved against
+  // them until they do — so it gets a count, not just a dot.
+  const tangoPending = useNavStore((s) => s.tangoPending);
   return (
     <View style={[styles.tabBar, { paddingBottom: Math.max(insets.bottom, 8) }]}>
       {TABS.map((tab) => {
@@ -112,10 +113,10 @@ function TabBar({
             accessibilityLabel={tab.label}>
             <View style={styles.tabIconBox}>
               {TabIconFor(tab, color)}
-              {tab.key === 'payjoin' && payjoinPending > 0 ? (
+              {tab.key === 'tango' && tangoPending > 0 ? (
                 <View style={styles.tabBadge}>
                   <Text style={styles.tabBadgeText}>
-                    {payjoinPending > 9 ? '9+' : payjoinPending}
+                    {tangoPending > 9 ? '9+' : tangoPending}
                   </Text>
                 </View>
               ) : null}
@@ -139,9 +140,9 @@ function Shell() {
   // Coins arriving on the plain bech32 chain: nothing else would notice them,
   // since they are not Silent Payments outputs the scanner finds.
   usePlainWatch();
-  // Whose turn it is in an SP PayJoin. App-wide rather than on the PayJoin tab,
+  // Whose turn it is in a Tango. App-wide rather than on the Tango tab,
   // because the point is to notice one while you are somewhere else.
-  usePayjoinWatch();
+  useTangoWatch();
   // Device-only transaction labels: read once from the keystore so the wallet
   // list can render them synchronously.
   const loadTxLabels = useTxLabelStore((s) => s.load);

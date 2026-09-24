@@ -1430,3 +1430,109 @@ export async function derivePayjoinSp(
     body: JSON.stringify(body),
   });
 }
+
+// ── Tango ───────────────────────────────────────────────────────────────────
+// A two-party equal-output mix. Nobody pays anybody: both sides put in the
+// same amount and take the same amount back. Nothing here carries a key — the
+// scripts are derived on the device and the witnesses are signatures.
+
+export interface TangoRoundRow {
+  id: string;
+  status: string;
+  network: string;
+  a_username: string;
+  b_username: string;
+  a_wallet_id: string;
+  b_wallet_id?: string | null;
+  denom_sats: number;
+  fee_rate: number;
+  a_in_sats?: number | null;
+  b_in_sats?: number | null;
+  a_change_sats?: number | null;
+  b_change_sats?: number | null;
+  a_fee_sats?: number | null;
+  b_fee_sats?: number | null;
+  fee_sats?: number | null;
+  vsize?: number | null;
+  /** True only when NEITHER side needed change. */
+  clean?: boolean | null;
+  a_inputs?: string | null;
+  b_inputs?: string | null;
+  a_mix_spk?: string | null;
+  a_change_spk?: string | null;
+  b_mix_spk?: string | null;
+  b_change_spk?: string | null;
+  txid?: string | null;
+  reject_reason?: string | null;
+  expires_at?: number | null;
+  /** Which side you are. Only on the single-round fetch and the list. */
+  role?: 'a' | 'b';
+  my_inputs?: number[];
+}
+
+export async function proposeTango(
+  adminkey: string,
+  body: {
+    wallet_id: string;
+    partner_username: string;
+    denom_sats: number;
+    fee_rate: number;
+    inputs: PayjoinSpWireInput[];
+    network: string;
+  },
+): Promise<TangoRoundRow> {
+  return req(`${SILNT}/api/v1/tango/rounds`, {
+    method: 'POST',
+    headers: apiKey(adminkey),
+    body: JSON.stringify(body),
+  });
+}
+
+export async function listTango(inkey: string): Promise<{ rounds: TangoRoundRow[] }> {
+  return req(`${SILNT}/api/v1/tango/rounds`, { headers: apiKey(inkey) });
+}
+
+export async function getTango(inkey: string, rid: string): Promise<TangoRoundRow> {
+  return req(`${SILNT}/api/v1/tango/rounds/${rid}`, { headers: apiKey(inkey) });
+}
+
+export async function acceptTango(
+  adminkey: string,
+  rid: string,
+  body: {
+    wallet_id: string;
+    inputs: PayjoinSpWireInput[];
+    mix_spk: string;
+    change_spk?: string | null;
+  },
+): Promise<TangoRoundRow> {
+  return req(`${SILNT}/api/v1/tango/rounds/${rid}/accept`, {
+    method: 'POST',
+    headers: apiKey(adminkey),
+    body: JSON.stringify(body),
+  });
+}
+
+export async function signTango(
+  adminkey: string,
+  rid: string,
+  body: {
+    witnesses: Record<string, string>;
+    mix_spk?: string | null;
+    change_spk?: string | null;
+    unsigned_tx?: string;
+  },
+): Promise<TangoRoundRow> {
+  return req(`${SILNT}/api/v1/tango/rounds/${rid}/sign`, {
+    method: 'POST',
+    headers: apiKey(adminkey),
+    body: JSON.stringify(body),
+  });
+}
+
+export async function cancelTango(adminkey: string, rid: string): Promise<TangoRoundRow> {
+  return req(`${SILNT}/api/v1/tango/rounds/${rid}/cancel`, {
+    method: 'POST',
+    headers: apiKey(adminkey),
+  });
+}

@@ -2,6 +2,7 @@ import * as api from '@services/api';
 import { wipeAllWalletKeys } from '@services/secureKeys';
 import { clearSession } from '@services/session';
 import { forgetPlainDerivations } from '@services/spKeys';
+import { wipeTangoCommits } from '@services/tangoCommit';
 import { useSeedBackup } from '@stores/seedBackup';
 import { useTxLabelStore } from '@stores/txLabelStore';
 import { usePlainHistory } from '@stores/plainHistoryStore';
@@ -44,6 +45,13 @@ export async function runDuress(
   }
   try {
     await usePlainHistory.getState().clearAll();
+  } catch {
+    /* best-effort */
+  }
+  // And the record of which coins went into which Tango, with whom: a mix is
+  // only private while nothing on the device says what was mixed.
+  try {
+    await wipeTangoCommits();
   } catch {
     /* best-effort */
   }
