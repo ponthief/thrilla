@@ -542,3 +542,16 @@ export function undoesARound(labels: (string | null | undefined)[]): string | nu
   if (!mixed.size || !hasChange) return null;
   return [...mixed].sort().join(' and ');
 }
+
+// The turn table and the step wording live in their own module with no
+// imports, so the always-running watchers can read them without pulling the
+// cryptography below into the main bundle. Re-exported here for the screens,
+// which need both halves anyway.
+export {
+  TERMINAL_STATUSES,
+  STEPS,
+  whoseTurn,
+  isMyTurn,
+  stepNumber,
+  turnLine,
+} from './tangoTurns';

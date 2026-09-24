@@ -29,6 +29,8 @@ import { ref } from 'vue'
 import { useAuthStore } from '@/stores/auth'
 import { pushToast } from '@/stores/toasts'
 import * as api from '@/api'
+// One turn table for every Tango surface — see services/tango.ts.
+import { isMyTurn } from '@/services/tangoTurns'
 
 export const tangoPending = ref(0)
 export const tangoRounds = ref([])
@@ -38,13 +40,6 @@ export const tangoVersion = ref(0)
 let _timer = null
 let _knownTurns = new Set()
 let _primed = false   // no toasts on the first poll: those rounds already existed
-
-// Whose move each state is. Mirrors helpers/tango.py::whose_turn.
-const TURN = {
-  PROPOSED: 'b',
-  ACCEPTED: 'a',
-  A_SIGNED: 'b',
-}
 
 async function _poll() {
   const auth = useAuthStore()
@@ -56,7 +51,7 @@ async function _poll() {
   const rounds = (data && data.rounds) || []
   tangoRounds.value = rounds
 
-  const mine = rounds.filter((r) => r.role && TURN[r.status] === r.role)
+  const mine = rounds.filter((r) => isMyTurn(r.status, r.role))
   tangoPending.value = mine.length
 
   // Keyed on id AND status, not id alone: the same round becomes your turn

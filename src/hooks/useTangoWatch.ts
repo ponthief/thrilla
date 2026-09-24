@@ -5,6 +5,8 @@ import { useAuthStore } from '@stores/authStore';
 import { useNavStore } from '@stores/navStore';
 import { usePushBanner } from '@stores/pushBanner';
 import { paymentAlertsOn } from '@stores/notifyStore';
+// One turn table for every Tango surface — see services/tango.ts.
+import { isMyTurn } from '@services/tangoTurns';
 
 // Watches the Tango queue so a turn does not go unnoticed.
 //
@@ -22,15 +24,6 @@ import { paymentAlertsOn } from '@stores/notifyStore';
 // are reserved against it until it expires.
 
 const POLL_MS = 20000;
-
-// Mirrors helpers/tango.py::whose_turn, which remains the authority. This only
-// decides what to badge and announce; the endpoints refuse an out-of-turn call
-// whatever this says.
-const TURN: Record<string, 'a' | 'b'> = {
-  PROPOSED: 'b',
-  ACCEPTED: 'a',
-  A_SIGNED: 'b',
-};
 
 export function useTangoWatch(): void {
   const inkey = useAuthStore((s) => s.inkey);
@@ -59,9 +52,7 @@ export function useTangoWatch(): void {
       }
       if (cancelled) return;
 
-      const mine = (data.rounds || []).filter(
-        (r) => r.role && TURN[r.status] === r.role,
-      );
+      const mine = (data.rounds || []).filter((r) => isMyTurn(r.status, r.role));
       setPending(mine.length);
 
       const current = new Set(mine.map((r) => `${r.id}:${r.status}`));

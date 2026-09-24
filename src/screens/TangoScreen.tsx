@@ -511,11 +511,6 @@ export default function TangoScreen() {
   const sats = (n?: number | null) =>
     n == null ? '—' : hidden ? MASK : `${n.toLocaleString()} sats`;
 
-  // Mirrors tango.py::whose_turn, which stays the authority.
-  const TURN: Record<string, 'a' | 'b'> = {
-    PROPOSED: 'b', ACCEPTED: 'a', A_SIGNED: 'b',
-  };
-
   // Who did the last thing, named.
   //
   // The stored statuses carry the role names the protocol needs — A proposes,
@@ -552,7 +547,7 @@ export default function TangoScreen() {
 
   const renderRound = (r: Row) => {
     const side = r.role!;
-    const mine = TURN[r.status] === side;
+    const mine = tango.isMyTurn(r.status, side);
     const other = side === 'a' ? r.b_username : r.a_username;
     const myChange = side === 'a' ? r.a_change_sats : r.b_change_sats;
     return (
@@ -562,6 +557,12 @@ export default function TangoScreen() {
           <Text style={styles.rowStatus}>{statusLabel(r)}</Text>
         </View>
         <Text style={styles.rowAmount}>{sats(r.denom_sats)} each</Text>
+        {tango.stepNumber(r.status) ? (
+          <Text style={styles.rowMeta}>
+            Step {tango.stepNumber(r.status)} of {tango.STEPS.length} ·{' '}
+            {tango.turnLine(r.status, side, other)}
+          </Text>
+        ) : null}
         {r.fee_sats != null ? (
           <Text style={styles.rowMeta}>
             your fee {sats(side === 'a' ? r.a_fee_sats : r.b_fee_sats)} · {r.vsize} vB
@@ -599,7 +600,7 @@ export default function TangoScreen() {
     );
   };
 
-  const mineNow = (r: Row) => !!r.role && TURN[r.status] === r.role;
+  const mineNow = (r: Row) => tango.isMyTurn(r.status, r.role);
   const waiting = rounds.filter(mineNow);
   const theirs = rounds.filter((r) => !TERMINAL.includes(r.status) && !mineNow(r));
   const past = rounds
@@ -746,6 +747,18 @@ export default function TangoScreen() {
                   !!preview?.error
                 }
               />
+            </Block>
+          </Group>
+
+          <Group
+            title="How a round goes"
+            footer="Four steps, and they cannot be fewer: every output is derived from both sides' coins, so nothing can be derived until they are all in — and a signature covers every output, so they all have to exist before either side signs.">
+            <Block>
+              {tango.STEPS.map((step, i) => (
+                <Text key={step} style={styles.rowMeta}>
+                  {i + 1}. {i === 0 ? 'You propose — ' : ''}{step}
+                </Text>
+              ))}
             </Block>
           </Group>
 

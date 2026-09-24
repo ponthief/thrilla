@@ -532,7 +532,7 @@ async function cancel(r) {
 }
 
 // ── grouping ────────────────────────────────────────────────────────────────
-const TERMINAL = ['BROADCAST', 'CANCELLED']
+const TERMINAL = tango.TERMINAL_STATUSES
 
 // Whose move it is. Mirrors helpers/tango.py::whose_turn, which is the
 // authority; this only decides which button to draw, and the endpoint refuses
@@ -591,20 +591,12 @@ function statusLabel(r) {
 // button reading "Sign" for both gives no way to tell.
 const signLabel = (r) => (r.status === 'A_SIGNED' ? 'Finish & send' : 'Approve mix')
 
-// What the person looking at this row is being asked for, in their own terms.
-function whatNow(r) {
-  if (TERMINAL.includes(r.status)) return ''
-  if (!myTurn(r)) {
-    const who = partnerOf(r) || 'them'
-    return r.status === 'PROPOSED'
-      ? `Waiting for ${who} to match it.`
-      : `Waiting for ${who} to approve it.`
-  }
-  if (r.status === 'PROPOSED') return 'Choose your coins and match it.'
-  return r.status === 'A_SIGNED'
-    ? 'Yours finishes it and sends it.'
-    : 'It needs your approval.'
-}
+// What the person looking at this row is being asked for, in their own terms,
+// and how far along the round is. Both from services/tango.ts so the phone and
+// the browser cannot describe the same round differently.
+const whatNow = (r) => tango.turnLine(r.status, r.role, partnerOf(r))
+const stepOf = (r) => tango.stepNumber(r.status)
+const TOTAL_STEPS = tango.STEPS.length
 
 function expiresIn(r) {
   if (!r.expires_at || TERMINAL.includes(r.status)) return ''
@@ -668,6 +660,23 @@ function expiresIn(r) {
             ⚠ This browser does not hold this wallet’s keys, so it cannot derive
             an output or sign an input. Unlock the wallet on the Send page first.
           </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-header">How a round goes</div>
+        <div class="card-body">
+          <ol class="tg-steps text-sm text-dim">
+            <li v-for="(step, i) in tango.STEPS" :key="step">
+              <template v-if="i === 0">You propose — </template>{{ step }}
+            </li>
+          </ol>
+          <p class="text-dim text-xs">
+            Four steps, and they cannot be fewer: every output is derived from
+            both sides' coins, so nothing can be derived until they are all in —
+            and a signature covers every output, so they all have to exist
+            before either side signs.
+          </p>
         </div>
       </div>
 
@@ -912,6 +921,9 @@ function expiresIn(r) {
                   <span class="mono">{{ fmtSats(r.denom_sats) }} each</span>
                 </div>
                 <div class="text-xs text-dim">
+                  <template v-if="stepOf(r)">
+                    Step {{ stepOf(r) }} of {{ TOTAL_STEPS }} ·
+                  </template>
                   {{ statusLabel(r) }} · {{ whatNow(r) }}
                   <span v-if="expiresIn(r)"> · {{ expiresIn(r) }}</span>
                 </div>
@@ -1013,6 +1025,9 @@ function expiresIn(r) {
                   <span class="mono">{{ fmtSats(r.denom_sats) }} each</span>
                 </div>
                 <div class="text-xs text-dim">
+                  <template v-if="stepOf(r)">
+                    Step {{ stepOf(r) }} of {{ TOTAL_STEPS }} ·
+                  </template>
                   {{ statusLabel(r) }} · {{ whatNow(r) }}
                   <span v-if="expiresIn(r)"> · {{ expiresIn(r) }}</span>
                 </div>
@@ -1160,6 +1175,7 @@ function expiresIn(r) {
 .tg-cancelled { opacity: 0.55; }
 .tg-txid { color: inherit; text-decoration: underline dotted; }
 .tg-note { margin: 0.5rem 0; font-size: 0.8rem; line-height: 1.4; }
+.tg-steps { margin: 0 0 0.5rem; padding-left: 1.2rem; line-height: 1.6; }
 .tg-pill {
   display: inline-block; margin-left: 0.4rem; padding: 0.05rem 0.4rem;
   border-radius: 999px; font-size: 0.65rem; vertical-align: middle;
