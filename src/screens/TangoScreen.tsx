@@ -217,7 +217,11 @@ export default function TangoScreen() {
     try {
       await api.requestConnection(inkey, username);
       setNewPerson('');
-      setMsg('If that username belongs to a user, they will get your request.');
+      // Names the person back. The endpoint refuses a username nobody holds,
+      // so reaching here means it went to a real account — and seeing which
+      // one is what catches the other kind of typo, the one that lands on
+      // somebody.
+      setMsg(`Request sent to ${username}. They have to approve it.`);
       await refreshPeople();
     } catch (e) {
       fail(e);

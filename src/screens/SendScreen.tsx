@@ -17,6 +17,7 @@ import Clipboard from '@react-native-clipboard/clipboard';
 import { useAuthStore } from '@stores/authStore';
 import { useAppLockStore } from '@stores/appLockStore';
 import * as api from '@services/api';
+import { undoesARound } from '@services/tango';
 import { getWalletKeys } from '@services/secureKeys';
 import { usePendingSends } from '@stores/pendingSends';
 import { useTxLabelStore } from '@stores/txLabelStore';
@@ -393,6 +394,29 @@ export default function SendScreen() {
   // about it would be noise. ~1 hour without scanning is worth flagging.
   const behind = !scanActive && blocksBehind > STALE_BLOCKS;
 
+  // A Tango's own share selected together with its own change. Not a matter of
+  // degree like the multi-input caution below it: a round's change and its
+  // share add up to what that side put in, so the two shares — identical on
+  // chain, a coin flip to an observer — become attributable the moment one
+  // transaction says they have the same owner. It does not weaken that round,
+  // it undoes it, and no later mix puts it back.
+  //
+  // services/tango.ts::undoesARound is the rule, mirrored from
+  // helpers/tango.py and cross-checked by check:signing:tango. It reads the
+  // labels the backend writes when the scanner finds the coins.
+  const tangoPairing = useMemo(
+    () => undoesARound(selectedUtxos.map((u) => u.label)),
+    [selectedUtxos],
+  );
+  // Gates Build rather than merely appearing above it. The user can still say
+  // yes — consolidating a round they have stopped caring about is their call —
+  // but not by not noticing. Cleared whenever the pairing changes, so a tick
+  // made for one selection cannot carry to another.
+  const [tangoAck, setTangoAck] = useState(false);
+  useEffect(() => {
+    setTangoAck(false);
+  }, [tangoPairing]);
+
   const canBuild =
     !!recipient.trim() &&
     amountSats > 0 &&
@@ -404,7 +428,8 @@ export default function SendScreen() {
     !bitmailInvalid &&
     !bitmailChecking &&
     !noKeys &&
-    !scanActive;
+    !scanActive &&
+    (!tangoPairing || tangoAck);
 
   const pickTier = useCallback(
     (key: keyof api.FeeTiers | 'custom') => {
@@ -1145,7 +1170,31 @@ export default function SendScreen() {
             </View>
           ) : null}
 
-          {selectedUtxos.length > 1 ? (
+          {tangoPairing ? (
+            <View style={styles.privacyWarn}>
+              <Text style={styles.privacyText}>
+                ⚠ This undoes your Tango with {tangoPairing}. You have selected
+                both your share of that mix and the change from it. The two add
+                up to what you put in, so spending them together tells anyone
+                reading the chain that one person owns both — and the two equal
+                outputs, which were a coin flip until now, become attributable.
+                Nothing undoes that afterwards. Send them in separate
+                transactions, or drop one from the selection.
+              </Text>
+              <TouchableOpacity
+                style={styles.ackRow}
+                onPress={() => setTangoAck((v) => !v)}
+                accessibilityRole="checkbox"
+                accessibilityState={{ checked: tangoAck }}>
+                <View style={[styles.checkbox, tangoAck && styles.checkboxOn]}>
+                  {tangoAck ? <Text style={styles.checkMark}>✓</Text> : null}
+                </View>
+                <Text style={styles.privacyText}>
+                  I understand, spend them together anyway
+                </Text>
+              </TouchableOpacity>
+            </View>
+          ) : selectedUtxos.length > 1 ? (
             <View style={styles.privacyWarn}>
               <Text style={styles.privacyText}>
                 ⚠ Combining {selectedUtxos.length} coins in one transaction links
@@ -1486,6 +1535,12 @@ const styles = StyleSheet.create({
     marginTop: 14,
   },
   privacyText: { fontSize: 13, color: colors.primary, lineHeight: 18 },
+  ackRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    marginTop: 10,
+  },
 
   // Two weights, because the two cases need different responses. Amber warns
   // and lets you continue (the lookup didn't complete — the address may be

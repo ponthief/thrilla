@@ -243,6 +243,45 @@ console.log('\nguards');
     forged === null || toHex(forged.mix) !== toHex(bOut.mix));
 }
 
+// ── the coin labels, and the pairing a client must refuse ────────────────────
+// The backend writes these labels; the clients read them and refuse the one
+// combination that undoes a round. A prefix that drifted by a character would
+// stop refusing anything while every other check here still passed.
+
+console.log('\nlabels');
+{
+  const L = data.labels;
+  ok('the mixed share is named after the counterparty',
+    t.mixLabel('alice') === L.mix, `js ${t.mixLabel('alice')} vs py ${L.mix}`);
+  ok('so is the change',
+    t.changeLabel('alice') === L.change,
+    `js ${t.changeLabel('alice')} vs py ${L.change}`);
+  ok('an unnamed round still names its coins',
+    t.mixLabel(null) === L.bare_mix && t.changeLabel('') === L.bare_change);
+
+  let agree = true;
+  let where = '';
+  for (const c of L.cases) {
+    const mine = t.undoesARound(c.labels);
+    if (mine !== c.undoes) {
+      agree = false;
+      where = `${JSON.stringify(c.labels)}: js ${JSON.stringify(mine)} vs py ${JSON.stringify(c.undoes)}`;
+      break;
+    }
+  }
+  ok(`both sides agree on all ${L.cases.length} selections`, agree, where);
+
+  // Stated separately from the table so the point is not just "they agree".
+  ok('a share with its own change is refused',
+    t.undoesARound(['Tango mix - alice', 'Tango change - alice']) === 'alice');
+  ok('two shares together are not this failure',
+    t.undoesARound(['Tango mix - alice', 'Tango mix - bob']) === null);
+  ok('nor is one person\'s share with another\'s change',
+    t.undoesARound(['Tango mix - alice', 'Tango change - bob']) === null);
+  ok('a label the user wrote themselves is left alone',
+    t.undoesARound(['my Tango mix - alice', 'Tango change - alice']) === null);
+}
+
 console.log(
   failed
     ? `\n${failed} check(s) failed`

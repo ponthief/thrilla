@@ -160,7 +160,9 @@ async function sendContactRequest() {
   try {
     await api.payjoinContactRequest(auth.inkey, username)
     newContact.value = ''
-    pushToast('If that username belongs to a user, they’ll get your request.', { type: 'success' })
+    // The endpoint now refuses a username nobody holds, so this no longer
+    // has to hedge about whether anyone received it.
+    pushToast(`Request sent to ${username}. They have to approve it.`, { type: 'success' })
     await loadContacts()
   } catch (e) { pushToast(e.detail || e.message || 'Could not send request.', { type: 'error' }) }
   finally { addingContact.value = false }

@@ -125,7 +125,10 @@ async function sendContactRequest() {
   try {
     await api.payjoinContactRequest(auth.inkey, username)
     newContact.value = ''
-    pushToast('If that username belongs to a user, they’ll get your request.',
+    // Names the person back. The endpoint refuses a username nobody holds,
+    // so reaching here means it went to a real account — and seeing which one
+    // is what catches the other kind of typo, the one that lands on somebody.
+    pushToast(`Request sent to ${username}. They have to approve it.`,
       { type: 'success' })
     await loadContacts()
   } catch (e) {

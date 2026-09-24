@@ -11,6 +11,7 @@ import {
 } from '@/services/spSign'
 import { useAmount } from '@/composables/useAmount'
 import { saveTxRecipientLabel, saveSwapTxLabel } from '@/stores/txlabels'
+import { undoesARound } from '@/services/tango'
 import { pushToast } from '@/stores/toasts'
 import { addPendingSend } from '@/stores/pendingsends'
 import QrScanModal from '@/components/QrScanModal.vue'
@@ -115,6 +116,25 @@ const mixedLabels = computed(() => {
   return null
 })
 
+// A Tango's own share spent together with its own change. Not a matter of
+// degree like the two warnings around it: a round's change and its share add
+// up to what that side put in, so the two shares — identical on chain, a coin
+// flip to an observer — become attributable the moment one transaction says
+// they have the same owner. It does not weaken that round, it undoes it, and
+// no later mix puts it back.
+//
+// services/tango.ts::undoesARound is the rule, mirrored from helpers/tango.py
+// and cross-checked by check:signing:tango. It reads the labels the backend
+// writes when the scanner finds the coins.
+const tangoPairing = computed(() =>
+  undoesARound(selectedUtxos.value.map((u) => u.label)),
+)
+// Gates Build rather than merely appearing above it. The user can still say
+// yes — consolidating a round you have stopped caring about is their call —
+// but not by not noticing.
+const tangoAck = ref(false)
+watch(tangoPairing, () => { tangoAck.value = false })
+
 // Privacy: any transaction combining 2+ inputs links those coins on-chain
 // (common-input-ownership heuristic), regardless of labels. Surfaced as a softer
 // caution when the inputs share a label (or are all unlabeled), since the
@@ -182,7 +202,8 @@ const canBuild = computed(() =>
   !belowDust.value &&
   !selectionTooSmall.value &&
   !bitmailInvalid.value &&
-  !bitmailChecking.value
+  !bitmailChecking.value &&
+  (!tangoPairing.value || tangoAck.value)
 )
 
 async function loadWallets() {
@@ -804,8 +825,28 @@ onBeforeUnmount(() => { if (scanWatchTimer) clearInterval(scanWatchTimer) })
         </div>
       </div>
 
+      <!-- A Tango undone: its own share with its own change -->
+      <div v-if="tangoPairing" class="alert alert-warn" style="margin-top:14px;display:flex;align-items:flex-start;gap:10px">
+        <span style="font-size:18px;line-height:1">⚠</span>
+        <div style="flex:1">
+          <strong>This undoes your Tango with {{ tangoPairing }}</strong>
+          <div class="text-sm text-dim" style="margin-top:2px">
+            You have selected both your share of that mix and the change from
+            it. The two add up to what you put in, so spending them together
+            tells anyone reading the chain that one person owns both — and the
+            two equal outputs, which were a coin flip until now, become
+            attributable. Nothing undoes that afterwards. Send them in separate
+            transactions, or drop one from the selection.
+          </div>
+          <label class="text-sm" style="margin-top:8px;display:flex;align-items:center;gap:8px">
+            <input type="checkbox" v-model="tangoAck" />
+            I understand, spend them together anyway
+          </label>
+        </div>
+      </div>
+
       <!-- Mixed labels warning (privacy) -->
-      <div v-if="mixedLabels" class="alert alert-warn" style="margin-top:14px;display:flex;align-items:flex-start;gap:10px">
+      <div v-else-if="mixedLabels" class="alert alert-warn" style="margin-top:14px;display:flex;align-items:flex-start;gap:10px">
         <span style="font-size:18px;line-height:1">⚠</span>
         <div style="flex:1">
           <strong>Mixed coin labels selected</strong>

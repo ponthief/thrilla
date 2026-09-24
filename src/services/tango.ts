@@ -419,3 +419,62 @@ export function signOwnInputs(
   }
   return out;
 }
+
+// ── the labels, and the one combination they exist to stop ──────────────────
+// Mirrors helpers/tango.py. The backend writes these labels when the scanner
+// finds the coins; this is the reading half, and it has to agree with the
+// writing half exactly — a prefix that drifted by a character would silently
+// stop refusing anything.
+
+export const MIX_LABEL = 'Tango mix';
+export const CHANGE_LABEL = 'Tango change';
+
+export const mixLabel = (other?: string | null) => named(MIX_LABEL, other);
+export const changeLabel = (other?: string | null) => named(CHANGE_LABEL, other);
+
+function named(prefix: string, other?: string | null): string {
+  const who = (other || '').trim();
+  return who ? `${prefix} - ${who}` : prefix;
+}
+
+function partyIn(label: string, prefix: string): string | null {
+  const text = (label || '').trim();
+  if (text === prefix) return '';
+  // startsWith, never includes: substring matching would refuse a coin the
+  // user named themselves.
+  if (text.startsWith(`${prefix} - `)) return text.slice(prefix.length + 3).trim();
+  return null;
+}
+
+/**
+ * The counterparty whose round a selection of coins would undo, or null.
+ *
+ * THE FAILURE THIS IS FOR. A round's own change and its own mixed share add up
+ * to what that side put in. On chain the two shares are identical, so which
+ * one is yours is a coin flip — until you spend your change together with your
+ * share. That one transaction says "same owner", the arithmetic then says
+ * which input total that owner had, and the coin flip becomes a certainty. It
+ * does not weaken the round; it undoes it, retroactively, and no later mix
+ * puts it back. That is why this is a refusal and not a caution.
+ *
+ * Same-NAME granularity, not same-round. Two rounds with one person produce
+ * two shares and two changes, and pairing them across rounds still links coins
+ * whose whole purpose was to be unlinkable. It is also all a client has: a
+ * coin's label is what the wallet knows about it, and asking the server which
+ * round a coin came from would put the question back on the machine that
+ * already knows too much.
+ */
+export function undoesARound(labels: (string | null | undefined)[]): string | null {
+  const mixed = new Set<string>();
+  const changed = new Set<string>();
+  for (const raw of labels) {
+    const asMix = partyIn(raw || '', MIX_LABEL);
+    if (asMix !== null) mixed.add(asMix);
+    const asChange = partyIn(raw || '', CHANGE_LABEL);
+    if (asChange !== null) changed.add(asChange);
+  }
+  for (const who of changed) {
+    if (mixed.has(who)) return who || 'someone';
+  }
+  return null;
+}
