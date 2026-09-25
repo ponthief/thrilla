@@ -530,10 +530,17 @@ export interface CreatedWallet {
 // A Silent Payments on-chain transaction (built server-side from scanned
 // receives/sends). `amount_sats` is signed: negative = net outflow.
 export interface SpTransaction {
-  kind: 'send' | 'receive';
+  /**
+   * 'tango' is a mix, not a payment. Its amount is the net — the fee share —
+   * because both sides put in and take back the same amount, so a row reading
+   * "-427" is true and says nothing. `tango` carries what actually happened.
+   */
+  kind: 'send' | 'receive' | 'tango';
   txid: string;
   timestamp: number; // unix seconds
+  /** Signed: negative out, positive in. */
   amount_sats: number;
+  tango?: { denom_sats: number; partner?: string | null } | null;
   labels?: string[];
   // False while a send's inputs are still unconfirmed_spent — i.e. broadcast
   // but not yet mined. Optional so an older backend simply reads as settled

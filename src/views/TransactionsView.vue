@@ -175,6 +175,7 @@ function copyText(text) {
 const directionIcon = (kind) => {
   if (kind === 'receive') return '⬇'
   if (kind === 'send')    return '⬆'
+  if (kind === 'tango')   return '⇄'
   return '·'
 }
 
@@ -184,11 +185,24 @@ const directionColor = (kind) => {
   return ''
 }
 
+// A MIX IS NOT A PAYMENT. Both sides put in and take back the same amount, so
+// the net is only the fee share — true, and unreadable as "Sent 427" for a
+// round that mixed 13,000. The amount column still shows the net, because
+// every row in it is a balance change and one row meaning something else would
+// be worse; this is what says a mix happened.
 const directionLabel = (kind) => {
   if (kind === 'receive') return 'Received'
   if (kind === 'send')    return 'Sent'
+  if (kind === 'tango')   return 'Mixed'
   return kind
 }
+
+const tangoNote = (tx) =>
+  tx.kind === 'tango' && tx.tango
+    ? `Tango with ${tx.tango.partner || 'someone'} · ` +
+      `${Number(tx.tango.denom_sats).toLocaleString()} mixed`
+    : ''
+
 
 onMounted(() => {
   // The session-epoch keying on <router-view> remounts this view if keys arrive
@@ -249,6 +263,7 @@ onMounted(() => {
                 <span class="tx-age">{{ fmtAge(tx.timestamp) }}</span>
                 <span class="mono text-dim tx-txid">{{ tx.txid.slice(0, 12) }}…{{ tx.txid.slice(-8) }}</span>
                 <span v-if="tx.confirmed === false" class="badge badge-warn" title="Spending transaction not yet confirmed">⌛ Pending</span>
+                <span v-if="tangoNote(tx)" class="tx-label-badge" style="border-color:rgba(249,115,22,.4)">⇄ {{ tangoNote(tx) }}</span>
                 <span v-if="getSwapTxLabel(tx.txid)" class="tx-label-badge" style="border-color:rgba(247,147,26,.4);color:var(--orange,#f7931a)">⚡ Lightning swap</span>
                 <span v-for="(lbl, i) in tx.labels" :key="i" class="tx-label-badge">🏷 {{ lbl }}</span>
               </div>

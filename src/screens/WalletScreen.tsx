@@ -43,6 +43,14 @@ function normalizeTime(t?: number | string | null): number | null {
 }
 
 function spTxToItem(t: api.SpTransaction, labelMap: Record<string, string>): TxItem {
+  // A MIX IS NOT A PAYMENT. Both sides put in and take back the same amount,
+  // so the net is only the fee share — a true number that read as a tiny
+  // payment to nobody, under whichever of the round's two coin labels sorted
+  // first. The amount column stays the net, because every row in it is a
+  // balance change and one row that meant something else would be worse; the
+  // name is what says a mix happened.
+  const mix = t.kind === 'tango' ? t.tango : null;
+  const mixed = mix ? `${groupThousands(mix.denom_sats)} mixed` : '';
   return {
     id: t.txid,
     direction: t.amount_sats < 0 ? 'out' : 'in',
@@ -50,14 +58,16 @@ function spTxToItem(t: api.SpTransaction, labelMap: Record<string, string>): TxI
     // Server label first (it is the shared one), then the device-only label,
     // then the generic fallback. A pending send has no server label to have —
     // its change output does not exist yet — so this is what names it.
-    label:
-      t.labels?.[0] ||
-      labelMap[t.txid] ||
-      (t.kind === 'send' ? 'Sent' : 'Received'),
+    label: mix
+      ? `Tango with ${mix.partner || 'someone'} · ${mixed}`
+      : t.labels?.[0] ||
+        labelMap[t.txid] ||
+        (t.kind === 'send' ? 'Sent' : 'Received'),
     timestamp: t.timestamp || null,
-    // Only a send can be pending: a receive is recorded once it is already in a
-    // block. `confirmed` is absent on older backends, hence the explicit false.
-    pending: t.kind === 'send' && t.confirmed === false,
+    // A receive is recorded once it is already in a block, so only something
+    // the wallet spent into can be pending — which includes a Tango. Keyed on
+    // `confirmed` rather than on the kind for that reason.
+    pending: t.kind !== 'receive' && t.confirmed === false,
   };
 }
 
