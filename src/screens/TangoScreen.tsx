@@ -332,7 +332,9 @@ export default function TangoScreen() {
       });
       // Remembered before anything else can change: this is the only copy of
       // the selection that the server did not write.
-      setCommitted(await commits.recordTangoCommit(committed, row.id, chosen));
+      setCommitted(
+          await commits.recordTangoCommit(committed, row.id, walletId, chosen),
+        );
       setPartner('');
       setDenom('');
       setPicked(new Set());
@@ -376,7 +378,9 @@ export default function TangoScreen() {
           mix_spk: toHex(own.mix),
           change_spk: own.change ? toHex(own.change) : null,
         });
-        setCommitted(await commits.recordTangoCommit(committed, row.id, chosen));
+        setCommitted(
+          await commits.recordTangoCommit(committed, row.id, walletId, chosen),
+        );
         setPicked(new Set());
         setMsg(
           amounts.clean
@@ -443,7 +447,7 @@ export default function TangoScreen() {
         // Absent — proposed from the web, or from a phone since reinstalled —
         // the check cannot be made, and the screen says so rather than
         // implying it passed.
-        const chose = committed[fresh.id] || null;
+        const chose = commits.getTangoCommit(committed, fresh.id, walletId);
         const assembled = tango.checkBeforeSigning({
           side, inputs: all, mine, amounts,
           aMix, bMix, aChange, bChange,
@@ -529,11 +533,13 @@ export default function TangoScreen() {
       case 'ACCEPTED': return `${actor(r, 'b')} matched it`;
       case 'A_SIGNED': return `${actor(r, 'a')} approved it`;
       case 'BROADCAST': return 'Sent';
-      // The sweeper closes a round nobody finished, and that is a different
-      // outcome from someone deciding to stop: nothing was refused, the time
-      // simply ran out and the coins went back.
+      // Who stopped it, or that nobody did: the sweeper closing a round nobody
+      // finished is a different outcome from someone deciding to stop. The
+      // stored reason keeps the SIDE, so this is where it becomes a name.
       case 'CANCELLED':
-        return r.reject_reason === 'expired' ? 'Expired' : 'Cancelled';
+        return tango.cancelledLine(
+          r.reject_reason, r.role, r.a_username, r.b_username,
+        );
       default: return r.status;
     }
   };

@@ -63,6 +63,55 @@ export function stepNumber(status: string): number | null {
   }
 }
 
+// Why a round ended, as the server writes reject_reason. Mirrors
+// helpers/tango.py; a cancellation keeps the SIDE rather than a name, because
+// the name depends on who is reading — and the web was printing the raw value,
+// so a stopped round read "Cancelled · cancelled by a".
+const CANCELLED_BY = 'cancelled by ';
+const EXPIRED = 'expired';
+const CONNECTION_REMOVED = 'connection removed';
+
+/** 'a', 'b', or null when this reason is not a cancellation by a person. */
+export function whoCancelled(reason?: string | null): Side | null {
+  const text = (reason || '').trim().toLowerCase();
+  if (!text.startsWith(CANCELLED_BY)) return null;
+  const role = text.slice(CANCELLED_BY.length).trim();
+  return role === 'a' || role === 'b' ? role : null;
+}
+
+/**
+ * How a finished round ended, naming whoever ended it.
+ *
+ * `you` is the reader's own side, so the same stored reason reads "You
+ * cancelled it" to the person who did and "alice cancelled it" to the other —
+ * which is what "cancelled by a" was always trying to say.
+ *
+ * An unrecognised reason is shown as written rather than swallowed: it is
+ * either a wording this build predates or something a human wrote, and both
+ * are worth reading.
+ */
+export function cancelledLine(
+  reason: string | null | undefined,
+  you: Side | null | undefined,
+  aUsername?: string | null,
+  bUsername?: string | null,
+): string {
+  const text = (reason || '').trim();
+  if (!text) return 'Cancelled';
+  if (text.toLowerCase() === EXPIRED) {
+    // Nobody refused: the time ran out and the coins went back.
+    return 'Expired';
+  }
+  if (text.toLowerCase() === CONNECTION_REMOVED) {
+    return 'Cancelled — the connection was removed';
+  }
+  const side = whoCancelled(text);
+  if (!side) return `Cancelled — ${text}`;
+  if (side === you) return 'You cancelled it';
+  const them = (side === 'a' ? aUsername : bUsername) || 'They';
+  return them === 'They' ? 'They cancelled it' : `${them} cancelled it`;
+}
+
 /** This wallet's side of a finished round, as the transaction list gets it. */
 export interface MixRow {
   denom_sats: number;

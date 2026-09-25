@@ -23,11 +23,23 @@ import * as Keychain from 'react-native-keychain';
 // we derived) still run, and signing goes ahead. The screen says the selection
 // could not be confirmed rather than pretending it was.
 //
+// KEYED BY ROUND **AND WALLET**. One install signs for one account, so the two
+// sides of a round cannot collide here the way they do in a browser — the web
+// store is per-origin and a user signing in as each side in turn had the second
+// write overwrite the first, which made the approval compare one side's coins
+// against the other's and throw the alarm meant for a server swapping them.
+// The key carries the wallet on both clients anyway: the same record, read the
+// same way, and one fewer thing that is true on one side only.
+//
 // In the keystore, alongside the transaction labels and for the same reason:
 // "these coins were mixed with this person" is the metadata this wallet exists
 // to keep private, and it must go when the duress wipe runs.
 
 const COMMIT_SERVICE = 'com.thrilla.tangocommit';
+
+// Round ids and wallet ids are urlsafe hashes, so ':' cannot occur in either.
+const keyFor = (roundId: string, walletId: string) => `${roundId}:${walletId}`;
+const roundOf = (key: string) => key.split(':')[0];
 
 export interface CommittedCoin {
   txid: string;
@@ -35,7 +47,7 @@ export interface CommittedCoin {
   amount: number;
 }
 
-/** roundId → the outpoints this device committed to it. */
+/** "roundId:walletId" → the outpoints this device committed to it. */
 export type TangoCommitMap = Record<string, CommittedCoin[]>;
 
 function sane(v: unknown): v is CommittedCoin[] {
@@ -84,14 +96,34 @@ async function persist(map: TangoCommitMap): Promise<void> {
 export async function recordTangoCommit(
   map: TangoCommitMap,
   roundId: string,
+  walletId: string,
   coins: CommittedCoin[],
 ): Promise<TangoCommitMap> {
+  if (!roundId || !walletId) return map;
   const next = {
     ...map,
-    [roundId]: coins.map((c) => ({ txid: c.txid, vout: c.vout, amount: c.amount })),
+    [keyFor(roundId, walletId)]: coins.map((c) => ({
+      txid: c.txid, vout: c.vout, amount: c.amount,
+    })),
   };
   await persist(next);
   return next;
+}
+
+/**
+ * The coins this wallet committed to a round, or null when there is no record.
+ *
+ * Null for an entry written before the key carried the wallet: which side wrote
+ * one is unknowable, and a wrong record here fails a check whose every failure
+ * tells the user to cancel.
+ */
+export function getTangoCommit(
+  map: TangoCommitMap,
+  roundId: string,
+  walletId: string | null,
+): CommittedCoin[] | null {
+  if (!roundId || !walletId) return null;
+  return map[keyFor(roundId, walletId)] || null;
 }
 
 /**
@@ -107,8 +139,10 @@ export async function pruneTangoCommits(
 ): Promise<TangoCommitMap> {
   const live = new Set(keep);
   const next: TangoCommitMap = {};
-  for (const [id, coins] of Object.entries(map)) {
-    if (live.has(id)) next[id] = coins;
+  for (const [key, coins] of Object.entries(map)) {
+    // roundOf also reads a legacy bare key, so those are pruned on the same
+    // schedule as everything else rather than lingering unreadable.
+    if (live.has(roundOf(key))) next[key] = coins;
   }
   if (Object.keys(next).length === Object.keys(map).length) return map;
   await persist(next);

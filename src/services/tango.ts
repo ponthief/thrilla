@@ -554,4 +554,6 @@ export {
   isMyTurn,
   stepNumber,
   turnLine,
+  cancelledLine,
+  whoCancelled,
 } from './tangoTurns';

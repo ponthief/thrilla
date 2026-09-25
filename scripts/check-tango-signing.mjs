@@ -307,6 +307,53 @@ console.log('\nlabels');
     t.undoesARound(['Tango mixer fund', 'Tango change - alice']) === null);
 }
 
+// ── how a round ended, and who ended it ──
+//
+// The column keeps the SIDE, so the two clients are the only place it becomes
+// a name. The web printed it raw for a while and put "cancelled by a" on the
+// screen; these hold the parser to the wording the server actually writes.
+if (data.endings) {
+  console.log('\nhow a round ended');
+  const E = data.endings;
+
+  let agree = true;
+  let where = '';
+  for (const c of E.cases) {
+    const mine = t.whoCancelled(c.reason) ?? null;
+    if (mine !== c.who) {
+      agree = false;
+      where = `${JSON.stringify(c.reason)}: js ${JSON.stringify(mine)} vs py ${JSON.stringify(c.who)}`;
+      break;
+    }
+  }
+  ok(`both sides read all ${E.cases.length} reasons the same way`, agree, where);
+
+  ok('the side who cancelled reads it as themselves',
+    t.cancelledLine(E.cancelled_by_a, 'a', 'alice', 'bob') === 'You cancelled it');
+  ok('and the other side reads their name',
+    t.cancelledLine(E.cancelled_by_a, 'b', 'alice', 'bob') === 'alice cancelled it',
+    t.cancelledLine(E.cancelled_by_a, 'b', 'alice', 'bob'));
+  ok('the same, the other way round',
+    t.cancelledLine(E.cancelled_by_b, 'b', 'alice', 'bob') === 'You cancelled it' &&
+    t.cancelledLine(E.cancelled_by_b, 'a', 'alice', 'bob') === 'bob cancelled it');
+  ok('a nameless counterparty still reads as a sentence',
+    t.cancelledLine(E.cancelled_by_b, 'a', 'alice', '') === 'They cancelled it');
+  // Nobody refused: the time ran out and the coins came back.
+  ok('an expiry is not a cancellation by anyone',
+    t.cancelledLine(E.expired, 'a', 'alice', 'bob') === 'Expired');
+  ok('a severed connection says so',
+    t.cancelledLine(E.connection_removed, 'a', 'alice', 'bob')
+      === 'Cancelled — the connection was removed');
+  // A reason this build does not know is shown, not swallowed: it is either a
+  // newer wording or something a human wrote.
+  ok('an unknown reason is still shown',
+    t.cancelledLine('spilled coffee', 'a', 'alice', 'bob')
+      === 'Cancelled — spilled coffee');
+  ok('and no reason at all is just Cancelled',
+    t.cancelledLine(null, 'a', 'alice', 'bob') === 'Cancelled' &&
+    t.cancelledLine('', 'a', 'alice', 'bob') === 'Cancelled');
+}
+
 console.log(
   failed
     ? `\n${failed} check(s) failed`

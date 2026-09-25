@@ -363,7 +363,7 @@ async function propose() {
     })
     // Remembered before anything else can change: this is the only copy of the
     // selection that the server did not write. See stores/tangocommit.js.
-    recordTangoCommit(row.id, mixChosen.value)
+    recordTangoCommit(row.id, selectedWallet.value, mixChosen.value)
     denom.value = ''
     mixPicked.value = new Set()
     pushToast('Sent. They match it, then you both sign.', { type: 'success' })
@@ -408,7 +408,7 @@ async function submitMatch(r) {
       mix_spk: toHex(own.mix),
       change_spk: own.change ? toHex(own.change) : null,
     })
-    recordTangoCommit(r.id, chosen)
+    recordTangoCommit(r.id, selectedWallet.value, chosen)
     matchFor.value = null
     matchPicked.value = new Set()
     pushToast(
@@ -478,7 +478,7 @@ async function sign(r) {
     // round started on the phone, or with site data since cleared — that one
     // check cannot be made, and the toast says so rather than implying it
     // passed. See stores/tangocommit.js.
-    const chose = getTangoCommit(fresh.id)
+    const chose = getTangoCommit(fresh.id, selectedWallet.value)
 
     // Nothing is signed until this returns. Every way it throws means cancel,
     // not retry, and the message it throws is the message shown.
@@ -576,11 +576,13 @@ function statusLabel(r) {
     case 'ACCEPTED':  return `${actor(r, 'b')} matched it`
     case 'A_SIGNED':  return `${actor(r, 'a')} approved it`
     case 'BROADCAST': return 'Sent'
-    // The sweeper closes a round nobody finished, and that is a different
-    // outcome from someone deciding to stop: nothing was refused, the time
-    // simply ran out and the coins went back.
+    // Who stopped it, or that nobody did: the sweeper closing a round nobody
+    // finished is a different outcome from someone deciding to stop. The
+    // stored reason keeps the SIDE, so this is where it becomes a name.
     case 'CANCELLED':
-      return r.reject_reason === 'expired' ? 'Expired' : 'Cancelled'
+      return tango.cancelledLine(
+        r.reject_reason, r.role, r.a_username, r.b_username,
+      )
     default:          return r.status
   }
 }
@@ -1075,7 +1077,10 @@ function expiresIn(r) {
                     <a class="mono tg-txid" :href="explorerTxUrl(r.txid)"
                        target="_blank" rel="noopener">{{ shortTxid(r.txid) }}</a>
                   </span>
-                  <span v-if="r.reject_reason && r.reject_reason !== 'expired'">
+                  <!-- statusLabel already says why a CANCELLED round ended,
+                       by name. Printing the raw reason beside it is what put
+                       "· cancelled by a" on the screen. -->
+                  <span v-if="r.status !== 'CANCELLED' && r.reject_reason">
                     · {{ r.reject_reason }}
                   </span>
                 </div>
