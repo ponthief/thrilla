@@ -82,9 +82,16 @@ export default function TangoScreen() {
   const [committed, setCommitted] = useState<commits.TangoCommitMap>({});
 
   const key = (u: api.Utxo) => `${u.txid}:${u.vout}`;
+  // What a NEW round may use. A coin another round is already holding is
+  // refused by /rounds and /accept, and two rounds on one coin make a
+  // transaction the network refuses — so it is not offered.
+  const selectable = useMemo(
+    () => coins.filter((c) => !c.tango_reserved),
+    [coins],
+  );
   const chosen = useMemo(
-    () => coins.filter((c) => picked.has(key(c))),
-    [coins, picked],
+    () => selectable.filter((c) => picked.has(key(c))),
+    [selectable, picked],
   );
   const chosenTotal = chosen.reduce((s, c) => s + c.amount, 0);
 
@@ -109,12 +116,14 @@ export default function TangoScreen() {
         api.getUtxos(inkey, w.id),
         api.listTango(inkey),
       ]);
-      setCoins(
-        // Not coins another round already holds — the endpoints refuse them.
-        utxos.filter(
-          (u) => u.utxo_state === 'unspent' && !u.frozen && !u.tango_reserved,
-        ),
-      );
+      // EVERY spendable coin, reserved ones included. This list has two jobs
+      // and only one of them wants the reservation applied: `selectable` is
+      // what a new round may pick from, while signing an EXISTING round looks
+      // up its tweaks here — and that round's own coins are reserved, by it.
+      // Filtering them out of both made approving a mix fail with "this
+      // PayJoin uses a coin this device does not have", about a coin the
+      // device had all along.
+      setCoins(utxos.filter((u) => u.utxo_state === 'unspent' && !u.frozen));
       // Not in the Promise.all above: a connection list that fails is not a
       // reason to tell someone their coins would not load.
       api
@@ -672,10 +681,10 @@ export default function TangoScreen() {
                   : 'Pick the coins that go in. Which ones you choose is the decision a mix is made of, so nothing here chooses for you.'
             }>
             <Block>
-              {coins.length === 0 ? (
+              {selectable.length === 0 ? (
                 <Text style={styles.rowMeta}>No spendable coins.</Text>
               ) : (
-                coins.map((c) => {
+                selectable.map((c) => {
                   const on = picked.has(key(c));
                   return (
                     <Pressable

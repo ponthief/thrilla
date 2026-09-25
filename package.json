@@ -26,13 +26,14 @@
     "build:admin-signet": "vite build --mode admin-signet",
     "build:admin-regtest": "vite build --mode admin-regtest",
     "preview:admin-regtest": "vite preview --mode admin-regtest",
-    "check:signing": "npm run check:signing:sp && npm run check:signing:plain && npm run check:signing:payjoin && npm run check:signing:tango && npm run check:signing:commit",
+    "check:signing": "npm run check:signing:sp && npm run check:signing:plain && npm run check:signing:payjoin && npm run check:signing:tango && npm run check:signing:commit && npm run check:signing:coins",
     "check:signing:sp": "node --experimental-strip-types scripts/check-sp-signing.mjs",
     "check:signing:plain": "node --experimental-strip-types scripts/check-plain-signing.mjs",
     "check:update": "node --experimental-strip-types scripts/check-update-flow.mjs",
     "check:signing:payjoin": "node scripts/check-payjoin-signing.mjs",
     "check:signing:tango": "node scripts/check-tango-signing.mjs",
-    "check:signing:commit": "node scripts/check-tango-commit.mjs"
+    "check:signing:commit": "node scripts/check-tango-commit.mjs",
+    "check:signing:coins": "node scripts/check-tango-coins.cjs"
   },
   "dependencies": {
     "@capacitor-mlkit/barcode-scanning": "^6.0.0",

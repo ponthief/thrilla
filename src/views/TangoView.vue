@@ -80,10 +80,14 @@ async function loadWalletAndCoins() {
     return
   }
   const res = await api.getUtxos(auth.inkey, selectedWallet.value)
+  // EVERY spendable coin, reserved ones included. This list has two jobs and
+  // only one of them wants the reservation applied: `selectable` below is what
+  // a new round may pick from, while signing an EXISTING round looks up its
+  // tweaks here — and that round's own coins are reserved, by it. Filtering
+  // them out of both is what made approving a mix fail with "this PayJoin uses
+  // a coin this device does not have", about a coin the device had all along.
   coins.value = (res.utxos || []).filter(
-    // Not coins another round is already holding: /rounds and /accept refuse
-    // them, and two rounds on one coin make a transaction the network refuses.
-    (u) => u.utxo_state === 'unspent' && !u.frozen && !u.tango_reserved,
+    (u) => u.utxo_state === 'unspent' && !u.frozen,
   )
 }
 
@@ -237,8 +241,12 @@ function flip(set, u) {
 function toggleMix(u) { mixPicked.value = flip(mixPicked.value, u) }
 function toggleMatch(u) { matchPicked.value = flip(matchPicked.value, u) }
 
-const mixChosen = computed(() => coins.value.filter((c) => mixPicked.value.has(outpoint(c))))
-const matchChosen = computed(() => coins.value.filter((c) => matchPicked.value.has(outpoint(c))))
+// What a NEW round may use. A coin another round is already holding is refused
+// by /rounds and /accept, and two rounds on one coin make a transaction the
+// network refuses — so it is not offered.
+const selectable = computed(() => coins.value.filter((c) => !c.tango_reserved))
+const mixChosen = computed(() => selectable.value.filter((c) => mixPicked.value.has(outpoint(c))))
+const matchChosen = computed(() => selectable.value.filter((c) => matchPicked.value.has(outpoint(c))))
 const sumOf = (list) => list.reduce((s, c) => s + c.amount, 0)
 
 const localOf = (u) => ({
@@ -741,10 +749,10 @@ function expiresIn(r) {
               Which ones you choose is the decision a mix is made of, so nothing
               here chooses for you.
             </p>
-            <div v-if="!coins.length" class="text-dim text-xs">No spendable coins.</div>
+            <div v-if="!selectable.length" class="text-dim text-xs">No spendable coins.</div>
             <table v-else class="tg-utxos">
               <tbody>
-                <tr v-for="c in coins" :key="outpoint(c)" @click="toggleMix(c)"
+                <tr v-for="c in selectable" :key="outpoint(c)" @click="toggleMix(c)"
                     style="cursor:pointer;">
                   <td><input type="checkbox" :checked="mixPicked.has(outpoint(c))"
                              @click.stop="toggleMix(c)" /></td>
@@ -967,10 +975,10 @@ function expiresIn(r) {
                 yours: you need the amount plus your half of the fee, and
                 anything over it comes back as change.
               </p>
-              <div v-if="!coins.length" class="text-dim text-xs">No spendable coins.</div>
+              <div v-if="!selectable.length" class="text-dim text-xs">No spendable coins.</div>
               <table v-else class="tg-utxos">
                 <tbody>
-                  <tr v-for="c in coins" :key="outpoint(c)" @click="toggleMatch(c)"
+                  <tr v-for="c in selectable" :key="outpoint(c)" @click="toggleMatch(c)"
                       style="cursor:pointer;">
                     <td><input type="checkbox" :checked="matchPicked.has(outpoint(c))"
                                @click.stop="toggleMatch(c)" /></td>
