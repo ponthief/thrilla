@@ -540,7 +540,20 @@ export interface SpTransaction {
   timestamp: number; // unix seconds
   /** Signed: negative out, positive in. */
   amount_sats: number;
-  tango?: { denom_sats: number; partner?: string | null } | null;
+  /**
+   * This side of the round, not the transaction's: `fee_sats` is what THIS
+   * wallet paid, which differs from the other side's whenever one of them had
+   * change too small to keep. `dust_to_fee` is how much of that fee was such a
+   * change — the number that explains a missing coin. Both optional, so a
+   * round recorded before they existed simply says nothing.
+   */
+  tango?: {
+    denom_sats: number;
+    partner?: string | null;
+    fee_sats?: number;
+    change_sats?: number;
+    dust_to_fee?: number;
+  } | null;
   labels?: string[];
   // False while a send's inputs are still unconfirmed_spent — i.e. broadcast
   // but not yet mined. Optional so an older backend simply reads as settled

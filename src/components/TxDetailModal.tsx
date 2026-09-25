@@ -15,6 +15,7 @@ import Clipboard from '@react-native-clipboard/clipboard';
 import { useAuthStore } from '@stores/authStore';
 import { useTxLabelStore } from '@stores/txLabelStore';
 import * as api from '@services/api';
+import { MixRow, mixDustNote, mixOtherShareTitle } from '@services/tangoTurns';
 import { colors } from '@/theme';
 
 const PRIMARY = colors.primary;
@@ -36,6 +37,8 @@ interface Props {
   walletId: string | null;
   txid: string | null;
   initialLabel?: string;
+  /** Set when this transaction was a Tango, from this wallet's side. */
+  mix?: MixRow | null;
   onClose: () => void;
   onLabelSaved?: () => void;
 }
@@ -45,6 +48,7 @@ export default function TxDetailModal({
   walletId,
   txid,
   initialLabel = '',
+  mix = null,
   onClose,
   onLabelSaved,
 }: Props) {
@@ -166,13 +170,46 @@ export default function TxDetailModal({
                   </Row>
                 ) : null}
                 {detail.fee_sats != null ? (
-                  <Row label="Fee">
+                  <Row label={mix ? 'Fee (whole tx)' : 'Fee'}>
                     <Text style={styles.value}>
                       {groupThousands(detail.fee_sats)} sats
                     </Text>
                   </Row>
                 ) : null}
               </View>
+
+              {/* A Tango's own numbers. The transaction's fee above is both
+                  sides' together, and the two halves are often unequal — which
+                  is the thing that reads as an error until it is spelled out. */}
+              {mix ? (
+                <View style={styles.card}>
+                  <Text style={styles.cardTitle}>
+                    Tango with {mix.partner || 'someone'}
+                  </Text>
+                  <Row label="Mixed">
+                    <Text style={styles.value}>
+                      {groupThousands(mix.denom_sats)} sats
+                    </Text>
+                  </Row>
+                  {mix.fee_sats ? (
+                    <Row label="Your share">
+                      <Text style={styles.value}>
+                        {groupThousands(mix.fee_sats)} sats
+                      </Text>
+                    </Row>
+                  ) : null}
+                  {mix.change_sats ? (
+                    <Row label="Your change">
+                      <Text style={styles.value}>
+                        {groupThousands(mix.change_sats)} sats
+                      </Text>
+                    </Row>
+                  ) : null}
+                  {mixDustNote(mix) ? (
+                    <Text style={styles.note}>{mixDustNote(mix)}</Text>
+                  ) : null}
+                </View>
+              ) : null}
 
               {/* Where the label goes depends on whether this transaction left
                   a coin here. With one, it labels that coin server-side and is
@@ -234,9 +271,14 @@ export default function TxDetailModal({
                 </View>
               </View>
 
+              {/* "Recipients" is every output that is not ours — which in a
+                  Tango is the other side's own share coming back to them. They
+                  were not paid, and calling them a recipient says they were. */}
               {detail.recipients?.length ? (
                 <View style={styles.card}>
-                  <Text style={styles.cardTitle}>Recipients</Text>
+                  <Text style={styles.cardTitle}>
+                    {mix ? mixOtherShareTitle(mix) : 'Recipients'}
+                  </Text>
                   {detail.recipients.map((r, i) => (
                     <View key={i} style={styles.recipient}>
                       <Text style={styles.recipientAddr} numberOfLines={1}>
@@ -299,6 +341,7 @@ const styles = StyleSheet.create({
   rowValue: { flex: 1, alignItems: 'flex-end' },
   value: { fontSize: 14, color: colors.text, fontWeight: '500' },
   muted: { fontSize: 14, color: colors.faint },
+  note: { fontSize: 12, color: colors.muted, lineHeight: 17, marginTop: 8 },
   ok: { fontSize: 14, color: colors.green, fontWeight: '600' },
   pending: { fontSize: 14, color: PRIMARY, fontWeight: '600' },
   mono: {

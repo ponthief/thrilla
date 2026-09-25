@@ -63,6 +63,79 @@ export function stepNumber(status: string): number | null {
   }
 }
 
+/** This wallet's side of a finished round, as the transaction list gets it. */
+export interface MixRow {
+  denom_sats: number;
+  partner?: string | null;
+  fee_sats?: number;
+  change_sats?: number;
+  dust_to_fee?: number;
+}
+
+function grouped(n: number): string {
+  // Not toLocaleString: Hermes ships without full Intl.
+  return Math.floor(n).toString().replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+}
+
+/**
+ * "Tango · alice" — the whole label for a row in a transaction list.
+ *
+ * NOT tango.ts's mixLabel, which is the label written on a COIN ("Tango mix -
+ * alice · 2026-09-25") and is matched by the send guard. Two different strings
+ * for two different places; named apart because the modules re-export into
+ * each other and a silent swap would put guard wording in a list and list
+ * wording on a coin.
+ */
+export function mixRowLabel(mix: MixRow): string {
+  return `Tango · ${mix.partner || 'someone'}`;
+}
+
+/**
+ * What the mixed amount does not say: what the round cost THIS side.
+ *
+ * It is the fee and nothing else — a mix moves no money — and the two sides of
+ * one transaction can differ, which is the part that looks wrong until it is
+ * explained. Empty when the round predates the server recording it, rather
+ * than "fee 0", which would be a claim.
+ */
+export function mixFeeNote(mix: MixRow): string {
+  return mix.fee_sats ? `fee ${grouped(mix.fee_sats)} sats` : '';
+}
+
+/**
+ * What to call the outputs of a mix that are not ours.
+ *
+ * Both clients list "Recipients" — every output the wallet does not own — and
+ * in a Tango that is the other side's own share going back to them. Nobody was
+ * paid, and a heading that says otherwise is the reading the whole feature is
+ * trying to avoid.
+ */
+export function mixOtherShareTitle(mix: MixRow): string {
+  return mix.partner ? `${mix.partner}'s share` : 'Their share';
+}
+
+/**
+ * Where the change coin went, for the side that has none.
+ *
+ * THE QUESTION THIS ANSWERS. A side that put in 13,749 for a 13,000 mix expects
+ * 749 back and finds nothing in its coin list, while the other side of the same
+ * transaction kept its change and paid a smaller fee. The excess was 322 after
+ * the fee share — under the dust limit, too small to be worth an output — so it
+ * went to the miner. Nothing on chain says that and the wallet has to.
+ *
+ * Empty unless it happened, so no row carries a sentence about nothing.
+ */
+export function mixDustNote(mix: MixRow): string {
+  const dust = mix.dust_to_fee || 0;
+  if (dust <= 0) return '';
+  return (
+    `Your change would have been ${grouped(dust)} sats — too small to be worth ` +
+    `its own output, so it went to the fee instead. That is why this round ` +
+    `cost you more than it cost ${mix.partner || 'the other side'}, and why ` +
+    `there is no change coin from it.`
+  );
+}
+
 /**
  * One sentence saying what happens next and who does it.
  *

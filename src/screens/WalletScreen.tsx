@@ -16,6 +16,7 @@ import { useWalletStore } from '@stores/walletStore';
 import { useBitmailAlert } from '@stores/bitmailAlert';
 import * as api from '@services/api';
 import { hasWalletKeys } from '@services/secureKeys';
+import { mixFeeNote, mixRowLabel } from '@services/tangoTurns';
 import { colors, LIGHTNING_ENABLED, type } from '@/theme';
 import CoinsScreen from './CoinsScreen';
 import CreateWalletModal from '../components/CreateWalletModal';
@@ -44,25 +45,33 @@ function normalizeTime(t?: number | string | null): number | null {
 
 function spTxToItem(t: api.SpTransaction, labelMap: Record<string, string>): TxItem {
   // A MIX IS NOT A PAYMENT. Both sides put in and take back the same amount,
-  // so the net is only the fee share — a true number that read as a tiny
-  // payment to nobody, under whichever of the round's two coin labels sorted
-  // first. The amount column stays the net, because every row in it is a
-  // balance change and one row that meant something else would be worse; the
-  // name is what says a mix happened.
+  // so the net is only the fee share: a 13,000 sat round showed as "−427",
+  // which is arithmetically exact and tells the owner nothing — one of them
+  // read it as the transaction's vbyte size, which at 2 sat/vB split two ways
+  // is exactly what it equals.
+  //
+  // So a mix shows what was MIXED, and the fee it cost goes on the line below.
+  // The net is still the truth and is still in the CSV and the detail view;
+  // it is just not the headline, because it is the one number about a Tango
+  // that nobody is looking for.
   const mix = t.kind === 'tango' ? t.tango : null;
-  const mixed = mix ? `${groupThousands(mix.denom_sats)} mixed` : '';
   return {
     id: t.txid,
-    direction: t.amount_sats < 0 ? 'out' : 'in',
-    amountSats: Math.abs(t.amount_sats),
-    // Server label first (it is the shared one), then the device-only label,
-    // then the generic fallback. A pending send has no server label to have —
-    // its change output does not exist yet — so this is what names it.
+    direction: mix ? 'mix' : t.amount_sats < 0 ? 'out' : 'in',
+    amountSats: mix ? mix.denom_sats : Math.abs(t.amount_sats),
+    // Short on purpose. This is one line of a narrow row beside an amount, and
+    // the round's own coin labels no longer arrive here to compete with it —
+    // the server drops them now that the row itself says "Tango".
+    //
+    // Otherwise: server label first (it is the shared one), then the
+    // device-only label, then the generic fallback. A pending send has no
+    // server label to have — its change output does not exist yet.
     label: mix
-      ? `Tango with ${mix.partner || 'someone'} · ${mixed}`
+      ? mixRowLabel(mix)
       : t.labels?.[0] ||
         labelMap[t.txid] ||
         (t.kind === 'send' ? 'Sent' : 'Received'),
+    note: mix ? mixFeeNote(mix) || undefined : undefined,
     timestamp: t.timestamp || null,
     // A receive is recorded once it is already in a block, so only something
     // the wallet spent into can be pending — which includes a Tango. Keyed on
@@ -320,10 +329,14 @@ export default function WalletScreen() {
   const toggleHidden = useBalancePrivacy((s) => s.toggle);
 
   // Prefill the tx-detail label editor with the real label only (not the
-  // "Sent"/"Received" fallback used for display).
+  // "Sent"/"Received" fallback used for display, and not a mix's label either:
+  // "Tango · alice" is the app's own wording, and offering it as a draft
+  // invites the user to save our text back as if it were theirs).
   const detailTx = spTxs.find((t) => t.id === detailTxid) || null;
+  const detailMix =
+    spRawTxs.find((t) => t.txid === detailTxid)?.tango || null;
   const detailLabel =
-    detailTx && !['Sent', 'Received'].includes(detailTx.label)
+    detailTx && !detailMix && !['Sent', 'Received'].includes(detailTx.label)
       ? detailTx.label
       : '';
 
@@ -572,6 +585,7 @@ export default function WalletScreen() {
         walletId={spWallet?.id ?? null}
         txid={detailTxid}
         initialLabel={detailLabel}
+        mix={detailMix}
         onClose={() => setDetailTxid(null)}
         onLabelSaved={load}
       />

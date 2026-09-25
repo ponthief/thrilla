@@ -7,6 +7,7 @@ import { useAmount } from '@/composables/useAmount'
 import { useCsvExport } from '@/composables/useCsvExport'
 import { getTxRecipientLabel, getSwapTxLabel } from '@/stores/txlabels'
 import { pendingSends } from '@/stores/pendingsends'
+import { mixDustNote, mixFeeNote, mixOtherShareTitle } from '@/services/tangoTurns'
 
 const auth   = useAuthStore()
 const { fmt } = useAmount()
@@ -127,11 +128,6 @@ async function toggleExpand(tx) {
   }
 }
 
-function fmtAmount(sats) {
-  if (sats === null || sats === undefined) return '—'
-  return fmt(sats, { signed: true })
-}
-
 const { buildCsv, downloadCsv } = useCsvExport()
 function exportCsv() {
   // Export the loaded transactions. Display/financial fields only.
@@ -187,9 +183,9 @@ const directionColor = (kind) => {
 
 // A MIX IS NOT A PAYMENT. Both sides put in and take back the same amount, so
 // the net is only the fee share — true, and unreadable as "Sent 427" for a
-// round that mixed 13,000. The amount column still shows the net, because
-// every row in it is a balance change and one row meaning something else would
-// be worse; this is what says a mix happened.
+// round that mixed 13,000. So a mix shows what was MIXED and names the fee
+// beside it. The net stays in the CSV and the detail view, where it is a
+// number someone is actually looking for.
 const directionLabel = (kind) => {
   if (kind === 'receive') return 'Received'
   if (kind === 'send')    return 'Sent'
@@ -197,12 +193,29 @@ const directionLabel = (kind) => {
   return kind
 }
 
-const tangoNote = (tx) =>
-  tx.kind === 'tango' && tx.tango
-    ? `Tango with ${tx.tango.partner || 'someone'} · ` +
-      `${Number(tx.tango.denom_sats).toLocaleString()} mixed`
-    : ''
+const mixOf = (tx) => (tx.kind === 'tango' ? tx.tango : null) || null
 
+// The headline figure. For a mix that is the denomination, unsigned: nothing
+// arrived and nothing was paid to anyone.
+const rowAmount = (tx) => {
+  const mix = mixOf(tx)
+  return mix
+    ? fmt(mix.denom_sats)
+    : fmt(tx.amount_sats, { signed: true })
+}
+
+// ONE badge, not three. This row used to carry "Tango with alice · 13,000
+// mixed" next to the round's own two coin labels — "Tango mix - alice ·
+// 2026-09-25" and "Tango change - alice · 2026-09-25" — which say the same
+// thing twice more. The server no longer sends those on a mix row; the coins
+// still carry them, which is where a per-coin label belongs.
+const tangoNote = (tx) => {
+  const mix = mixOf(tx)
+  if (!mix) return ''
+  const who = `Tango with ${mix.partner || 'someone'}`
+  const note = mixFeeNote(mix)
+  return note ? `${who} · ${note}` : who
+}
 
 onMounted(() => {
   // The session-epoch keying on <router-view> remounts this view if keys arrive
@@ -257,7 +270,7 @@ onMounted(() => {
             <div class="tx-meta">
               <div class="tx-line1">
                 <span class="tx-kind">{{ directionLabel(tx.kind) }}</span>
-                <span class="tx-amount mono" :class="directionColor(tx.kind)">{{ fmtAmount(tx.amount_sats) }} sats</span>
+                <span class="tx-amount mono" :class="directionColor(tx.kind)">{{ rowAmount(tx) }}</span>
               </div>
               <div class="tx-line2">
                 <span class="tx-age">{{ fmtAge(tx.timestamp) }}</span>
@@ -287,9 +300,29 @@ onMounted(() => {
                 <a :href="expandedDetail.explorer_url" target="_blank" class="btn btn-ghost btn-sm btn-icon" title="Open in mempool.space">↗</a>
               </div>
               <div class="tx-detail-row" v-if="expandedDetail.fee_sats !== null && expandedDetail.fee_sats !== undefined">
-                <span class="tx-detail-label">Fee:</span>
-                <span class="mono">{{ expandedDetail.fee_sats.toLocaleString() }} sats</span>
+                <span class="tx-detail-label">{{ mixOf(tx) ? 'Fee (whole tx):' : 'Fee:' }}</span>
+                <span class="mono">{{ fmt(expandedDetail.fee_sats) }}</span>
               </div>
+              <!-- The two sides of one Tango often paid different fees, and
+                   nothing on chain says why. This is where it gets said. -->
+              <template v-if="mixOf(tx)">
+                <div class="tx-detail-row">
+                  <span class="tx-detail-label">Mixed:</span>
+                  <span class="mono">{{ fmt(mixOf(tx).denom_sats) }}</span>
+                  <span class="text-dim text-sm">with {{ mixOf(tx).partner || 'someone' }}</span>
+                </div>
+                <div class="tx-detail-row" v-if="mixOf(tx).fee_sats">
+                  <span class="tx-detail-label">Your share:</span>
+                  <span class="mono">{{ fmt(mixOf(tx).fee_sats) }}</span>
+                </div>
+                <div class="tx-detail-row" v-if="mixOf(tx).change_sats">
+                  <span class="tx-detail-label">Your change:</span>
+                  <span class="mono">{{ fmt(mixOf(tx).change_sats) }}</span>
+                </div>
+                <div v-if="mixDustNote(mixOf(tx))" class="tx-detail-note">
+                  {{ mixDustNote(mixOf(tx)) }}
+                </div>
+              </template>
               <div class="tx-detail-row">
                 <span class="tx-detail-label">Status:</span>
                 <span v-if="expandedDetail.confirmed === true" class="badge badge-success">✓ confirmed (block {{ expandedDetail.block_height }})</span>
@@ -301,8 +334,12 @@ onMounted(() => {
                 <span>{{ fmtDate(tx.timestamp) }}</span>
               </div>
 
+              <!-- Every output that is not ours. In a Tango that is the other
+                   side's own share going back to them: nobody was paid. -->
               <div v-if="expandedDetail.recipients && expandedDetail.recipients.length" class="tx-detail-section">
-                <div class="tx-detail-section-title">Recipients</div>
+                <div class="tx-detail-section-title">
+                  {{ mixOf(tx) ? mixOtherShareTitle(mixOf(tx)) : 'Recipients' }}
+                </div>
                 <div v-for="(r, i) in expandedDetail.recipients" :key="i" class="tx-detail-recipient">
                   <span v-if="i === 0 && recipientLabel()" class="recipient-label">
                     <span class="mono text-xs">⌖ {{ recipientLabel() }}</span>
@@ -317,7 +354,7 @@ onMounted(() => {
                 <div class="tx-detail-section-title">Outputs to this wallet</div>
                 <div v-for="o in expandedDetail.own_outputs" :key="o.vout" class="tx-detail-output">
                   <span class="mono text-xs">vout {{ o.vout }}</span>
-                  <span class="mono text-orange">{{ o.amount.toLocaleString() }} sats</span>
+                  <span class="mono text-orange">{{ fmt(o.amount) }}</span>
                   <span v-if="o.label" class="tx-label-badge">🏷 {{ o.label }}</span>
                   <span v-if="o.label_index === 1" class="badge badge-blue" title="Change returned to your own wallet">↩ Change</span>
                   <span v-else-if="o.label_index" class="badge badge-dim">m={{ o.label_index }}</span>
@@ -328,7 +365,7 @@ onMounted(() => {
                 <div class="tx-detail-section-title">Inputs spent from this wallet</div>
                 <div v-for="i in expandedDetail.spent_inputs" :key="i.txid + ':' + i.vout" class="tx-detail-output">
                   <span class="mono text-xs">{{ i.txid.slice(0, 10) }}…:{{ i.vout }}</span>
-                  <span class="mono text-orange">{{ i.amount.toLocaleString() }} sats</span>
+                  <span class="mono text-orange">{{ fmt(i.amount) }}</span>
                   <span v-if="i.label" class="tx-label-badge">🏷 {{ i.label }}</span>
                 </div>
               </div>
@@ -410,6 +447,13 @@ onMounted(() => {
   font-size: 12px;
 }
 .tx-detail-label { color: var(--text-dim); min-width: 60px; }
+.tx-detail-note {
+  color: var(--text-dim);
+  font-size: 12px;
+  line-height: 1.5;
+  margin: 6px 0 2px;
+  max-width: 62ch;
+}
 .tx-detail-value { word-break: break-all; }
 
 .tx-detail-section {

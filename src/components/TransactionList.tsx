@@ -11,9 +11,17 @@ import { MASK, useBalancesHidden } from '@stores/balancePrivacy';
 
 export interface TxItem {
   id: string;
-  direction: 'in' | 'out';
+  /**
+   * 'mix' is neither. A Tango's two sides put in and take back the same
+   * amount, so nothing came or went except the fee — shown as "⇄ 13,000" in
+   * the wallet's own colour, because "+13,000" in green would claim money
+   * arrived and "−427" claims a payment nobody received.
+   */
+  direction: 'in' | 'out' | 'mix';
   amountSats: number; // absolute value
   label: string;
+  /** Appended after the date, for what the amount alone cannot say. */
+  note?: string;
   timestamp: number | null; // unix seconds
   pending: boolean;
 }
@@ -37,6 +45,12 @@ function groupThousands(n: number): string {
     .toString()
     .replace(/\B(?=(\d{3})+(?!\d))/g, ',');
 }
+
+const SIGN: Record<TxItem['direction'], string> = {
+  in: '+',
+  out: '−',
+  mix: '⇄ ',
+};
 
 interface Props {
   title: string;
@@ -82,18 +96,21 @@ export default function TransactionList({
                     </Text>
                   </View>
                 ) : (
-                  <Text style={styles.rowMeta}>
-                    {fmtDate(tx.timestamp) || 'settled'}
+                  <Text style={styles.rowMeta} numberOfLines={1}>
+                    {[fmtDate(tx.timestamp) || 'settled', tx.note]
+                      .filter(Boolean)
+                      .join(' · ')}
                   </Text>
                 )}
               </View>
               <Text
                 style={[
                   styles.amount,
-                  tx.direction === 'in' ? styles.amountIn : styles.amountOut,
+                  tx.direction === 'in' && styles.amountIn,
+                  tx.direction === 'out' && styles.amountOut,
                 ]}
                 numberOfLines={1}>
-                {tx.direction === 'in' ? '+' : '−'}
+                {SIGN[tx.direction]}
                 {hidden ? MASK : groupThousands(tx.amountSats)} sats
               </Text>
               {tappable ? <Text style={styles.chevron}>›</Text> : null}
@@ -138,7 +155,8 @@ const styles = StyleSheet.create({
   rowLeft: { flex: 1, marginRight: 12 },
   rowLabel: { fontSize: 15, color: colors.text, fontWeight: '500' },
   rowMeta: { fontSize: 12, color: colors.faint, marginTop: 2 },
-  amount: { fontSize: 14, fontWeight: '600' },
+  // The base colour is the neutral one a mix keeps; in/out override it.
+  amount: { fontSize: 14, fontWeight: '600', color: colors.text },
   amountIn: { color: colors.green },
   amountOut: { color: colors.strong },
   chevron: { fontSize: 20, color: colors.faint, marginLeft: 8 },
