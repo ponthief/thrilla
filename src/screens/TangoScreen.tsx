@@ -109,7 +109,12 @@ export default function TangoScreen() {
         api.getUtxos(inkey, w.id),
         api.listTango(inkey),
       ]);
-      setCoins(utxos.filter((u) => u.utxo_state === 'unspent' && !u.frozen));
+      setCoins(
+        // Not coins another round already holds — the endpoints refuse them.
+        utxos.filter(
+          (u) => u.utxo_state === 'unspent' && !u.frozen && !u.tango_reserved,
+        ),
+      );
       // Not in the Promise.all above: a connection list that fails is not a
       // reason to tell someone their coins would not load.
       api

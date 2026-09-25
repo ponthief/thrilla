@@ -222,7 +222,10 @@ export default function SendScreen() {
 
       if (utxoRes.status === 'fulfilled') {
         setUtxos(
-          utxoRes.value.filter((u) => u.utxo_state === 'unspent' && !u.frozen),
+          utxoRes.value.filter(
+            // Held by a live Tango counts as unspendable here, like frozen.
+            (u) => u.utxo_state === 'unspent' && !u.frozen && !u.tango_reserved,
+          ),
         );
       } else {
         setUtxos([]);

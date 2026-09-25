@@ -40,6 +40,7 @@ function exportCsv() {
     { key: 'utxo_state',     header: 'state' },
     { key: 'label',          header: 'label',        map: u => u.label || '' },
     { key: 'frozen',         header: 'frozen',       map: u => (u.frozen ? 'yes' : 'no') },
+    { key: 'tango_reserved', header: 'in_tango',     map: u => (u.tango_reserved ? 'yes' : 'no') },
     { key: 'suspected_dust', header: 'suspected_dust', map: u => (u.suspected_dust ? 'yes' : 'no') },
   ]
   const rows = filtered.value
@@ -324,6 +325,11 @@ onMounted(async () => {
                   <span class="badge" :class="stateBadge(u.utxo_state)">{{ u.utxo_state }}</span>
                   <span v-if="u.suspected_dust" class="badge badge-warn" title="Possible dust attack — small coin from unknown sender">⚠ dust?</span>
                   <span v-if="u.frozen" class="badge badge-frozen" title="Coin is frozen — excluded from auto-selection">🔒 frozen</span>
+                  <!-- A live round is holding it, so Send and Tango no longer
+                       offer it. Said here, or the coin would just be missing
+                       from both with nothing to explain it. -->
+                  <span v-if="u.tango_reserved" class="badge badge-held"
+                        title="Committed to a Tango that has not finished — cancel the round to free it">⇄ in a Tango</span>
                 </div>
               </td>
               <td class="text-dim" style="font-size:12px">{{ fmtDate(u.timestamp) }}</td>
@@ -395,6 +401,7 @@ onMounted(async () => {
 .label-edit { display: flex; align-items: center; gap: 4px; }
 .badge-warn { background: #3d1f08; color: #f97316; border: 1px solid #6b3410; }
 .badge-frozen { background: #1e293b; color: #94a3b8; border: 1px solid #475569; }
+.badge-held { background: rgba(249,115,22,.12); color: #f97316; border: 1px solid rgba(249,115,22,.4); }
 .label-input {
   min-height: 26px !important;
   padding: 3px 8px !important;

@@ -330,6 +330,14 @@ export default function CoinsScreen({ visible, onClose }: Props) {
                           <Text style={styles.badgeGrayText}>{u.utxo_state}</Text>
                         </View>
                       ) : null}
+                      {/* A live round is holding it, so Send and Tango no
+                          longer offer it. Said here, or the coin would simply
+                          be missing from both with nothing to explain it. */}
+                      {u.tango_reserved ? (
+                        <View style={[styles.badge, styles.badgeHeld]}>
+                          <Text style={styles.badgeHeldText}>in a Tango</Text>
+                        </View>
+                      ) : null}
                     </View>
                   </View>
 
@@ -496,6 +504,8 @@ const styles = StyleSheet.create({
   amountFrozen: { color: colors.faint },
   badges: { flexDirection: 'row', gap: 6 },
   badge: { borderRadius: 5, paddingHorizontal: 8, paddingVertical: 3 },
+  badgeHeld: { backgroundColor: 'rgba(249,115,22,.14)' },
+  badgeHeldText: { fontSize: 10, fontWeight: '700', color: colors.primary },
   badgeGray: { backgroundColor: colors.surfaceAlt },
   badgeGrayText: { fontSize: 11, color: colors.muted, fontWeight: '600' },
   badgeDust: { backgroundColor: 'rgba(249,115,22,0.14)' },

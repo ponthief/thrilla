@@ -222,7 +222,10 @@ async function loadUtxos() {
   try {
     const res = await api.getUtxos(auth.inkey, selectedWallet.value)
     utxos.value = (res.utxos || [])
-      .filter(u => u.utxo_state === 'unspent' && !u.frozen)
+      // A coin a live Tango holds is not spendable: the server refuses it,
+      // and offering it here would fail at /tx/prepare. Shown under Coins as
+      // held, the same posture as frozen.
+      .filter(u => u.utxo_state === 'unspent' && !u.frozen && !u.tango_reserved)
       .map(u => ({ ...u, selected: false }))
   } catch {}
   finally { loadingUtxos.value = false }

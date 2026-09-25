@@ -81,7 +81,9 @@ async function loadWalletAndCoins() {
   }
   const res = await api.getUtxos(auth.inkey, selectedWallet.value)
   coins.value = (res.utxos || []).filter(
-    (u) => u.utxo_state === 'unspent' && !u.frozen,
+    // Not coins another round is already holding: /rounds and /accept refuse
+    // them, and two rounds on one coin make a transaction the network refuses.
+    (u) => u.utxo_state === 'unspent' && !u.frozen && !u.tango_reserved,
   )
 }
 

@@ -632,6 +632,14 @@ export interface Utxo {
   frozen?: boolean;
   label?: string | null;
   suspected_dust?: boolean;
+  /**
+   * Committed to a Tango that has not finished.
+   *
+   * The server refuses to spend it — in a send or in a second round — so this
+   * is here to say so BEFORE the user picks it. Optional, so an older backend
+   * simply reads as not reserved rather than hiding every coin.
+   */
+  tango_reserved?: boolean;
 }
 
 // mempool.space-shaped recommended fee tiers (sat/vB).
