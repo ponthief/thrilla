@@ -784,12 +784,7 @@ export default function TangoScreen() {
         <>
           <Group
             title="Add someone"
-            footer={
-              `Connect by WhiSPa username. They approve, then either of you can ` +
-              `propose a Tango — it stays connected until one side removes it. ` +
-              `Connections are per network: these are your ${network} ones, and ` +
-              `removing one here does not touch another network's.`
-            }>
+            footer="Add someone to Tango with, by their WhiSPa username.">
             <Block>
               <Field
                 value={newPerson}
