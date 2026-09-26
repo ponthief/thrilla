@@ -426,6 +426,17 @@ export default function WalletScreen() {
                   <View style={styles.balanceRow}>
                     <BitcoinSign size={34} color={colors.primary} weight={2.6} />
                     <Text style={styles.balance}>{hidden ? MASK : btc}</Text>
+                    {/* THE ONLY THING THAT SAID THIS WAS POSSIBLE WAS THE
+                        TAP ITSELF. Hiding balances has been here and worked
+                        two ways — tap the card, or Settings > Security — and
+                        neither announces itself, so nobody found either. An
+                        eye is the one symbol that does not need explaining. */}
+                    <Text
+                      style={styles.eye}
+                      accessibilityElementsHidden
+                      importantForAccessibility="no">
+                      {hidden ? '🙈' : '👁'}
+                    </Text>
                   </View>
                   <Text style={styles.sub}>
                     {hidden ? MASK : groupThousands(sats)} sats
@@ -677,6 +688,8 @@ const styles = StyleSheet.create({
     marginBottom: 16,
   },
   label: { fontSize: 14, color: colors.muted, marginBottom: 8 },
+  // Dim on purpose: an affordance, not a control competing with the balance.
+  eye: { fontSize: 15, marginLeft: 10, opacity: 0.45 },
   spinner: { marginVertical: 12, alignSelf: 'flex-start' },
   // The sign is set larger than the 30px text on purpose: its B occupies only
   // 15 of the 24 viewBox units (the strokes above and below take the rest), so

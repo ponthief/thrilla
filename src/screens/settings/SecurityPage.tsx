@@ -190,7 +190,7 @@ export default function SecurityPage({ onBack }: { onBack: () => void }) {
         <SwitchRow
           first
           title="Hide balances"
-          help="Show stars instead of amounts. Tap the balance to flip it back."
+          help="Show stars instead of amounts. Tap the balance on the wallet screen — the eye beside it — to flip it either way."
           value={balancesHidden}
           onValueChange={setBalancesHidden}
         />
