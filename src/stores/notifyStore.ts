@@ -8,33 +8,34 @@ import * as notifyPrefs from '@services/notifyPrefs';
 // the optimistic default would register a token we're about to remove.
 //
 // Readable outside React via useNotifyStore.getState() — the push message
-// handler and the catch-up scan both need it synchronously.
+// handler, the catch-up scan and the Tango poll all need it synchronously.
 interface NotifyState {
   ready: boolean;
-  paymentAlerts: boolean;
+  alerts: boolean;
   refresh: () => Promise<void>;
-  setPaymentAlerts: (v: boolean) => Promise<void>;
+  setAlerts: (v: boolean) => Promise<void>;
 }
 
 export const useNotifyStore = create<NotifyState>((set) => ({
   ready: false,
-  paymentAlerts: true,
+  alerts: true,
 
   refresh: async () => {
-    const on = await notifyPrefs.paymentAlertsEnabled();
-    set({ paymentAlerts: on, ready: true });
+    const on = await notifyPrefs.alertsEnabled();
+    set({ alerts: on, ready: true });
   },
 
   // Flip the UI immediately, then persist. Registering/unregistering the FCM
   // token is App.tsx's job (it owns the session key), so this only stores the
   // preference and lets that effect react to it.
-  setPaymentAlerts: async (v) => {
-    set({ paymentAlerts: v, ready: true });
-    await notifyPrefs.setPaymentAlertsEnabled(v);
+  setAlerts: async (v) => {
+    set({ alerts: v, ready: true });
+    await notifyPrefs.setAlertsEnabled(v);
   },
 }));
 
-// Convenience for non-React callers deciding whether to raise a payment alert.
-export function paymentAlertsOn(): boolean {
-  return useNotifyStore.getState().paymentAlerts;
+// Convenience for non-React callers deciding whether to raise an alert — a
+// payment arriving, a send confirming, or a Tango waiting on you.
+export function alertsOn(): boolean {
+  return useNotifyStore.getState().alerts;
 }

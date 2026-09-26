@@ -7,7 +7,7 @@ import { markScanStarted } from '@services/scanCooldown';
 import { usePendingSends, getPendingSends } from '@stores/pendingSends';
 import { usePushBanner } from '@stores/pushBanner';
 import { useBalancePrivacy } from '@stores/balancePrivacy';
-import { paymentAlertsOn } from '@stores/notifyStore';
+import { alertsOn } from '@stores/notifyStore';
 
 // Watches broadcast-but-unmined sends and announces the first confirmation.
 //
@@ -135,7 +135,7 @@ export function useSendConfirmations() {
             }
             // Same switch that governs incoming-payment alerts: someone who
             // turned those off does not want this either.
-            if (paymentAlertsOn()) {
+            if (alertsOn()) {
               // Same rule as the incoming banner: with balances hidden, the
               // event is announced but the figure is not.
               const hidden = useBalancePrivacy.getState().hidden;

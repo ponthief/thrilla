@@ -12,8 +12,8 @@ import { Block, Group, NavRow, Note, Page, SwitchRow } from './ui';
 
 // One switch, and the truth about whether the phone will honour it.
 export default function NotificationsPage({ onBack }: { onBack: () => void }) {
-  const paymentAlerts = useNotifyStore((s) => s.paymentAlerts);
-  const setPaymentAlerts = useNotifyStore((s) => s.setPaymentAlerts);
+  const alerts = useNotifyStore((s) => s.alerts);
+  const setAlerts = useNotifyStore((s) => s.setAlerts);
   const inkey = useAuthStore((s) => s.inkey);
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
@@ -27,7 +27,7 @@ export default function NotificationsPage({ onBack }: { onBack: () => void }) {
   // on mount, so returning from system settings and reopening this page picks
   // up a fresh grant.
   useEffect(() => {
-    if (!paymentAlerts) {
+    if (!alerts) {
       setPermBlocked(false);
       return;
     }
@@ -38,7 +38,7 @@ export default function NotificationsPage({ onBack }: { onBack: () => void }) {
     return () => {
       cancelled = true;
     };
-  }, [paymentAlerts]);
+  }, [alerts]);
 
   // Turning alerts on needs the OS notification permission; without it the
   // system notification would never show, so keep the switch off and point the
@@ -59,10 +59,10 @@ export default function NotificationsPage({ onBack }: { onBack: () => void }) {
             return;
           }
           setPermBlocked(false);
-          await setPaymentAlerts(true);
+          await setAlerts(true);
         } else {
           setPermBlocked(false);
-          await setPaymentAlerts(false);
+          await setAlerts(false);
           // Drop any banner already on screen so the switch takes effect now.
           usePushBanner.getState().clear();
         }
@@ -70,7 +70,7 @@ export default function NotificationsPage({ onBack }: { onBack: () => void }) {
         setBusy(false);
       }
     },
-    [setPaymentAlerts],
+    [setAlerts],
   );
 
   // Push has three links — credentials on the server, a device token in the
@@ -103,7 +103,7 @@ export default function NotificationsPage({ onBack }: { onBack: () => void }) {
       } else if (r.tokens === 0) {
         setTest({
           ok: false,
-          text: 'This phone is not registered with the server. Turn Payment alerts off and back on to register it again.',
+          text: 'This phone is not registered with the server. Turn Alerts off and back on to register it again.',
         });
       } else {
         setTest({ ok: false, text: r.errors.join(' ') || 'Firebase refused the notification.' });
@@ -115,54 +115,68 @@ export default function NotificationsPage({ onBack }: { onBack: () => void }) {
     }
   }, [inkey, testing]);
 
+  // Whichever of the two is true — a failed toggle beats the standing warning,
+  // since it is about the tap that just happened.
+  const notice = msg ? (
+    <Block first>
+      <Note kind="error">{msg}</Note>
+    </Block>
+  ) : permBlocked ? (
+    <Block first>
+      <Note kind="error">
+        Your phone is blocking notifications for WhiSPa, so alerts will not
+        appear while the app is closed.
+      </Note>
+    </Block>
+  ) : null;
+
   return (
     <Page
       title="Notifications"
       subtitle="This phone only — your other devices keep their own setting."
       onBack={onBack}>
       <Group
-        title="Payments"
-        footer="Turn this off for silent receiving. Coins still arrive and still show up in your balance and history; nothing announces them.">
+        title="Payments and Tango"
+        footer="Turn this off to use WhiSPa silently. Coins still arrive, Tango requests and rounds still appear under Tango, and everything still shows in your balance and history — nothing announces itself.">
         <SwitchRow
           first
-          title="Payment alerts"
-          help="Be told when a payment arrives: a notification while the app is closed, which needs background scanning on, and a banner while it is open."
-          value={paymentAlerts}
+          title="Alerts"
+          help="Be told when a payment arrives, when a send confirms, and when a Tango needs you — someone asking to connect, or a mix waiting for your turn. A notification while the app is closed (payments need background scanning on), a banner while it is open."
+          value={alerts}
           onValueChange={onToggle}
           busy={busy}
         />
-        {msg ? (
-          <Block>
-            <Note kind="error">{msg}</Note>
-          </Block>
-        ) : permBlocked ? (
-          <Block>
-            <Note kind="error">
-              Your phone is blocking notifications for WhiSPa, so alerts will
-              not appear while the app is closed.
-            </Note>
-          </Block>
-        ) : null}
-        {permBlocked ? (
-          <NavRow
-            title="Allow in system settings"
-            value="Open"
-            onPress={() => Linking.openSettings().catch(() => {})}
-          />
-        ) : null}
-        {paymentAlerts ? (
-          <NavRow
-            title="Send a test notification"
-            value={testing ? 'Sending…' : 'Send'}
-            onPress={onTest}
-          />
-        ) : null}
-        {test ? (
-          <Block>
-            <Note kind={test.ok ? 'ok' : 'error'}>{test.text}</Note>
-          </Block>
-        ) : null}
       </Group>
+
+      {/* One grant and one device token serve every kind of alert, so this
+          belongs below the switch rather than inside it. Rendered only when it
+          has something in it: Group always draws its card, and an empty
+          bordered box under the switch reads as a bug. */}
+      {notice || alerts || test ? (
+        <Group title="This phone">
+          {notice}
+          {permBlocked ? (
+            <NavRow
+              title="Allow in system settings"
+              value="Open"
+              onPress={() => Linking.openSettings().catch(() => {})}
+            />
+          ) : null}
+          {alerts ? (
+            <NavRow
+              first={!notice}
+              title="Send a test notification"
+              value={testing ? 'Sending…' : 'Send'}
+              onPress={onTest}
+            />
+          ) : null}
+          {test ? (
+            <Block first={!notice && !alerts}>
+              <Note kind={test.ok ? 'ok' : 'error'}>{test.text}</Note>
+            </Block>
+          ) : null}
+        </Group>
+      ) : null}
     </Page>
   );
 }

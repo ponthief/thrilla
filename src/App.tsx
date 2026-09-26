@@ -216,13 +216,13 @@ const App = () => {
   // (and depending on it) both silences the 403 and registers right after the
   // 6-digit confirmation succeeds.
   //
-  // Also gated on the "Payment alerts" pref (Settings → Notifications): with it
-  // off, this device holds no server-side token, which is what actually stops
-  // the system notification while the app is closed. Waiting for
-  // `notifyReady` avoids registering a token on launch only to remove it a tick
-  // later when the persisted pref turns out to be off.
+  // Also gated on the "Alerts" pref (Settings → Notifications): with it off,
+  // this device holds no server-side token, which is what actually stops the
+  // system notification while the app is closed. Waiting for `notifyReady`
+  // avoids registering a token on launch only to remove it a tick later when
+  // the persisted pref turns out to be off.
   const deviceReady = !DEVICE_TRUST_ENABLED || deviceStatus === 'trusted';
-  const paymentAlerts = useNotifyStore((s) => s.paymentAlerts);
+  const alerts = useNotifyStore((s) => s.alerts);
   const notifyReady = useNotifyStore((s) => s.ready);
   const refreshNotify = useNotifyStore((s) => s.refresh);
   const refreshBalancePrivacy = useBalancePrivacy((s) => s.refresh);
@@ -230,7 +230,7 @@ const App = () => {
   useEffect(() => {
     if (!notifyReady) return;
     if (isAuthenticated && inkey && deviceReady) {
-      if (paymentAlerts) {
+      if (alerts) {
         lastInkey.current = inkey;
         registerForPush(inkey);
       } else {
@@ -244,7 +244,7 @@ const App = () => {
       unregisterForPush(lastInkey.current);
       lastInkey.current = null;
     }
-  }, [isAuthenticated, inkey, deviceReady, paymentAlerts, notifyReady]);
+  }, [isAuthenticated, inkey, deviceReady, alerts, notifyReady]);
 
   const lockEnabled = useAppLockStore((s) => s.enabled);
   const lockReady = useAppLockStore((s) => s.ready);
@@ -285,11 +285,11 @@ const App = () => {
   // trusted (effect above); by then this grant is already in place, so
   // registerForPush won't show a second dialog.
   //
-  // Skipped when payment alerts are switched off, so a user who turned them off
-  // isn't asked again on the next launch for a permission the app won't use.
+  // Skipped when alerts are switched off, so a user who turned them off isn't
+  // asked again on the next launch for a permission the app won't use.
   useEffect(() => {
-    if (notifyReady && paymentAlerts) ensureNotificationPermission();
-  }, [notifyReady, paymentAlerts]);
+    if (notifyReady && alerts) ensureNotificationPermission();
+  }, [notifyReady, alerts]);
 
   // Locking on leaving the foreground, but ONLY for the "Immediately" setting.
   //

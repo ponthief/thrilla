@@ -72,7 +72,7 @@ const MUST_EXIST = {
   'background scanning on': /api\.enableBackgroundScan\(/,
   'background scanning off': /api\.disableBackgroundScan\(/,
   'catch-up threshold': /CATCH_UP_CHOICES/,
-  'payment alerts': /setPaymentAlerts\(/,
+  alerts: /setAlerts\(/,
   'notification permission': /Linking\.openSettings\(\)/,
   'invite a friend': /api\.sendInvite\(/,
   'dust threshold': /api\.updateUserPrefs\(/,
@@ -120,6 +120,60 @@ check(
   !/\bonBack\b/.test(menu.match(/<Page\s[\s\S]*?>/)?.[0] || ''),
   'it is a tab destination — a back link there points at itself',
 );
+
+// ── the notification types both languages have to agree on ──────────────────
+// The fourth failure that is invisible from the repo, and the most expensive so
+// far: the server sends DATA-ONLY pushes, so nothing displays a notification
+// unless PaymentNotificationReceiver.kt builds one — and it refuses any `type`
+// not in its own list. Adding a kind of push on the server and in the JS
+// handler, and forgetting the Kotlin constant, does not degrade to a plain
+// notification. It produces nothing at all, on every phone, with the app
+// closed, with no error anywhere. That is exactly what happened to Tango.
+console.log('\npush types are known to the native receiver');
+{
+  const pushTs = read('src/services/push.ts');
+  const kotlin = read(
+    'android/app/src/main/java/com/thrilla_btc/thrilla/notify/PaymentNotificationReceiver.kt',
+  );
+
+  const declared = [
+    ...(pushTs
+      .slice(pushTs.indexOf('export const PUSH_TYPES'))
+      .split(']')[0]
+      .matchAll(/'([a-z_]+)'/g) || []),
+  ].map((m) => m[1]);
+  check('push.ts declares the set', declared.length >= 4, `${declared.length} found`);
+
+  // The Kotlin set is written in terms of its TYPE_* constants, so resolve
+  // those to their string values rather than matching literals that are not
+  // there.
+  const consts = Object.fromEntries(
+    [...kotlin.matchAll(/private const val (TYPE_\w+) = "([a-z_]+)"/g)].map((m) => [
+      m[1],
+      m[2],
+    ]),
+  );
+  const setBody = kotlin.slice(kotlin.indexOf('KNOWN_TYPES ='));
+  const known = [...setBody.slice(0, setBody.indexOf(')')).matchAll(/TYPE_\w+/g)]
+    .map((m) => consts[m[0]])
+    .filter(Boolean);
+  check('the receiver names a set', known.length >= 4, `${known.length} found`);
+
+  for (const t of declared) {
+    check(
+      `"${t}" is accepted by the receiver`,
+      known.includes(t),
+      'the receiver drops it, so the app shows NOTHING when it is closed',
+    );
+  }
+  for (const t of known) {
+    check(
+      `"${t}" is still a type the server sends`,
+      declared.includes(t),
+      'not in PUSH_TYPES — either the list is stale or the receiver accepts a dead kind',
+    );
+  }
+}
 
 // ── row layout ──────────────────────────────────────────────────────────────
 // A row is two or three Texts side by side. Nothing separates them unless the

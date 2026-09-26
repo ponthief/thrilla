@@ -4,7 +4,7 @@ import { getWalletKeys } from '@services/secureKeys';
 import { markScanStarted } from '@services/scanCooldown';
 import { usePushBanner } from '@stores/pushBanner';
 import { useBalancePrivacy } from '@stores/balancePrivacy';
-import { paymentAlertsOn } from '@stores/notifyStore';
+import { alertsOn } from '@stores/notifyStore';
 import { getCatchUpBlocks, effectiveThreshold } from '@services/catchUpPref';
 
 // Wallets already evaluated this app session, so returning to the Wallet tab
@@ -69,7 +69,7 @@ export function useCatchUpScan(
             // just don't announce themselves; the balance and history update as
             // usual.
             const found = Number(p.found || 0);
-            if (found > 0 && paymentAlertsOn()) {
+            if (found > 0 && alertsOn()) {
               const sats = Number(p.amount || 0);
               // Hiding balances has to cover the announcements too. A banner
               // reading "Received 250,000 sats" over a screen of stars is the

@@ -11,26 +11,42 @@ import { PermissionsAndroid, Platform } from 'react-native';
 import messaging from '@react-native-firebase/messaging';
 import * as api from './api';
 import { usePushBanner } from '@stores/pushBanner';
-import { paymentAlertsOn } from '@stores/notifyStore';
+import { alertsOn } from '@stores/notifyStore';
 
 let unsubscribeRefresh: (() => void) | null = null;
 let unsubscribeMessage: (() => void) | null = null;
 
+// Every `type` the backend sets on a push (siLNt views_api.py).
+//
+// The value has to be known in two languages: here, to choose the wording of a
+// foreground banner, and in Kotlin, where
+// notify/PaymentNotificationReceiver.kt refuses an unknown type outright. The
+// messages are data-only, so a type the receiver does not know produces not a
+// plain notification but silence — which is how Tango pushes existed on the
+// server for weeks and reached nobody with the app closed. Listed once here so
+// scripts/check-settings-ui.cjs can hold the Kotlin side to it, and
+// siLNt tests/test_fcm_message.py to the same set from the other end.
+export const PUSH_TYPES = [
+  'payment',
+  'send_confirmed',
+  'test',
+  'tango',
+] as const;
+
 // Show a foreground FCM message as an in-app banner. Android does NOT display
 // notification-type messages while the app is in the foreground, so without this
 // a payment that lands with the app open would be silent.
+//
+// The fallback title and body are chosen from `data.type`, not fixed: this used
+// to default to "Payment received" for anything it didn't recognise, so a Tango
+// from a server that sent no title would have announced itself as money
+// arriving.
 function handleForegroundMessage(msg: any): void {
   try {
-    // Payment alerts turned off in Settings → stay quiet. The token is also
+    // Alerts turned off in Settings → stay quiet. The token is also
     // unregistered in that case, so this is just belt and braces for a message
     // that was already in flight (or a removal that failed while offline).
-    if (!paymentAlertsOn()) return;
-    // A send confirming is announced locally by useSendConfirmations, which
-    // knows the amount — the push deliberately carries none, since FCM message
-    // bodies pass through Google in plaintext. Showing both would double-banner
-    // the same event, so with the app open the local one wins. This push exists
-    // for the case the app is closed, which Android displays itself.
-    if (msg?.data?.type === 'send_confirmed') return;
+    if (!alertsOn()) return;
     // Data-only now: the server stopped sending a `notification` block so the
     // firebase SDK would not display the background notification itself, which
     // is what let notify/PaymentNotificationReceiver.kt build one with the logo
@@ -38,8 +54,20 @@ function handleForegroundMessage(msg: any): void {
     // fallback stays for a message sent by an older server.
     const n = msg?.notification;
     const d = msg?.data;
-    const title = d?.title || n?.title || 'Payment received';
-    const body = d?.body || n?.body || 'You have a new payment.';
+    const type = d?.type;
+    // A send confirming is announced locally by useSendConfirmations, which
+    // knows the amount — the push deliberately carries none, since FCM message
+    // bodies pass through Google in plaintext. Showing both would double-banner
+    // the same event, so with the app open the local one wins. This push exists
+    // for the case the app is closed, which Android displays itself.
+    if (type === 'send_confirmed') return;
+    const tango = type === 'tango';
+    const title =
+      d?.title || n?.title || (tango ? 'Tango' : 'Payment received');
+    const body =
+      d?.body ||
+      n?.body ||
+      (tango ? 'Open WhiSPa to look.' : 'You have a new payment.');
     usePushBanner.getState().show({ title, body });
   } catch {
     /* never let a malformed message break the handler */
@@ -104,10 +132,10 @@ export async function hasNotificationPermission(): Promise<boolean> {
 // rotates. Safe no-op if Firebase/native push isn't available.
 export async function registerForPush(inkey: string): Promise<void> {
   try {
-    // "Payment alerts" off in Settings → don't hand the server a token to push
-    // to. Callers already gate on the pref; this is a second line of defence so
+    // Alerts off in Settings → don't hand the server a token to push to.
+    // Callers already gate on the pref; this is a second line of defence so
     // no code path can quietly re-enable notifications the user switched off.
-    if (!paymentAlertsOn()) return;
+    if (!alertsOn()) return;
 
     // Ensure the OS notification permission (no-op / no second dialog if the
     // first-launch prompt already granted it). Without a grant, pushes are
@@ -137,7 +165,7 @@ export async function registerForPush(inkey: string): Promise<void> {
 }
 
 // Stop this device from receiving pushes (on logout, or when the user turns
-// payment alerts off in Settings).
+// alerts off in Settings).
 export async function unregisterForPush(inkey: string): Promise<void> {
   try {
     if (unsubscribeRefresh) {

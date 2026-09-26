@@ -1,9 +1,10 @@
 # Push notifications (FCM) setup
 
-The app can push a "Payment received" notification when the server-side
-background scan finds funds while the app is closed. Delivery uses Firebase
-Cloud Messaging (FCM). The code is in place; these are the credentials/config
-steps only you can do.
+The app can push a notification while it is closed: "Payment received" when the
+server-side background scan finds funds, "Payment confirmed" when a send gets
+its first confirmation, and "Tango" when someone asks to connect or a mix is
+waiting on your turn. Delivery uses Firebase Cloud Messaging (FCM). The code is
+in place; these are the credentials/config steps only you can do.
 
 Until this is configured, everything still builds and runs — push just stays
 off (no crashes, no build break).
@@ -95,28 +96,75 @@ tells you exactly what's wrong if nothing arrives:
   fed by the `messaging().onMessage` handler in `src/services/push.ts`).
 - On logout the device unregisters its token.
 
-## Turning it off (Settings → Notifications → Payment alerts)
+## `type` — the field that decides whether anything appears at all
 
-Users who'd rather receive silently can switch **Payment alerts** off. It's a
+Every push carries a data map with a `type`: `payment`, `send_confirmed`,
+`test` or `tango`. `PaymentNotificationReceiver.kt` **refuses one it doesn't
+recognise**, and because the messages are data-only there is no SDK fallback
+behind that refusal. An unlisted type doesn't degrade to a plain notification —
+it produces nothing, on every phone, with the app closed, with nothing logged.
+
+That's not hypothetical. `tango` was sent by every endpoint of a round for as
+long as Tango existed and was missing from the receiver's list the whole time,
+so a mix invitation reached nobody who wasn't already looking at the app.
+
+Adding a kind of push therefore takes **three** edits, not one:
+
+| Where | What |
+| --- | --- |
+| siLNt `tests/test_fcm_message.py` | `PUSH_TYPES` — the sending end |
+| `src/services/push.ts` | `PUSH_TYPES` — chooses the foreground banner's wording |
+| `android/.../notify/PaymentNotificationReceiver.kt` | `KNOWN_TYPES` — the notification with the app closed, and the one that silently does nothing if you forget |
+
+The siLNt test fails if the server sends a type not on its list;
+`scripts/check-settings-ui.cjs` fails if the JS and Kotlin lists disagree.
+
+Payments and Tango sit on **separate notification channels** (`payments` and
+`tango`), so the OS switch that silences one leaves the other alone, and system
+settings describes each correctly.
+
+## Turning it off (Settings → Notifications → Alerts)
+
+Users who'd rather use the app silently can switch **Alerts** off. It's a
 per-device preference (stored in the platform keystore via
 `src/services/notifyPrefs.ts`, mirrored in `src/stores/notifyStore.ts`), so
 turning it off on one phone leaves another phone on the same account alerting.
 
-Off means all three surfaces of the alert go quiet:
+Off means every surface goes quiet:
 
 | Surface | How it's suppressed |
 | --- | --- |
 | System notification while the app is closed | `App.tsx` removes this device's FCM token from the server (`DELETE /api/v1/fcm/token`) and stops registering it, so there's nothing to push to. The removal is retried every session while the switch is off, in case it first failed offline. |
 | In-app banner for a foreground push | `handleForegroundMessage` in `src/services/push.ts` drops the message. |
 | In-app banner from the foreground catch-up scan | `src/hooks/useCatchUpScan.ts` skips the banner when it finds new coins. |
+| In-app banner when a send confirms | `src/hooks/useSendConfirmations.ts` skips it. |
+| In-app banner when a Tango turn becomes yours | `src/hooks/useTangoWatch.ts` skips it. The tab badge still counts them — a number on a tab is not an interruption. |
 
-Coins still arrive and still show up in the balance and history — only the
-announcement is suppressed. Turning the switch back on re-requests the OS
-notification permission if needed (Settings shows a link to the system settings
-when Android has stopped prompting) and re-registers the token.
+Coins still arrive and still show up in the balance and history, Tango requests
+and rounds still appear under Tango — only the announcement is suppressed.
+Turning the switch back on re-requests the OS notification permission if needed
+(Settings shows a link to the system settings when Android has stopped
+prompting) and re-registers the token.
 
 Because the mechanism is token removal, no backend change is involved: the
 server simply has no device to send to.
+
+### Why one switch and not one per kind
+
+Splitting payments from Tango is the obvious shape and can't be honoured from
+the client. One device token carries every kind of message, so not holding a
+token is the only thing that stops a notification with the app closed — an
+all-or-nothing lever. The notification is built at that point by native code
+that has no way to read a keystore-backed JS preference (the app has no
+SharedPreferences bridge). A second switch would have gone on silencing the
+in-app banner while the phone kept buzzing.
+
+Per-kind control needs the **server** to know which kinds each token wants, so
+it sends only those: a `kinds` column on `fcm_tokens`, accepted by
+`POST /api/v1/fcm/token` and filtered in `list_fcm_tokens_for_user`. That's a
+backend change, and it's the better privacy answer too — the unwanted push is
+never sent, rather than sent and discarded. Until then, the OS notification
+channels give per-kind control from system settings.
 
 ## Privacy
 

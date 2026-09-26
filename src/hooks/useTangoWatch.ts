@@ -4,7 +4,7 @@ import * as api from '@services/api';
 import { useAuthStore } from '@stores/authStore';
 import { useNavStore } from '@stores/navStore';
 import { usePushBanner } from '@stores/pushBanner';
-import { paymentAlertsOn } from '@stores/notifyStore';
+import { alertsOn } from '@stores/notifyStore';
 // One turn table for every Tango surface — see services/tango.ts.
 import { isMyTurn } from '@services/tangoTurns';
 
@@ -59,7 +59,10 @@ export function useTangoWatch(): void {
       // No banner on the first poll: those were already waiting before the app
       // opened, and announcing a backlog as if it just arrived is noise. The
       // badge shows them regardless.
-      if (primed.current && paymentAlertsOn()) {
+      //
+      // Gated on the one Alerts switch, like every other announcement. The
+      // badge is not gated: it is a count on a tab, not an interruption.
+      if (primed.current && alertsOn()) {
         for (const r of mine) {
           if (known.current.has(`${r.id}:${r.status}`)) continue;
           const who =

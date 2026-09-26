@@ -40,7 +40,7 @@ export default function SettingsScreen() {
   const bioEnabled = useAppLockStore((s) => s.bioEnabled);
   const lockEnabled = useAppLockStore((s) => s.enabled);
   const autoLockMs = useAppLockStore((s) => s.autoLockMs);
-  const paymentAlerts = useNotifyStore((s) => s.paymentAlerts);
+  const alerts = useNotifyStore((s) => s.alerts);
 
   const back = useCallback(() => setPage(null), []);
 
@@ -101,8 +101,8 @@ export default function SettingsScreen() {
         />
         <NavRow
           title="Notifications"
-          help="Whether payments announce themselves"
-          value={paymentAlerts ? 'On' : 'Off'}
+          help="Whether payments and Tango announce themselves"
+          value={alerts ? 'On' : 'Off'}
           onPress={() => setPage('notifications')}
         />
       </Group>

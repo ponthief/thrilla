@@ -61,7 +61,7 @@ export function usePlainWatch() {
   const confirmedTick = usePendingSends((s) => s.confirmedTick);
   // Subscribed rather than read once, so flipping the preference starts or
   // stops the banner without waiting for a restart. It does not stop the walk.
-  const alertsOn = useNotifyStore((s) => s.paymentAlerts);
+  const alertsOn = useNotifyStore((s) => s.alerts);
   // Pull-to-refresh on the wallet screen bumps this. Restarting the effect
   // drops the narrow watch, so the next tick is a full re-walk.
   const refreshTick = usePlainStatus((s) => s.refreshTick);

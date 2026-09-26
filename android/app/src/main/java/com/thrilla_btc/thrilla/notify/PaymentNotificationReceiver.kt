@@ -59,7 +59,7 @@ class PaymentNotificationReceiver : BroadcastReceiver() {
             // needed to read them — which keeps this receiver independent of the
             // messaging library's version.
             val type = extras.getString(KEY_TYPE) ?: return
-            if (type != TYPE_PAYMENT && type != TYPE_SEND_CONFIRMED && type != TYPE_TEST) return
+            if (type !in KNOWN_TYPES) return
 
             // With the app open, PushBanner already shows this — and it shows the
             // logo at full size. Two announcements of one event is worse than
@@ -77,7 +77,8 @@ class PaymentNotificationReceiver : BroadcastReceiver() {
     }
 
     private fun notify(context: Context, type: String, title: String, body: String) {
-        ensureChannel(context)
+        val channelId = channelFor(type)
+        ensureChannel(context, channelId)
 
         // Opens the app. No extras: which screen to land on is the app's
         // decision, and a notification is not the place to encode it.
@@ -91,7 +92,7 @@ class PaymentNotificationReceiver : BroadcastReceiver() {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
 
-        val builder = NotificationCompat.Builder(context, CHANNEL_ID)
+        val builder = NotificationCompat.Builder(context, channelId)
             .setSmallIcon(R.drawable.ic_notification)
             .setColor(ContextCompat.getColor(context, R.color.notification_accent))
             .setContentTitle(title)
@@ -111,7 +112,10 @@ class PaymentNotificationReceiver : BroadcastReceiver() {
         try {
             // One id per type, so a second payment replaces an unread first
             // rather than stacking identical lines. The body names no amount and
-            // no count, so there is nothing in the older one to lose.
+            // no count, so there is nothing in the older one to lose. The same
+            // holds for Tango, where the newer message is the more urgent one
+            // anyway — a round waiting on your turn beats an older invitation —
+            // and the Tango tab lists every one of them either way.
             NotificationManagerCompat.from(context).notify(type.hashCode(), builder.build())
         } catch (e: SecurityException) {
             // Android 13+ without POST_NOTIFICATIONS. The server should not have
@@ -122,21 +126,36 @@ class PaymentNotificationReceiver : BroadcastReceiver() {
     }
 
     /**
+     * Payments and Tango get separate channels, so the OS switch that silences
+     * one leaves the other alone — the same split the app's own Settings makes,
+     * and the one a user reaches by long-pressing a notification. Putting a
+     * mix invitation on the "Payments" channel would also describe it wrongly
+     * in system settings.
+     */
+    private fun channelFor(type: String): String =
+        if (type == TYPE_TANGO) TANGO_CHANNEL_ID else CHANNEL_ID
+
+    /**
      * The channel the user sees in system settings, and the only route to
      * heads-up display on API 26+. Created every time because creating an
      * existing channel is a no-op, and there is no earlier hook that is
      * guaranteed to have run when the app is not the one being started.
      */
-    private fun ensureChannel(context: Context) {
+    private fun ensureChannel(context: Context, channelId: String) {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
         val channel = NotificationChannel(
-            CHANNEL_ID,
-            "Payments",
+            channelId,
+            if (channelId == TANGO_CHANNEL_ID) "Tango" else "Payments",
             NotificationManager.IMPORTANCE_HIGH,
         ).apply {
-            description = "Incoming payments and send confirmations."
+            description =
+                if (channelId == TANGO_CHANNEL_ID)
+                    "Connection requests, and a mix waiting for your turn."
+                else
+                    "Incoming payments and send confirmations."
             // The notification carries no amount, but it does announce that
-            // money moved — which is not for a lock screen in public.
+            // money moved — which is not for a lock screen in public. A Tango
+            // says who you mix with is worth hiding, which is the same answer.
             lockscreenVisibility = android.app.Notification.VISIBILITY_PRIVATE
         }
         val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
@@ -172,6 +191,7 @@ class PaymentNotificationReceiver : BroadcastReceiver() {
     companion object {
         private const val TAG = "PaymentNotification"
         private const val CHANNEL_ID = "payments"
+        private const val TANGO_CHANNEL_ID = "tango"
 
         private const val KEY_TYPE = "type"
         private const val KEY_TITLE = "title"
@@ -181,6 +201,17 @@ class PaymentNotificationReceiver : BroadcastReceiver() {
         private const val TYPE_PAYMENT = "payment"
         private const val TYPE_SEND_CONFIRMED = "send_confirmed"
         private const val TYPE_TEST = "test"
+        private const val TYPE_TANGO = "tango"
+
+        // An unknown type is dropped rather than shown, so a future message
+        // kind cannot post a notification from a build that does not know what
+        // it means. The cost is that adding one here is not optional: `tango`
+        // was missing from this list for as long as Tango pushes existed, and
+        // because the server sends data-only messages (no `notification` block
+        // for the firebase SDK to fall back on) the result was not a plain
+        // notification — it was silence, on every phone, with the app closed.
+        private val KNOWN_TYPES =
+            setOf(TYPE_PAYMENT, TYPE_SEND_CONFIRMED, TYPE_TEST, TYPE_TANGO)
 
         private const val DEFAULT_TITLE = "WhiSPa"
         private const val DEFAULT_BODY = "Open WhiSPa to view."
