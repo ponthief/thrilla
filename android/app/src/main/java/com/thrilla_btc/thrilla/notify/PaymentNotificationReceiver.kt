@@ -82,7 +82,23 @@ class PaymentNotificationReceiver : BroadcastReceiver() {
 
         // Opens the app. No extras: which screen to land on is the app's
         // decision, and a notification is not the place to encode it.
-        val launch = Intent(context, MainActivity::class.java).apply {
+        //
+        // The LAUNCHER intent, not `Intent(context, MainActivity::class)`. A
+        // bare component intent carries no ACTION_MAIN and no
+        // CATEGORY_LAUNCHER, so cold-starting from a notification gives the
+        // task a root intent that the launcher icon does not match. Android
+        // then treats a later tap on the icon as a different launch and
+        // rebuilds the activity — and an activity destroyed under a
+        // BiometricPrompt takes the prompt with it, leaving the lock screen
+        // waiting on a promise that will never settle. That is the "tapped the
+        // notification, pressed Unlock, nothing happened" report.
+        // getLaunchIntentForPackage produces exactly what the launcher sends,
+        // so with launchMode=singleTask the existing task is resumed and
+        // MainActivity keeps its onNewIntent path.
+        val launch = (
+            context.packageManager.getLaunchIntentForPackage(context.packageName)
+                ?: Intent(context, MainActivity::class.java)
+            ).apply {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
         }
         val pending = PendingIntent.getActivity(

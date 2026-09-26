@@ -20,6 +20,12 @@ import { colors } from '@/theme';
 const PRIMARY = colors.primary;
 const PIN_LENGTH = 6;
 
+// How long to wait for the OS prompt to answer before giving the button back.
+// Long enough that it is not hit by someone taking their time to present a
+// finger — they cannot see the button behind the prompt anyway — and short
+// enough that a prompt which never appeared does not look permanent.
+const PROMPT_GRACE_MS = 6000;
+
 // Shown when the app is locked.
 //
 // Either method unlocks, and both are offered when both are set up. This screen
@@ -83,8 +89,34 @@ export default function LockScreen() {
   // on the global one.
   const [busyBio, setBusyBio] = useState(false);
 
+  // The same wedge, one layer down.
+  //
+  // busyBio is cleared in a finally and again on the next foreground. Neither
+  // fires when the native prompt was never shown at all — which is what
+  // happens when the activity it would attach to has been replaced under it.
+  // The promise never settles, no AppState transition follows, and the only
+  // control on the screen stays disabled for good. Force-quitting was the only
+  // way out, and a notification cold start was the way in: the push opened the
+  // app through a bare component intent, so the task did not match the
+  // launcher's and Android rebuilt the activity (see
+  // notify/PaymentNotificationReceiver.kt, fixed there too).
+  //
+  // So the wait is bounded. After this long with nothing back, the button
+  // comes back. Nothing is cancelled — a prompt that does eventually answer
+  // still unlocks — the screen just stops betting everything on an answer.
+  const [stalled, setStalled] = useState(false);
+  useEffect(() => {
+    if (!busyBio) {
+      setStalled(false);
+      return;
+    }
+    const t = setTimeout(() => setStalled(true), PROMPT_GRACE_MS);
+    return () => clearTimeout(t);
+  }, [busyBio]);
+
   const prompt = useCallback(async () => {
     setBusyBio(true);
+    setStalled(false);
     setUnlocking(true);
     setFailed(false);
     let res: appLock.UnlockResult = { ok: false, reason: 'failed' };
@@ -120,6 +152,10 @@ export default function LockScreen() {
     });
     return () => sub.remove();
   }, [setUnlocking]);
+
+  // Busy AND still within the grace period. Past it the button is live again
+  // even though the promise is still outstanding.
+  const waiting = busyBio && !stalled;
 
   // ── PIN mode ──
   const [pin, setPin] = useState('');
@@ -237,16 +273,26 @@ export default function LockScreen() {
             fail identically every time, and "Try again" would be a lie. */}
         {unenforceable ? null : (
           <TouchableOpacity
-            style={[styles.button, busyBio && styles.buttonDisabled]}
+            style={[styles.button, waiting && styles.buttonDisabled]}
             onPress={prompt}
-            disabled={busyBio}>
-            {busyBio ? (
+            disabled={waiting}>
+            {waiting ? (
               <ActivityIndicator color={colors.onPrimary} />
             ) : (
               <Text style={styles.buttonText}>{failed ? 'Try again' : 'Unlock'}</Text>
             )}
           </TouchableOpacity>
         )}
+
+        {/* Said only once the wait has run long. Before that it would be
+            noise; after it, the user is looking at a screen that appears to
+            have done nothing, and the useful thing to tell them is that
+            pressing again is allowed. */}
+        {stalled && !failed && !unenforceable ? (
+          <Text style={styles.hint}>
+            No prompt yet. Press Unlock again{pinSet ? ', or use your PIN' : ''}.
+          </Text>
+        ) : null}
 
         {unenforceable ? (
           <Text style={styles.error}>
@@ -302,6 +348,13 @@ const styles = StyleSheet.create({
   buttonText: { color: colors.onPrimary, fontSize: 16, fontWeight: '600' },
   error: {
     color: colors.danger,
+    fontSize: 13,
+    textAlign: 'center',
+    marginTop: 16,
+    paddingHorizontal: 8,
+  },
+  hint: {
+    color: colors.muted,
     fontSize: 13,
     textAlign: 'center',
     marginTop: 16,

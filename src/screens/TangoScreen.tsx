@@ -206,7 +206,22 @@ export default function TangoScreen() {
     setError(e?.message || 'Something went wrong.');
   };
 
+  // A notice describes the form as it was when the notice was raised, so
+  // changing that form makes it stale. Cleared by the controls the user
+  // touches, not by an effect on the values: proposing successfully resets the
+  // selection and the amount itself, and an effect would wipe the "Sent." it
+  // had just put up.
+  //
+  // Without this, "Choose which of your coins go in, then accept." sat above
+  // the screen while the user went to Mix, chose coins, and came back — still
+  // telling them to do the thing they had just done.
+  const clearNotice = useCallback(() => {
+    setError(null);
+    setMsg(null);
+  }, []);
+
   const toggle = (u: api.Utxo) => {
+    clearNotice();
     setPicked((prev) => {
       const next = new Set(prev);
       const k = key(u);
@@ -766,7 +781,10 @@ export default function TangoScreen() {
                   return (
                     <Pressable
                       key={c.id}
-                      onPress={() => setPartner(on ? '' : c.counterparty_username)}
+                      onPress={() => {
+                        clearNotice();
+                        setPartner(on ? '' : c.counterparty_username);
+                      }}
                       accessibilityRole="radio"
                       accessibilityState={{ selected: on }}
                       style={[styles.coin, on && styles.coinOn]}>
@@ -789,7 +807,10 @@ export default function TangoScreen() {
                   label: n === 1 ? '1 coin' : `${n} coins`,
                 }))}
                 selected={pieces}
-                onSelect={setPieces}
+                onSelect={(n) => {
+                  clearNotice();
+                  setPieces(n);
+                }}
               />
               <Text style={styles.rowMeta}>
                 {pieces === 1
@@ -806,7 +827,10 @@ export default function TangoScreen() {
             <Block>
               <Field
                 value={denom}
-                onChangeText={setDenom}
+                onChangeText={(v) => {
+                  clearNotice();
+                  setDenom(v);
+                }}
                 placeholder="sats each"
                 keyboardType="number-pad"
                 action="Propose"
