@@ -52,35 +52,46 @@ for (const c of data.cases) {
   // ── the amounts, every one of them ──
   let amounts;
   try {
-    amounts = t.plan(aIn, bIn, c.denom, c.fee_rate);
+    amounts = t.plan(aIn, bIn, c.denom, c.fee_rate, c.pieces || 1);
   } catch (err) {
     ok('plan', false, String(err));
     continue;
   }
-  for (const f of ['denom', 'a_in', 'b_in', 'a_change', 'b_change',
-                   'a_fee', 'b_fee', 'fee', 'vsize', 'clean']) {
+  for (const f of ['denom', 'pieces', 'share', 'a_in', 'b_in', 'a_change',
+                   'b_change', 'a_fee', 'b_fee', 'fee', 'vsize', 'clean']) {
     ok(f, amounts[f] === e[f], `js ${amounts[f]} py ${e[f]}`);
   }
   ok('both sides get the same amount', amounts.denom === e.denom);
   ok('the arithmetic balances',
     amounts.a_in + amounts.b_in
       === 2 * amounts.denom + amounts.a_change + amounts.b_change + amounts.fee);
+  ok('the pieces add up to the denomination',
+    amounts.share * amounts.pieces === amounts.denom);
 
-  // ── each side derives its own two outputs ──
+  // ── each side derives one output per piece, plus change ──
+  const pieces = c.pieces || 1;
   const aOut = t.deriveOwnOutputs(c.a.scan_secret, fromHex(c.a.spend_pub), all,
-    !!amounts.a_change);
+    !!amounts.a_change, pieces);
   const bOut = t.deriveOwnOutputs(c.b.scan_secret, fromHex(c.b.spend_pub), all,
-    !!amounts.b_change);
-  ok('A derives its mixed output', toHex(aOut.mix) === e.a_mix_spk,
-    `js ${toHex(aOut.mix)} py ${e.a_mix_spk}`);
-  ok('B derives its mixed output', toHex(bOut.mix) === e.b_mix_spk,
-    `js ${toHex(bOut.mix)} py ${e.b_mix_spk}`);
+    !!amounts.b_change, pieces);
+  // Order matters here, unlike in the transaction: the k-th script must be the
+  // k-th counter on both sides, or a client that derived its pieces in another
+  // order would still agree on the SET and disagree with its own next round.
+  ok('A derives every mixed output',
+    JSON.stringify(aOut.mix.map(toHex)) === JSON.stringify(e.a_mix_spks),
+    `js ${aOut.mix.map(toHex)} py ${e.a_mix_spks}`);
+  ok('B derives every mixed output',
+    JSON.stringify(bOut.mix.map(toHex)) === JSON.stringify(e.b_mix_spks),
+    `js ${bOut.mix.map(toHex)} py ${e.b_mix_spks}`);
+  ok('a side derives exactly one script per piece',
+    aOut.mix.length === pieces && bOut.mix.length === pieces);
   ok('A change script', (aOut.change ? toHex(aOut.change) : null) === e.a_change_spk);
   ok('B change script', (bOut.change ? toHex(bOut.change) : null) === e.b_change_spk);
   // Every script this round actually has must be distinct. Counting absent
   // change as a placeholder made this pass two and fail two for no reason —
-  // a clean round has two scripts, not four.
-  const present = [toHex(aOut.mix), toHex(bOut.mix)];
+  // a clean round has two scripts, not four. With pieces it also catches the
+  // real mistake: deriving every coin at k=0, which pays one address twice.
+  const present = [...aOut.mix.map(toHex), ...bOut.mix.map(toHex)];
   if (aOut.change) present.push(toHex(aOut.change));
   if (bOut.change) present.push(toHex(bOut.change));
   ok('every script in this round is distinct',
@@ -99,8 +110,12 @@ for (const c of data.cases) {
       JSON.stringify(e.output_scripts));
   ok('the unsigned transaction is identical', asm.unsignedHex === e.unsigned_tx,
     `js ${asm.unsignedHex}\n         py ${e.unsigned_tx}`);
-  ok('exactly two outputs sit at the denomination',
-    asm.vout.filter((o) => o.value === amounts.denom).length === 2);
+  // 2*pieces of them, all the same size. The COUNT matters as much as the
+  // value: a round where one side took three coins and the other one would be
+  // two sides an observer can tell apart.
+  ok('every side gets the same number of identical coins',
+    asm.vout.filter((o) => o.value === amounts.share).length === 2 * pieces,
+    `${asm.vout.filter((o) => o.value === amounts.share).length} at ${amounts.share}`);
 
   // ── sighashes and signatures ──
   const ordered = t.canonical(all);
@@ -127,19 +142,25 @@ for (const c of data.cases) {
 
 // ── what each side refuses to sign ───────────────────────────────────────────
 
-console.log('\nguards');
-{
-  const c = data.cases[0];
+// Run over a one-piece round AND a multi-piece one. The refusals that matter
+// most for pieces — a substituted script, a side left with the wrong number of
+// coins — cannot fire on a round that has one each.
+for (const c of [
+  data.cases[0],
+  data.cases.find((x) => (x.pieces || 1) > 1),
+].filter(Boolean)) {
+  const pieces = c.pieces || 1;
+  console.log(`\nguards (${pieces} piece${pieces > 1 ? 's' : ''} a side)`);
   const aIn = c.a.inputs, bIn = c.b.inputs, all = [...aIn, ...bIn];
-  const amounts = t.plan(aIn, bIn, c.denom, c.fee_rate);
-  const aOut = t.deriveOwnOutputs(c.a.scan_secret, fromHex(c.a.spend_pub), all, !!amounts.a_change);
-  const bOut = t.deriveOwnOutputs(c.b.scan_secret, fromHex(c.b.spend_pub), all, !!amounts.b_change);
+  const amounts = t.plan(aIn, bIn, c.denom, c.fee_rate, pieces);
+  const aOut = t.deriveOwnOutputs(c.a.scan_secret, fromHex(c.a.spend_pub), all, !!amounts.a_change, pieces);
+  const bOut = t.deriveOwnOutputs(c.b.scan_secret, fromHex(c.b.spend_pub), all, !!amounts.b_change, pieces);
 
   const base = {
     side: 'a', inputs: all, mine: aIn, amounts,
     aMix: aOut.mix, bMix: bOut.mix, aChange: aOut.change, bChange: bOut.change,
     expectMix: aOut.mix, expectChange: aOut.change,
-    committed: aIn, denom: c.denom, feeRate: c.fee_rate,
+    committed: aIn, denom: c.denom, feeRate: c.fee_rate, pieces,
   };
 
   let err = null;
@@ -171,8 +192,18 @@ console.log('\nguards');
     'this device computes');
 
   refuses('A refuses a share sent to a script it did not derive',
-    { ...base, aMix: fromHex('5120' + 'ff'.repeat(32)) },
-    'not going to the address this device derived');
+    { ...base, aMix: aOut.mix.map((m, i) =>
+        i === 0 ? fromHex('5120' + 'ff'.repeat(32)) : m) },
+    'not going to the addresses this device derived');
+
+  // Swapping one of A's pieces for another of A's own is still a substitution:
+  // it leaves A with fewer coins than the round planned, and the count is what
+  // the extra readings are made of.
+  if (pieces > 1) {
+    refuses('A refuses one of its pieces being replaced by another of its own',
+      { ...base, aMix: aOut.mix.map(() => aOut.mix[0]) },
+      'not going to the addresses this device derived');
+  }
 
   refuses('A refuses change sent somewhere else',
     { ...base, aChange: fromHex('5120' + 'ee'.repeat(32)) },
@@ -283,6 +314,36 @@ console.log('\nlabels');
     }
   }
   ok(`both sides agree on all ${L.cases.length} selections`, agree, where);
+
+  // The txid-aware rule: two pieces of ONE round together undo it, two pieces
+  // of different rounds do not. A label cannot express either.
+  if (L.coin_cases) {
+    let coinsAgree = true;
+    let coinWhere = '';
+    for (const c of L.coin_cases) {
+      const mine = t.undoesARound(c.coins);
+      if (mine !== c.undoes) {
+        coinsAgree = false;
+        coinWhere = `${JSON.stringify(c.coins)}: js ${JSON.stringify(mine)} vs py ${JSON.stringify(c.undoes)}`;
+        break;
+      }
+    }
+    ok(`both sides agree on all ${L.coin_cases.length} coin selections`,
+      coinsAgree, coinWhere);
+
+    const mix = (txid, who) => ({ txid, label: `Tango mix - ${who}` });
+    ok('two pieces of ONE round together undo it',
+      t.undoesARound([mix('aa'.repeat(32), 'bob'), mix('aa'.repeat(32), 'bob')])
+        === 'bob');
+    ok('pieces of DIFFERENT rounds are not this failure',
+      t.undoesARound([mix('aa'.repeat(32), 'bob'), mix('bb'.repeat(32), 'carol')])
+        === null);
+    // Labels alone carry no round, so they cannot trip it — and must still
+    // trip the rule they always did.
+    ok('labels with no txid keep the older rule and only that',
+      t.undoesARound(['Tango mix - bob', 'Tango mix - bob']) === null &&
+      t.undoesARound(['Tango mix - bob', 'Tango change - bob']) === 'bob');
+  }
 
   // Stated separately from the table so the point is not just "they agree".
   ok('a share with its own change is refused',

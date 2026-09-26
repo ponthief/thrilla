@@ -63,6 +63,17 @@ export default function TangoScreen() {
 
   const [partner, setPartner] = useState('');
   const [denom, setDenom] = useState('');
+  // How many equal coins each side takes its share back as.
+  //
+  // One coin each gives two readings of the round — which of the two identical
+  // coins is yours. Two each gives six, three each twenty: C(2p, p), because
+  // nobody can say which p of the 2p identical coins were one person's. It is
+  // the only change measured that pays the same on every round shape, and it
+  // costs 86 vbytes a pair.
+  //
+  // The price is that the pieces must never be spent together, which the send
+  // guard refuses — see services/tango.ts::undoesARound.
+  const [pieces, setPieces] = useState(2);
 
   // The connection graph. A Tango needs mutual consent — the propose endpoint
   // refuses a partner who is not an accepted contact — so the phone needs the
@@ -175,12 +186,12 @@ export default function TangoScreen() {
       txid: c.txid, vout: c.vout, amount: c.amount, pub_key: c.pub_key,
     }));
     try {
-      const p = tango.plan(rows, rows, d, 2);
+      const p = tango.plan(rows, rows, d, 2, pieces);
       return { change: p.a_change, fee: p.a_fee, error: null as string | null };
     } catch (e: any) {
       return { change: 0, fee: 0, error: e?.message || 'Does not work.' };
     }
-  }, [denom, chosen]);
+  }, [denom, chosen, pieces]);
 
   const wire = (u: api.Utxo): api.PayjoinSpWireInput => ({
     txid: u.txid, vout: u.vout, pub_key: u.pub_key, amount: u.amount,
@@ -340,6 +351,7 @@ export default function TangoScreen() {
         wallet_id: walletId,
         partner_username: partner.trim(),
         denom_sats: d,
+        pieces,
         fee_rate: 2,
         inputs: chosen.map(wire),
         network,
@@ -359,7 +371,7 @@ export default function TangoScreen() {
     } finally {
       setBusy(null);
     }
-  }, [adminkey, walletId, denom, partner, chosen, network, committed, load]);
+  }, [adminkey, walletId, denom, partner, chosen, pieces, network, committed, load]);
 
   // ── B: accept, which means deriving both of this side's outputs ──
   const accept = useCallback(
@@ -378,18 +390,20 @@ export default function TangoScreen() {
         // The complete input set exists for the first time here, which is why
         // both scripts are derived in this call and not an earlier one.
         const all = [...parseInputs(row.a_inputs), ...chosen.map(local)];
+        const pieces = row.pieces || 1;
         const amounts = tango.plan(
-          parseInputs(row.a_inputs), chosen.map(local), row.denom_sats, row.fee_rate,
+          parseInputs(row.a_inputs), chosen.map(local), row.denom_sats,
+          row.fee_rate, pieces,
         );
         const { spend } = parseSpAddress(spAddress);
         const own = tango.deriveOwnOutputs(
-          keys.scanSecret, spend, all, !!amounts.b_change,
+          keys.scanSecret, spend, all, !!amounts.b_change, pieces,
         );
 
         await api.acceptTango(adminkey, row.id, {
           wallet_id: walletId,
           inputs: chosen.map(wire),
-          mix_spk: toHex(own.mix),
+          mix_spks: own.mix.map(toHex),
           change_spk: own.change ? toHex(own.change) : null,
         });
         setCommitted(
@@ -432,8 +446,11 @@ export default function TangoScreen() {
         // server's copy of the set — which carries none, by design.
         const mine = tango.withLocalTweaks(side === 'a' ? aRows : bRows, coins);
 
+        const pieces = fresh.pieces || 1;
         const amounts: tango.TangoAmounts = {
           denom: fresh.denom_sats,
+          pieces,
+          share: Math.floor(fresh.denom_sats / pieces),
           a_in: fresh.a_in_sats!, b_in: fresh.b_in_sats!,
           a_change: fresh.a_change_sats || 0, b_change: fresh.b_change_sats || 0,
           a_fee: fresh.a_fee_sats!, b_fee: fresh.b_fee_sats!,
@@ -443,12 +460,21 @@ export default function TangoScreen() {
 
         const { spend } = parseSpAddress(spAddress);
         const myChange = side === 'a' ? amounts.a_change : amounts.b_change;
-        const own = tango.deriveOwnOutputs(keys.scanSecret, spend, all, !!myChange);
+        const own = tango.deriveOwnOutputs(
+          keys.scanSecret, spend, all, !!myChange, pieces,
+        );
 
         // A derives at sign time; B derived at accept time and its scripts are
-        // already on the row.
-        const aMix = side === 'a' ? own.mix : fromHex(fresh.a_mix_spk || '');
-        const bMix = side === 'b' ? own.mix : fromHex(fresh.b_mix_spk || '');
+        // already on the row. spkList reads either column shape, so a round
+        // proposed before pieces existed still signs.
+        const theirs = (raw?: string | null, old?: string | null) =>
+          tango.spkList(raw || old).map(fromHex);
+        const aMix = side === 'a'
+          ? own.mix
+          : theirs(fresh.a_mix_spks, fresh.a_mix_spk);
+        const bMix = side === 'b'
+          ? own.mix
+          : theirs(fresh.b_mix_spks, fresh.b_mix_spk);
         const aChange = side === 'a'
           ? own.change
           : fresh.a_change_spk ? fromHex(fresh.a_change_spk) : null;
@@ -467,13 +493,13 @@ export default function TangoScreen() {
           aMix, bMix, aChange, bChange,
           expectMix: own.mix, expectChange: own.change,
           committed: chose || mine,
-          denom: fresh.denom_sats, feeRate: fresh.fee_rate,
+          denom: fresh.denom_sats, feeRate: fresh.fee_rate, pieces,
         });
 
         const witnesses = tango.signOwnInputs(assembled, all, mine, keys.spendKey);
         const done = await api.signTango(adminkey, row.id, {
           witnesses,
-          mix_spk: side === 'a' ? toHex(own.mix) : null,
+          mix_spks: side === 'a' ? own.mix.map(toHex) : null,
           change_spk: side === 'a' && own.change ? toHex(own.change) : null,
           unsigned_tx: assembled.unsignedHex,
         });
@@ -752,6 +778,30 @@ export default function TangoScreen() {
                   );
                 })
               )}
+            </Block>
+            <Block>
+              <Text style={styles.rowMeta}>
+                Take it back as how many coins?
+              </Text>
+              <Chips<number>
+                options={[1, 2, 3].map((n) => ({
+                  key: n,
+                  label: n === 1 ? '1 coin' : `${n} coins`,
+                }))}
+                selected={pieces}
+                onSelect={setPieces}
+              />
+              <Text style={styles.rowMeta}>
+                {pieces === 1
+                  ? 'One coin each: two ways to read the round. Simplest, and'
+                    + ' the weakest.'
+                  : `${pieces} coins each: ${
+                      pieces === 2 ? 'six' : 'twenty'
+                    } ways to read it, because nobody can say which ${pieces}`
+                    + ` of the ${2 * pieces} identical coins are yours. Costs a`
+                    + ` little more fee, and they must not be spent together —`
+                    + ` the Send screen will say so.`}
+              </Text>
             </Block>
             <Block>
               <Field

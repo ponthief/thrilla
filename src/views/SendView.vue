@@ -127,7 +127,9 @@ const mixedLabels = computed(() => {
 // and cross-checked by check:signing:tango. It reads the labels the backend
 // writes when the scanner finds the coins.
 const tangoPairing = computed(() =>
-  undoesARound(selectedUtxos.value.map((u) => u.label)),
+  // The whole coin, not just its name: the guard needs the txid to see two
+  // pieces of one round. See services/tango.ts::undoesARound.
+  undoesARound(selectedUtxos.value.map((u) => ({ txid: u.txid, label: u.label }))),
 )
 // Gates Build rather than merely appearing above it. The user can still say
 // yes — consolidating a round you have stopped caring about is their call —

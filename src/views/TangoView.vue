@@ -264,6 +264,12 @@ function parseInputs(raw) {
 
 // ── the denomination, and what a selection would do at it ───────────────────
 const denom = ref('')
+// How many equal coins each side takes its share back as. One each gives two
+// readings of the round; p each gives C(2p, p) — six at two, twenty at three —
+// because nobody can say which p of the 2p identical coins were one person's.
+// 86 more vbytes a pair, and the pieces must never be spent together, which
+// services/tango.ts::undoesARound refuses.
+const pieces = ref(2)
 
 /**
  * The proposal priced against this side's own coins standing in for the other
@@ -277,7 +283,7 @@ const mixPreview = computed(() => {
   if (!Number.isFinite(d) || d <= 0 || !mixChosen.value.length) return null
   const rows = mixChosen.value.map(localOf)
   try {
-    const p = tango.plan(rows, rows, d, parseFloat(feeRate.value) || 1)
+    const p = tango.plan(rows, rows, d, parseFloat(feeRate.value) || 1, pieces.value)
     return { change: p.a_change, fee: p.a_fee, error: '' }
   } catch (e) { return { change: 0, fee: 0, error: e.message || 'That does not work.' } }
 })
@@ -293,7 +299,7 @@ const matchPreview = computed(() => {
   try {
     const p = tango.plan(
       parseInputs(r.a_inputs), matchChosen.value.map(localOf),
-      r.denom_sats, r.fee_rate,
+      r.denom_sats, r.fee_rate, r.pieces || 1,
     )
     return { change: p.b_change, fee: p.b_fee, clean: p.clean, error: '' }
   } catch (e) {
@@ -368,6 +374,7 @@ async function propose() {
       partner_username: partnerName.value,
       denom_sats: d,
       fee_rate: parseFloat(feeRate.value) || 1,
+      pieces: pieces.value,
       inputs: mixChosen.value.map(wireOf),
       network: wallet.value?.network || 'signet',
     })
@@ -406,16 +413,20 @@ async function submitMatch(r) {
     // scripts go in this same call and not a later one.
     const chosen = matchChosen.value
     const all = [...parseInputs(r.a_inputs), ...chosen.map(localOf)]
+    const rPieces = r.pieces || 1
     const amounts = tango.plan(
       parseInputs(r.a_inputs), chosen.map(localOf), r.denom_sats, r.fee_rate,
+      rPieces,
     )
     const { spend } = parseSpAddress(wallet.value.sp_address)
-    const own = tango.deriveOwnOutputs(keys.scanSecret, spend, all, !!amounts.b_change)
+    const own = tango.deriveOwnOutputs(
+      keys.scanSecret, spend, all, !!amounts.b_change, rPieces,
+    )
 
     await api.tangoAccept(auth.adminkey, r.id, {
       wallet_id: selectedWallet.value,
       inputs: chosen.map(wireOf),
-      mix_spk: toHex(own.mix),
+      mix_spks: own.mix.map(toHex),
       change_spk: own.change ? toHex(own.change) : null,
     })
     recordTangoCommit(r.id, selectedWallet.value, chosen)
@@ -459,8 +470,11 @@ async function sign(r) {
     // about to sign are rebuilt from the wallet's own records.
     const mine = tango.withLocalTweaks(side === 'a' ? aRows : bRows, coins.value)
 
+    const nPieces = fresh.pieces || 1
     const amounts = {
       denom: fresh.denom_sats,
+      pieces: nPieces,
+      share: Math.floor(fresh.denom_sats / nPieces),
       a_in: fresh.a_in_sats, b_in: fresh.b_in_sats,
       a_change: fresh.a_change_sats || 0, b_change: fresh.b_change_sats || 0,
       a_fee: fresh.a_fee_sats, b_fee: fresh.b_fee_sats,
@@ -470,12 +484,16 @@ async function sign(r) {
 
     const { spend } = parseSpAddress(wallet.value.sp_address)
     const myChange = side === 'a' ? amounts.a_change : amounts.b_change
-    const own = tango.deriveOwnOutputs(keys.scanSecret, spend, all, !!myChange)
+    const own = tango.deriveOwnOutputs(
+      keys.scanSecret, spend, all, !!myChange, nPieces,
+    )
 
     // A derives at sign time; B derived when it matched, and its scripts are
-    // already on the row.
-    const aMix = side === 'a' ? own.mix : fromHex(fresh.a_mix_spk || '')
-    const bMix = side === 'b' ? own.mix : fromHex(fresh.b_mix_spk || '')
+    // already on the row. spkList reads either column shape, so a round
+    // proposed before pieces existed still signs.
+    const theirs = (raw, old) => tango.spkList(raw || old).map(fromHex)
+    const aMix = side === 'a' ? own.mix : theirs(fresh.a_mix_spks, fresh.a_mix_spk)
+    const bMix = side === 'b' ? own.mix : theirs(fresh.b_mix_spks, fresh.b_mix_spk)
     const aChange = side === 'a'
       ? own.change
       : (fresh.a_change_spk ? fromHex(fresh.a_change_spk) : null)
@@ -497,13 +515,13 @@ async function sign(r) {
       aMix, bMix, aChange, bChange,
       expectMix: own.mix, expectChange: own.change,
       committed: chose || mine,
-      denom: fresh.denom_sats, feeRate: fresh.fee_rate,
+      denom: fresh.denom_sats, feeRate: fresh.fee_rate, pieces: nPieces,
     })
 
     const witnesses = tango.signOwnInputs(assembled, all, mine, keys.spendKey)
     const done = await api.tangoSign(auth.adminkey, r.id, {
       witnesses,
-      mix_spk: side === 'a' ? toHex(own.mix) : null,
+      mix_spks: side === 'a' ? own.mix.map(toHex) : null,
       change_spk: side === 'a' && own.change ? toHex(own.change) : null,
       unsigned_tx: assembled.unsignedHex,
     })
@@ -715,6 +733,25 @@ function expiresIn(r) {
             <p class="text-dim text-xs" style="margin-top:0.25rem;">
               Both of you get exactly this back. Unequal amounts are two outputs
               an observer can tell apart, which is no mix at all.
+            </p>
+          </div>
+
+          <div class="field">
+            <label class="text-dim text-xs">Take it back as</label>
+            <div class="fee-tiers">
+              <button v-for="n in [1, 2, 3]" :key="n" type="button"
+                      class="fee-tier" :class="{ active: pieces === n }"
+                      @click="pieces = n">
+                {{ n === 1 ? '1 coin' : n + ' coins' }}
+              </button>
+            </div>
+            <p class="text-dim text-xs" style="margin-top:0.25rem;">
+              {{ pieces === 1
+                ? 'One coin each: two ways to read the round. Simplest, and the weakest.'
+                : `${pieces} coins each: ${pieces === 2 ? 'six' : 'twenty'} ways to read it,`
+                  + ` because nobody can say which ${pieces} of the ${2 * pieces} identical`
+                  + ` coins are yours. A little more fee, and they must not be spent`
+                  + ` together — Send will say so.` }}
             </p>
           </div>
 

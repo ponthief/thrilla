@@ -178,8 +178,9 @@ export function paymentScript(
   scanSecretHex: string,
   spendPub: Uint8Array,
   inputs: PayjoinInput[],
+  k = 0,
 ): Uint8Array {
-  return spk(ownOutputPoint(scanSecretHex, spendPub, inputs));
+  return spk(ownOutputPoint(scanSecretHex, spendPub, inputs, k));
 }
 
 /**

@@ -1434,6 +1434,15 @@ export interface TangoRoundRow {
   b_wallet_id?: string | null;
   denom_sats: number;
   fee_rate: number;
+  /**
+   * How many equal coins each side takes its denomination back as.
+   *
+   * One is the shape every round before this used, and what a missing value
+   * means. More pieces means more readings of the round — C(2p, p) rather than
+   * 2 — because nobody can say which p of the 2p identical coins were one
+   * person's.
+   */
+  pieces?: number | null;
   a_in_sats?: number | null;
   b_in_sats?: number | null;
   a_change_sats?: number | null;
@@ -1446,6 +1455,10 @@ export interface TangoRoundRow {
   clean?: boolean | null;
   a_inputs?: string | null;
   b_inputs?: string | null;
+  /** JSON arrays of hex scripts, one per piece. */
+  a_mix_spks?: string | null;
+  b_mix_spks?: string | null;
+  /** What rounds from before pieces derived. Read via tango.spkList. */
   a_mix_spk?: string | null;
   a_change_spk?: string | null;
   b_mix_spk?: string | null;
@@ -1467,6 +1480,7 @@ export async function proposeTango(
     partner_username: string;
     denom_sats: number;
     fee_rate: number;
+    pieces?: number;
     inputs: PayjoinSpWireInput[];
     network: string;
   },
@@ -1500,7 +1514,7 @@ export async function acceptTango(
   body: {
     wallet_id: string;
     inputs: PayjoinSpWireInput[];
-    mix_spk: string;
+    mix_spks: string[];
     change_spk?: string | null;
   },
 ): Promise<TangoRoundRow> {
@@ -1516,7 +1530,7 @@ export async function signTango(
   rid: string,
   body: {
     witnesses: Record<string, string>;
-    mix_spk?: string | null;
+    mix_spks?: string[] | null;
     change_spk?: string | null;
     unsigned_tx?: string;
   },

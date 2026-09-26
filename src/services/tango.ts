@@ -54,6 +54,10 @@ export type Side = 'a' | 'b';
 
 export interface TangoAmounts {
   denom: number;
+  /** How many equal coins each side takes its denomination back as. */
+  pieces: number;
+  /** What one of those coins is worth: denom / pieces. */
+  share: number;
   a_in: number;
   b_in: number;
   a_change: number;
@@ -94,11 +98,22 @@ export function plan(
   bInputs: PayjoinInput[],
   denom: number,
   feeRate: number,
+  pieces = 1,
 ): TangoAmounts {
-  if (denom < DUST_SATS) {
+  const p = Math.trunc(pieces || 1);
+  if (p < 1) throw new Error('A side has to get at least one coin back.');
+  if (denom % p) {
     throw new Error(
-      `${denom} sats is below the ${DUST_SATS} sat dust limit, so neither ` +
-        `side could spend what they got back.`,
+      `${denom} sats does not divide into ${p} equal coins. Every output in ` +
+        `a Tango has to be the same size, so the amount has to be a multiple ` +
+        `of the number of coins you want back.`,
+    );
+  }
+  const share = denom / p;
+  if (share < DUST_SATS) {
+    throw new Error(
+      `${share} sats a coin is below the ${DUST_SATS} sat dust limit, so ` +
+        `neither side could spend what they got back.`,
     );
   }
   if (!aInputs.length || !bInputs.length) {
@@ -115,18 +130,21 @@ export function plan(
     return { vsize, fee, aFee, bFee };
   };
 
-  let { vsize, aFee, bFee } = shares(4);
+  let { vsize, aFee, bFee } = shares(2 * p + 2);
   let aChange = aIn - denom - aFee;
   let bChange = bIn - denom - bFee;
 
-  for (const [label, total, change, share] of [
+  // `feeShare`, not `share`: `share` is what one mixed OUTPUT is worth, and
+  // shadowing it here is how the Python twin silently made every mixed output
+  // the size of a fee share the moment pieces arrived.
+  for (const [label, total, change, feeShare] of [
     ['Your', aIn, aChange, aFee],
     ['Their', bIn, bChange, bFee],
   ] as const) {
     if (change < 0) {
       throw new Error(
         `${label} coins total ${total} sats, which does not cover ${denom} ` +
-          `plus a ${share} sat share of the fee. Pick more, or agree a ` +
+          `plus a ${feeShare} sat share of the fee. Pick more, or agree a ` +
           `smaller amount.`,
       );
     }
@@ -136,7 +154,8 @@ export function plan(
   // can lift the OTHER change back above dust. Two passes settle it, because
   // there are only two changes to drop.
   for (let pass = 0; pass < 2; pass++) {
-    const nOut = 2 + (aChange >= DUST_SATS ? 1 : 0) + (bChange >= DUST_SATS ? 1 : 0);
+    const nOut =
+      2 * p + (aChange >= DUST_SATS ? 1 : 0) + (bChange >= DUST_SATS ? 1 : 0);
     const s = shares(nOut);
     vsize = s.vsize;
     aFee = s.aFee;
@@ -164,6 +183,10 @@ export function plan(
 
   return {
     denom,
+    pieces: p,
+    // What one mixed output is worth. Every piece on both sides is this, and
+    // the check before signing holds all of them to it.
+    share,
     a_in: aIn,
     b_in: bIn,
     a_change: aChange,
@@ -186,15 +209,27 @@ export function plan(
  */
 export function outputsFor(
   amounts: TangoAmounts,
-  aMix: Uint8Array,
-  bMix: Uint8Array,
+  aMix: Uint8Array | Uint8Array[],
+  bMix: Uint8Array | Uint8Array[],
   aChange: Uint8Array | null,
   bChange: Uint8Array | null,
 ): TxOut[] {
-  const outs: TxOut[] = [
-    { value: amounts.denom, script: aMix },
-    { value: amounts.denom, script: bMix },
-  ];
+  const pieces = amounts.pieces || 1;
+  const share = amounts.share || amounts.denom;
+  const aSpks = mixScripts(aMix);
+  const bSpks = mixScripts(bMix);
+  for (const [who, spks] of [['A', aSpks], ['B', bSpks]] as const) {
+    if (spks.length !== pieces) {
+      throw new Error(
+        `${who} derived ${spks.length} mixed script(s) for a round of ` +
+          `${pieces}. Every piece needs its own output.`,
+      );
+    }
+  }
+  const outs: TxOut[] = [...aSpks, ...bSpks].map((script) => ({
+    value: share,
+    script,
+  }));
   if (amounts.a_change) {
     if (!aChange) throw new Error('A has change but no change script was derived');
     outs.push({ value: amounts.a_change, script: aChange });
@@ -209,6 +244,18 @@ export function outputsFor(
   return outs;
 }
 
+/**
+ * One script or several, always as a list.
+ *
+ * A round with one piece a side is the shape this started as and the shape
+ * every existing row holds, so a bare Uint8Array is still accepted. The count
+ * is checked against the plan, which is what catches passing the wrong number.
+ */
+export function mixScripts(spks: Uint8Array | Uint8Array[] | null): Uint8Array[] {
+  if (!spks) return [];
+  return spks instanceof Uint8Array ? [spks] : [...spks];
+}
+
 export interface Assembled {
   vin: TxIn[];
   vout: TxOut[];
@@ -220,8 +267,8 @@ export interface Assembled {
 export function assemble(
   inputs: PayjoinInput[],
   amounts: TangoAmounts,
-  aMix: Uint8Array,
-  bMix: Uint8Array,
+  aMix: Uint8Array | Uint8Array[],
+  bMix: Uint8Array | Uint8Array[],
   aChange: Uint8Array | null = null,
   bChange: Uint8Array | null = null,
 ): Assembled {
@@ -240,23 +287,33 @@ export function assemble(
 }
 
 /**
- * This side's two outputs: the mixed one at the denomination, and change when
- * the coins did not divide evenly.
+ * This side's outputs: one mixed coin per piece, and change when the coins did
+ * not divide evenly.
  *
- * The mixed output goes to the wallet's plain Silent Payments address and the
- * change to its m=0 LABELLED one. That is not decoration: m=0 is BIP-352's
- * reserved change label, so the owner's own wallet recognises the change for
- * what it is without being told — which matters, because change is the part of
- * a two-party mix that leaks.
+ * The mixed outputs go to the wallet's plain Silent Payments address at
+ * successive BIP-352 counters — k = 0, 1, 2 … — and the change to its m=0
+ * LABELLED one. That is not decoration: m=0 is BIP-352's reserved change
+ * label, so the owner's own wallet recognises the change for what it is
+ * without being told, which matters because change is the part of a two-party
+ * mix that leaks.
+ *
+ * SEVERAL PIECES ON ONE CHAIN IS THE SHAPE THE SCANNER HAD TO LEARN. BIP-352's
+ * reference scan keeps a single k, so a transaction paying one wallet twice on
+ * the same chain used to lose the second output. helpers/scan.py counts per
+ * chain now, which is what makes taking a share in pieces findable at all.
  */
 export function deriveOwnOutputs(
   scanSecretHex: string,
   spendPub: Uint8Array,
   inputs: PayjoinInput[],
   needChange: boolean,
-): { mix: Uint8Array; change: Uint8Array | null } {
+  pieces = 1,
+): { mix: Uint8Array[]; change: Uint8Array | null } {
+  const n = Math.max(1, Math.trunc(pieces || 1));
   return {
-    mix: paymentScript(scanSecretHex, spendPub, inputs),
+    mix: Array.from({ length: n }, (_, k) =>
+      paymentScript(scanSecretHex, spendPub, inputs, k),
+    ),
     change: needChange ? changeScript(scanSecretHex, spendPub, inputs) : null,
   };
 }
@@ -269,13 +326,13 @@ export interface CheckOpts {
   mine: PayjoinInput[];
   /** What the server quoted. */
   amounts: TangoAmounts;
-  /** The four scripts AS THE SERVER HOLDS THEM. */
-  aMix: Uint8Array;
-  bMix: Uint8Array;
+  /** Every side's scripts AS THE SERVER HOLDS THEM, one per piece. */
+  aMix: Uint8Array | Uint8Array[];
+  bMix: Uint8Array | Uint8Array[];
   aChange: Uint8Array | null;
   bChange: Uint8Array | null;
   /** Ours as DERIVED HERE, kept apart from the server's copies on purpose. */
-  expectMix: Uint8Array;
+  expectMix: Uint8Array | Uint8Array[];
   expectChange: Uint8Array | null;
   /**
    * The coins we committed, FROM OUR OWN RECORDS.
@@ -288,6 +345,15 @@ export interface CheckOpts {
   committed: { txid: string; vout: number; amount: number }[];
   denom: number;
   feeRate: number;
+  /**
+   * How many coins this round gives each side.
+   *
+   * Needed because step 3 recomputes the whole plan from the frozen input set,
+   * and the arithmetic depends on it — 2*pieces outputs to pay for. Without it
+   * the recomputation prices a different transaction and rejects an honest
+   * round, which is exactly how this was found.
+   */
+  pieces?: number;
 }
 
 /**
@@ -333,8 +399,9 @@ export function checkBeforeSigning(opts: CheckOpts): Assembled {
       : !mineKeys.has(`${i.txid.toLowerCase()}:${i.vout}`),
   );
   const theirs = inputs.filter((i) => !ours.includes(i));
-  const recomputed = plan(ours, theirs, opts.denom, opts.feeRate);
-  for (const field of ['denom', 'a_change', 'b_change', 'fee', 'vsize'] as const) {
+  const recomputed = plan(ours, theirs, opts.denom, opts.feeRate, opts.pieces || 1);
+  for (const field of ['denom', 'pieces', 'share', 'a_change', 'b_change',
+                       'fee', 'vsize'] as const) {
     if (recomputed[field] !== amounts[field]) {
       throw new Error(
         `The server says the ${field} is ${amounts[field]}; this device ` +
@@ -344,10 +411,23 @@ export function checkBeforeSigning(opts: CheckOpts): Assembled {
   }
 
   // 4. Our own outputs are the ones we derived — compared BEFORE assembling.
-  const ourMix = side === 'a' ? opts.aMix : opts.bMix;
+  //    EVERY piece, and as a SET: the server may hold them in any order, and
+  //    an order-sensitive compare would reject a correct round while a
+  //    set-insensitive one would accept a substituted script that happened to
+  //    keep the count.
+  const ourMix = mixScripts(side === 'a' ? opts.aMix : opts.bMix);
   const ourChange = side === 'a' ? opts.aChange : opts.bChange;
-  if (toHex(opts.expectMix) !== toHex(ourMix)) {
-    throw new Error('Your share is not going to the address this device derived. Cancel it.');
+  const expectMix = mixScripts(opts.expectMix);
+  // Not `mine` — that is already this side's INPUTS, a few lines above.
+  const ourMixHexes = new Set(ourMix.map(toHex));
+  if (
+    expectMix.length !== ourMix.length ||
+    ourMixHexes.size !== ourMix.length ||
+    !expectMix.every((m) => ourMixHexes.has(toHex(m)))
+  ) {
+    throw new Error(
+      'Your share is not going to the addresses this device derived. Cancel it.',
+    );
   }
   const expectChangeHex = opts.expectChange ? toHex(opts.expectChange) : null;
   const ourChangeHex = ourChange ? toHex(ourChange) : null;
@@ -359,17 +439,21 @@ export function checkBeforeSigning(opts: CheckOpts): Assembled {
     inputs, amounts, opts.aMix, opts.bMix, opts.aChange, opts.bChange,
   );
 
-  // 5. Exactly two outputs at the denomination, and our own two are among
-  //    them at the right values.
-  const atDenom = assembled.vout.filter((o) => o.value === amounts.denom);
-  if (atDenom.length !== 2) {
+  // 5. Exactly 2*pieces outputs at the share value, and all of ours are among
+  //    them. Both sides get the same COUNT as well as the same size: a round
+  //    where one side took three coins and the other one would be two sides an
+  //    observer can tell apart, which is the whole thing this is for.
+  const pieces = amounts.pieces || 1;
+  const share = amounts.share || amounts.denom;
+  const atShare = assembled.vout.filter((o) => o.value === share);
+  if (atShare.length !== 2 * pieces) {
     throw new Error(
-      'This Tango does not pay both sides the same amount, which is the only ' +
-        'thing it is for. Cancel it.',
+      'This Tango does not pay both sides the same amount in the same number ' +
+        'of coins, which is the only thing it is for. Cancel it.',
     );
   }
   const byScript = new Map(assembled.vout.map((o) => [toHex(o.script), o.value]));
-  if (byScript.get(toHex(ourMix)) !== amounts.denom) {
+  if (ourMix.some((m) => byScript.get(toHex(m)) !== share)) {
     throw new Error('Your share is not in this transaction. Cancel it.');
   }
   const myChange = side === 'a' ? amounts.a_change : amounts.b_change;
@@ -377,7 +461,7 @@ export function checkBeforeSigning(opts: CheckOpts): Assembled {
     throw new Error('Your change is not in this transaction. Cancel it.');
   }
   const expectedOutputs =
-    2 + (amounts.a_change ? 1 : 0) + (amounts.b_change ? 1 : 0);
+    2 * pieces + (amounts.a_change ? 1 : 0) + (amounts.b_change ? 1 : 0);
   if (assembled.vout.length !== expectedOutputs) {
     throw new Error('This Tango pays somewhere it should not. Cancel it.');
   }
@@ -528,17 +612,77 @@ function party(label: string, prefix: string): string | null {
  * Returns the counterparty of the share(s) at risk, since the share is what
  * loses its protection.
  */
-export function undoesARound(labels: (string | null | undefined)[]): string | null {
+/**
+ * The scripts a side derived, however the row holds them.
+ *
+ * A JSON array is what rounds are stored as now. A bare hex string is what
+ * every round from before pieces holds, and those are on chain — their coins
+ * still need naming and their history still needs reading. Mirrors
+ * helpers/tangolabels.py::spk_list.
+ */
+export function spkList(raw: string | null | undefined): string[] {
+  if (!raw) return [];
+  const text = String(raw).trim();
+  if (text.startsWith('[')) {
+    try {
+      const parsed = JSON.parse(text);
+      return Array.isArray(parsed)
+        ? parsed.filter(Boolean).map((x: unknown) => String(x).toLowerCase())
+        : [];
+    } catch {
+      return [];
+    }
+  }
+  return [text.toLowerCase()];
+}
+
+/** A coin as the guard needs it: what it is called, and what made it. */
+export interface GuardCoin {
+  txid?: string | null;
+  label?: string | null;
+}
+
+/**
+ * The round(s) a selection would undo, named, or null.
+ *
+ * TWO RULES, failing the same way: a transaction that says two coins had one
+ * owner, when the whole point of the round was that nobody could say.
+ *
+ *  - ANY share with ANY change. A change coin is attributable by construction
+ *    — its value plus a share is what its owner put in — and a share is the
+ *    coin that history was cut off from. Together, the cut is repaired.
+ *  - TWO SHARES FROM ONE ROUND. The price of taking a share in pieces: a round
+ *    of p pieces a side has C(2p, p) readings only while nobody can say which
+ *    p of the 2p identical coins were one person's. Spending two says it.
+ *
+ * Matched BY TXID, not by label, so the round id did not have to go back into
+ * the coin's name. A plain string is still accepted — it is a label with no
+ * txid, which simply cannot trip the second rule.
+ *
+ * Mirrors helpers/tangolabels.py::undoes_a_round, and scripts/
+ * check-tango-signing.mjs holds the two to the same answers.
+ */
+export function undoesARound(
+  coins: (GuardCoin | string | null | undefined)[],
+): string | null {
   const mixed = new Set<string>();
+  const byTxid = new Map<string, string[]>();
   let hasChange = false;
-  for (const raw of labels) {
+  for (const item of coins) {
+    const txid =
+      typeof item === 'string' || !item ? '' : String(item.txid || '');
+    const raw = typeof item === 'string' ? item : item?.label || '';
     const asMix = party(raw || '', MIX_LABEL);
     if (asMix !== null) {
-      mixed.add(asMix || 'someone');
+      const who = asMix || 'someone';
+      mixed.add(who);
+      if (txid) byTxid.set(txid, [...(byTxid.get(txid) || []), who]);
       continue;
     }
     if (party(raw || '', CHANGE_LABEL) !== null) hasChange = true;
   }
+  const together = [...byTxid.values()].filter((n) => n.length > 1).map((n) => n[0]);
+  if (together.length) return [...new Set(together)].sort().join(' and ');
   if (!mixed.size || !hasChange) return null;
   return [...mixed].sort().join(' and ');
 }
