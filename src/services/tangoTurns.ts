@@ -34,23 +34,26 @@ export function isMyTurn(status: string, role?: Side | null): boolean {
 }
 
 /**
- * The four steps, in order, as a person would describe them.
+ * The round, in order, as a person would describe it.
  *
- * WHY THERE ARE FOUR, since it is the first thing anyone asks. Every Silent
- * Payments output is derived from the WHOLE input set, so nobody can derive
- * anything until both sides' coins are in — two turns on its own. And a
- * taproot key-path signature commits to every output, so all four outputs have
- * to exist before either side signs — two more. Three would mean signing a
- * transaction whose outputs do not exist yet.
+ * WHY THE FOUR TURNS CANNOT BE FEWER, since it is the first thing anyone asks.
+ * Every Silent Payments output is derived from the WHOLE input set, so nobody
+ * can derive anything until both sides' coins are in — two turns on its own.
+ * And a taproot key-path signature commits to every output, so all the outputs
+ * have to exist before either side signs — two more. Three would mean signing
+ * a transaction whose outputs do not exist yet.
  *
- * It is already merged everywhere it can be: B contributes and derives in one
- * step, A derives and signs in one.
+ * It is already merged everywhere it can be: the partner contributes and
+ * derives in one step, you derive and sign in one. The fifth line is not a
+ * fifth turn — broadcasting is what the partner's signature does — but it is
+ * the thing the person is waiting for, so the list says it.
  */
 export const STEPS = [
-  'they are asked',
-  'they match it',
-  'you approve',
-  'they send it',
+  'you make a proposal',
+  'partner accepts and matches it',
+  'you authorise Tango transaction',
+  'your partner authorises it too',
+  'transaction is broadcasted',
 ];
 
 /** 1-4 for a live round, or null once it is over. */

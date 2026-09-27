@@ -233,12 +233,16 @@ export function Help({ children }: { children: React.ReactNode }) {
 
 // A single-choice set. Wraps, because five delays do not fit one phone row and
 // a truncated chip leaves the user guessing which one they picked.
+// `icon` draws instead of the label — a chip whose meaning is a picture. It
+// still needs `label`, which becomes the accessibility name: an icon-only
+// control that announces nothing is a control a screen reader cannot use, and
+// the caller has the word anyway.
 export function Chips<T>({
   options,
   selected,
   onSelect,
 }: {
-  options: { key: T; label: string }[];
+  options: { key: T; label: string; icon?: (color: string) => React.ReactNode }[];
   selected: T;
   onSelect: (key: T) => void;
 }) {
@@ -252,14 +256,19 @@ export function Chips<T>({
             onPress={() => onSelect(opt.key)}
             accessibilityRole="radio"
             accessibilityState={{ selected: on }}
+            accessibilityLabel={opt.label}
             style={({ pressed }) => [
               styles.chip,
               on && styles.chipOn,
               pressed && styles.chipPressed,
             ]}>
-            <Text style={[styles.chipText, on && styles.chipTextOn]}>
-              {opt.label}
-            </Text>
+            {opt.icon ? (
+              opt.icon(on ? colors.primary : colors.muted)
+            ) : (
+              <Text style={[styles.chipText, on && styles.chipTextOn]}>
+                {opt.label}
+              </Text>
+            )}
           </Pressable>
         );
       })}

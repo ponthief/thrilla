@@ -640,10 +640,25 @@ function expiresIn(r) {
 <template>
   <div class="tango-view">
     <div class="tg-tabs">
-      <button class="btn btn-sm" :class="tab === 'mix' ? 'btn-primary' : 'btn-ghost'"
-              @click="tab = 'mix'; loadPartners(); loadFeeRates()">Mix</button>
+      <!-- Icon-only, so it keeps a title and an aria-label: a control whose
+           whole meaning is a picture has to announce itself to anyone not
+           looking at it. Same paths as components/TangoDancers.tsx. -->
+      <button class="btn btn-sm tg-mix-tab" :class="tab === 'mix' ? 'btn-primary' : 'btn-ghost'"
+              title="Mix" aria-label="Mix"
+              @click="tab = 'mix'; loadPartners(); loadFeeRates()">
+        <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor"
+             stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <circle cx="8.4" cy="4.3" r="2.3" fill="currentColor" stroke="none" />
+          <circle cx="15.8" cy="3.6" r="2.3" fill="currentColor" stroke="none" />
+          <path d="M8.7 7.4 L 11.6 13" />
+          <path d="M15.5 6.7 L 12.6 13" />
+          <path d="M11.4 13 L 8 21" />
+          <path d="M12.8 13 L 19.6 19.4" />
+          <path d="M5.2 9.6 C 9.4 6.5 14.6 6.1 18.4 8.8" />
+        </svg>
+      </button>
       <button class="btn btn-sm" :class="tab === 'connections' ? 'btn-primary' : 'btn-ghost'"
-              @click="tab = 'connections'; loadContacts(); _scheduleContactPoll()">Connections</button>
+              @click="tab = 'connections'; loadContacts(); _scheduleContactPoll()">Partners</button>
       <button class="btn btn-sm" :class="tab === 'rounds' ? 'btn-primary' : 'btn-ghost'"
               @click="tab = 'rounds'; load()">
         Rounds<span v-if="waitingOnMe.length" class="tg-badge">{{ waitingOnMe.length }}</span>
@@ -657,8 +672,12 @@ function expiresIn(r) {
     <!-- MIX -->
     <template v-if="tab === 'mix'">
       <div class="card">
-        <div class="card-header">Tango — a two-party mix</div>
+        <div class="card-header">Tango</div>
         <div class="card-body">
+          <p class="text-dim text-sm tg-intro">
+            <b>“It takes 2 to Tango”.</b> Select your WhiSPa partner/coins and
+            amount to start collaborative mini-coinjoin.
+          </p>
           <div class="field">
             <label class="text-dim text-xs">Mix from wallet</label>
             <select class="input" v-model="selectedWallet" @change="load">
@@ -675,12 +694,10 @@ function expiresIn(r) {
       </div>
 
       <div class="card">
-        <div class="card-header">How a round goes</div>
+        <div class="card-header">Tango steps</div>
         <div class="card-body">
           <ol class="tg-steps text-sm text-dim">
-            <li v-for="(step, i) in tango.STEPS" :key="step">
-              <template v-if="i === 0">You propose — </template>{{ step }}
-            </li>
+            <li v-for="step in tango.STEPS" :key="step">{{ step }}</li>
           </ol>
         </div>
       </div>
@@ -697,7 +714,7 @@ function expiresIn(r) {
               </option>
             </select>
             <p v-if="!partners.length" class="text-dim text-xs" style="margin-top:0.25rem;">
-              No connections yet. Add one in the <b>Connections</b> tab — they
+              No partners yet. Add one in the <b>Partners</b> tab — they
               approve, then they appear here.
             </p>
           </div>
@@ -722,9 +739,10 @@ function expiresIn(r) {
             </div>
             <p class="text-dim text-xs" style="margin-top:0.25rem;">
               {{ pieces === 1
-                ? '2 ways to read the round.'
-                : `${pieces === 2 ? 6 : 20} ways to read the round. A little more fee, and`
-                  + ` the coins must not be spent together — Send will say so.` }}
+                ? 'Low anonymity. Cheapest in miner fees.'
+                : pieces === 2
+                  ? 'Medium anonymity. Costs more in miner fees.'
+                  : 'High anonymity. Costs the most in miner fees.' }}
             </p>
           </div>
 
@@ -1162,6 +1180,10 @@ function expiresIn(r) {
 .tango-view .card-body { padding: 16px; }
 .tango-view .field { gap: 4px; }
 .tg-tabs { display: flex; gap: 0.5rem; flex-wrap: wrap; }
+/* Square-ish, so an icon-only tab is not a wide button with a small mark
+   floating in the middle of it. */
+.tg-mix-tab { display: inline-flex; align-items: center; justify-content: center; padding: 5px 12px; }
+.tg-intro { margin-top: 0; }
 .tg-badge {
   display: inline-block; margin-left: 0.35rem; padding: 0.05rem 0.35rem;
   border-radius: 999px; font-size: 0.65rem; background: rgba(255,180,0,0.18);

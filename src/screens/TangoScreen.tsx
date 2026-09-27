@@ -9,6 +9,7 @@ import * as commits from '@services/tangoCommit';
 import { parseSpAddress, fromHex, toHex } from '@services/spSign';
 import { colors, space, type as type_ } from '@/theme';
 import { Block, Button, Chips, Field, Group, Note, Page } from './settings/ui';
+import TangoDancers from '../components/TangoDancers';
 
 // Tango: a two-party mix.
 //
@@ -686,7 +687,10 @@ export default function TangoScreen() {
   return (
     <Page
       title="Tango"
-      subtitle="Two of you, the same amount each, and nothing saying which is whose.">
+      subtitle={
+        '“It takes 2 to Tango”. Select your WhiSPa partner/coins and amount ' +
+        'to start collaborative mini-coinjoin.'
+      }>
       {error ? (
         <Block><Note kind="error">{error}</Note></Block>
       ) : null}
@@ -695,13 +699,17 @@ export default function TangoScreen() {
       <Block>
         <Chips<Tab>
           options={[
-            { key: 'mix', label: 'Mix' },
-            { key: 'people', label: 'People' },
+            {
+              key: 'mix',
+              label: 'Mix',
+              icon: (c) => <TangoDancers size={18} color={c} />,
+            },
+            { key: 'people', label: 'Partners' },
             {
               key: 'rounds',
               label: waiting.length ? `Rounds (${waiting.length})` : 'Rounds',
             },
-            { key: 'past', label: 'Past' },
+            { key: 'past', label: 'History' },
           ]}
           selected={tab}
           onSelect={setTab}
@@ -770,8 +778,8 @@ export default function TangoScreen() {
                 <Text style={styles.rowMeta}>
                   {people.accepted.length
                     ? `None of your connections has a wallet on ${network}, so ` +
-                      'there is nobody to mix with here. See People.'
-                    : 'No connections yet. Add one under People — they approve, ' +
+                      'there is nobody to mix with here. See Partners.'
+                    : 'No partners yet. Add one under Partners — they approve, ' +
                       'then they appear here.'}
                 </Text>
               ) : (
@@ -813,10 +821,10 @@ export default function TangoScreen() {
               />
               <Text style={styles.rowMeta}>
                 {pieces === 1
-                  ? '2 ways to read the round.'
-                  : `${pieces === 2 ? 6 : 20} ways to read the round. Costs a`
-                    + ` little more fee, and the coins must not be spent`
-                    + ` together — Send will say so.`}
+                  ? 'Low anonymity. Cheapest in miner fees.'
+                  : pieces === 2
+                    ? 'Medium anonymity. Costs more in miner fees.'
+                    : 'High anonymity. Costs the most in miner fees.'}
               </Text>
             </Block>
             <Block>
@@ -839,11 +847,11 @@ export default function TangoScreen() {
             </Block>
           </Group>
 
-          <Group title="How a round goes">
+          <Group title="Tango steps">
             <Block>
               {tango.STEPS.map((step, i) => (
                 <Text key={step} style={styles.rowMeta}>
-                  {i + 1}. {i === 0 ? 'You propose — ' : ''}{step}
+                  {i + 1}. {step}
                 </Text>
               ))}
             </Block>
