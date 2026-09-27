@@ -747,10 +747,6 @@ function expiresIn(r) {
             </div>
             <input v-if="!feeTiers || feeChoice === 'custom'" class="input mono tg-num"
                    v-model="feeRate" inputmode="decimal" placeholder="1" style="margin-top:6px;" />
-            <p class="text-dim text-xs" style="margin-top:0.25rem;">
-              Split down the middle, with the odd satoshi yours — you chose the
-              amount and the rate.
-            </p>
           </div>
 
           <div class="field">
