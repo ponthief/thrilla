@@ -686,7 +686,7 @@ export default function TangoScreen() {
   return (
     <Page
       title="Tango"
-      subtitle="Two of you, one amount each, and nothing saying which is whose.">
+      subtitle="Two of you, the same amount each, and nothing saying which is whose.">
       {error ? (
         <Block><Note kind="error">{error}</Note></Block>
       ) : null}
@@ -712,14 +712,15 @@ export default function TangoScreen() {
         <>
           <Group
             title="Your coins"
+            // Only says something when the selection has told it something.
+            // The old placeholder explained how to use a list of tappable
+            // coins sitting directly above it.
             footer={
-              preview?.error
-                ? undefined
-                : preview
-                  ? preview.change
-                    ? `This selection leaves ${preview.change.toLocaleString()} sats of change. The mix still works, but change plus your share adds up to what you put in — which is often enough for someone to tell the two apart. A selection close to the amount plus your fee share is stronger.`
-                    : 'No change from this selection. That is the strongest shape: coins in, two identical coins out, nothing to add up.'
-                  : 'Pick the coins that go in. Which ones you choose is the decision a mix is made of, so nothing here chooses for you.'
+              preview && !preview.error
+                ? preview.change
+                  ? `Leaves ${preview.change.toLocaleString()} sats of change, which weakens the mix — change plus your share is what you put in. Closer to the amount is stronger.`
+                  : 'No change. The strongest shape.'
+                : undefined
             }>
             <Block>
               {selectable.length === 0 ? (
@@ -763,9 +764,7 @@ export default function TangoScreen() {
             ) : null}
           </Group>
 
-          <Group
-            title="Start one"
-            footer="Both of you get the same amount back, so nobody is paying anybody — the point is that the two outputs look the same. They choose their own coins.">
+          <Group title="Start one">
             <Block>
               {reachable.length === 0 ? (
                 <Text style={styles.rowMeta}>
@@ -814,14 +813,10 @@ export default function TangoScreen() {
               />
               <Text style={styles.rowMeta}>
                 {pieces === 1
-                  ? 'One coin each: two ways to read the round. Simplest, and'
-                    + ' the weakest.'
-                  : `${pieces} coins each: ${
-                      pieces === 2 ? 'six' : 'twenty'
-                    } ways to read it, because nobody can say which ${pieces}`
-                    + ` of the ${2 * pieces} identical coins are yours. Costs a`
-                    + ` little more fee, and they must not be spent together —`
-                    + ` the Send screen will say so.`}
+                  ? '2 ways to read the round.'
+                  : `${pieces === 2 ? 6 : 20} ways to read the round. Costs a`
+                    + ` little more fee, and the coins must not be spent`
+                    + ` together — Send will say so.`}
               </Text>
             </Block>
             <Block>
@@ -844,31 +839,13 @@ export default function TangoScreen() {
             </Block>
           </Group>
 
-          <Group
-            title="How a round goes"
-            footer="Four steps, and they cannot be fewer: every output is derived from both sides' coins, so nothing can be derived until they are all in — and a signature covers every output, so they all have to exist before either side signs.">
+          <Group title="How a round goes">
             <Block>
               {tango.STEPS.map((step, i) => (
                 <Text key={step} style={styles.rowMeta}>
                   {i + 1}. {i === 0 ? 'You propose — ' : ''}{step}
                 </Text>
               ))}
-            </Block>
-          </Group>
-
-          <Group title="What this hides">
-            <Block>
-              <Text style={styles.rowMeta}>
-                Both shares are the same size, so nothing on chain says which is
-                yours. That is an anonymity set of two — a coin flip, not
-                anonymity, though it compounds if you do it again with someone
-                else.
-              </Text>
-              <View style={{ height: space.sm }} />
-              <Text style={styles.rowMeta}>
-                It hides nothing from the server running this: it sees both
-                sides. Tango is protection against someone reading the chain.
-              </Text>
             </Block>
           </Group>
         </>

@@ -659,25 +659,6 @@ function expiresIn(r) {
       <div class="card">
         <div class="card-header">Tango — a two-party mix</div>
         <div class="card-body">
-          <div class="alert alert-info tg-note">
-            ℹ <strong>Nobody pays anybody.</strong> You and one connected person
-            each put in the same amount and each take the same amount back.
-            Because the two outputs are identical, someone reading the chain
-            cannot tell which one is yours.
-          </div>
-          <p class="text-dim text-sm">
-            <b>Both sides are WhiSPa wallets</b> and both sign in their own
-            client — nothing leaves this browser but a scriptPubKey and a
-            signature.
-          </p>
-          <div class="alert alert-warn tg-note">
-            ⚠ <strong>Two is two.</strong> An anonymity set of two is a coin
-            flip, not anonymity — though it compounds if you mix again with
-            someone else. And it hides nothing from the server running this,
-            which sees both sides. Tango is protection against someone reading
-            the chain.
-          </div>
-
           <div class="field">
             <label class="text-dim text-xs">Mix from wallet</label>
             <select class="input" v-model="selectedWallet" @change="load">
@@ -701,12 +682,6 @@ function expiresIn(r) {
               <template v-if="i === 0">You propose — </template>{{ step }}
             </li>
           </ol>
-          <p class="text-dim text-xs">
-            Four steps, and they cannot be fewer: every output is derived from
-            both sides' coins, so nothing can be derived until they are all in —
-            and a signature covers every output, so they all have to exist
-            before either side signs.
-          </p>
         </div>
       </div>
 
@@ -730,28 +705,26 @@ function expiresIn(r) {
           <div class="field">
             <label class="text-dim text-xs">Amount each (sats)</label>
             <input class="input mono tg-amt" v-model="denom" inputmode="numeric" placeholder="25000" />
-            <p class="text-dim text-xs" style="margin-top:0.25rem;">
-              Both of you get exactly this back. Unequal amounts are two outputs
-              an observer can tell apart, which is no mix at all.
-            </p>
           </div>
 
           <div class="field">
             <label class="text-dim text-xs">Take it back as</label>
-            <div class="fee-tiers">
+            <!-- Its own control, not the fee tiers'. Those are left-aligned
+                 cells in an auto-fit grid sized for three lines of text, so a
+                 one-word label sat small against the left edge of a wide box
+                 and the choice read as three faint rectangles. -->
+            <div class="piece-tiers">
               <button v-for="n in [1, 2, 3]" :key="n" type="button"
-                      class="fee-tier" :class="{ active: pieces === n }"
+                      class="piece-tier" :class="{ active: pieces === n }"
                       @click="pieces = n">
-                {{ n === 1 ? '1 coin' : n + ' coins' }}
+                {{ n }}<span class="pt-unit">{{ n === 1 ? 'coin' : 'coins' }}</span>
               </button>
             </div>
             <p class="text-dim text-xs" style="margin-top:0.25rem;">
               {{ pieces === 1
-                ? 'One coin each: two ways to read the round. Simplest, and the weakest.'
-                : `${pieces} coins each: ${pieces === 2 ? 'six' : 'twenty'} ways to read it,`
-                  + ` because nobody can say which ${pieces} of the ${2 * pieces} identical`
-                  + ` coins are yours. A little more fee, and they must not be spent`
-                  + ` together — Send will say so.` }}
+                ? '2 ways to read the round.'
+                : `${pieces === 2 ? 6 : 20} ways to read the round. A little more fee, and`
+                  + ` the coins must not be spent together — Send will say so.` }}
             </p>
           </div>
 
@@ -782,10 +755,6 @@ function expiresIn(r) {
 
           <div class="field">
             <label class="text-dim text-xs">Choose the coins that go in</label>
-            <p class="text-dim text-xs">
-              Which ones you choose is the decision a mix is made of, so nothing
-              here chooses for you.
-            </p>
             <div v-if="!selectable.length" class="text-dim text-xs">No spendable coins.</div>
             <table v-else class="tg-utxos">
               <tbody>
@@ -809,14 +778,12 @@ function expiresIn(r) {
               {{ mixPreview.error }}
             </div>
             <p v-else-if="mixPreview && mixPreview.change" class="text-xs text-amber" style="margin-top:0.4rem;">
-              This selection leaves {{ fmtSats(mixPreview.change) }} of change.
-              The mix still works, but change plus your share adds up to what you
-              put in — which is often enough for someone to tell the two apart. A
-              selection close to the amount plus your fee share is stronger.
+              Leaves {{ fmtSats(mixPreview.change) }} of change, which weakens
+              the mix — change plus your share is what you put in. Closer to the
+              amount is stronger.
             </p>
             <p v-else-if="mixPreview" class="text-xs text-green" style="margin-top:0.4rem;">
-              No change from this selection. That is the strongest shape: coins
-              in, two identical coins out, nothing to add up.
+              No change. The strongest shape.
             </p>
           </div>
 
@@ -1252,6 +1219,29 @@ function expiresIn(r) {
 .fee-tier .ft-label { font-size: 13px; font-weight: 600; }
 .fee-tier .ft-rate { font-size: 12px; font-family: var(--font-mono); color: var(--orange); }
 .fee-tier .ft-hint { font-size: 10px; color: var(--text-dim); }
+
+/* How many coins to take the mix back as. Three equal, centred targets that
+   do not stretch across the card — a three-way choice that fills the width
+   reads as a row of panels rather than as one control, which is how this got
+   overlooked on the web while the same choice was obvious on the phone. The
+   active one is stated three ways (border, fill, colour), because a 1px
+   border change alone is what it had. */
+.piece-tiers { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; max-width: 300px; }
+.piece-tier {
+  display: flex; flex-direction: column; align-items: center; gap: 1px;
+  padding: 9px 6px; border: 1px solid var(--border); border-radius: var(--radius);
+  background: var(--bg); cursor: pointer; text-align: center;
+  font-size: 18px; font-weight: 700; line-height: 1.1; color: var(--text-dim);
+}
+.piece-tier:hover { border-color: var(--orange-dim); }
+.piece-tier.active {
+  border-color: var(--orange); color: var(--orange);
+  background: rgba(249,115,22,.12);
+  /* Doubles the border weight without moving anything: a 2px border would
+     shift the label by a pixel on every press. */
+  box-shadow: inset 0 0 0 1px var(--orange);
+}
+.piece-tier .pt-unit { font-size: 11px; font-weight: 500; letter-spacing: .02em; }
 .tg-label-row { display: flex; gap: 0.5rem; align-items: center; margin-top: 0.4rem; }
 .tg-label-input {
   flex: 0 1 220px; max-width: 220px; min-height: 32px;
