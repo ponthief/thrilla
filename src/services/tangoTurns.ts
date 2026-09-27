@@ -118,9 +118,12 @@ export function cancelledLine(
 /** This wallet's side of a finished round, as the transaction list gets it. */
 export interface MixRow {
   denom_sats: number;
+  // Absent on a round from a server that predates either field.
+  pieces?: number;
   partner?: string | null;
   fee_sats?: number;
   change_sats?: number;
+  their_change_sats?: number;
   dust_to_fee?: number;
 }
 
@@ -166,6 +169,47 @@ export function mixOtherShareTitle(mix: MixRow): string {
   return mix.partner ? `${mix.partner}'s share` : 'Their share';
 }
 
+export function mixOtherChangeTitle(mix: MixRow): string {
+  return mix.partner ? `${mix.partner}'s change` : 'Their change';
+}
+
+/**
+ * Split the outputs we do not own into the other side's SHARE and their
+ * CHANGE.
+ *
+ * Both are outputs this wallet does not own, so a detail view that lists them
+ * together reports a 14,000 round as 16,503 going to the other side. Their
+ * share is `pieces` outputs of denom/pieces; their change is the one output
+ * matching what the round recorded for it.
+ *
+ * Only ever a display split: everything here is on chain either way. An amount
+ * that matches neither stays in `other` rather than being forced into one, so
+ * a round this build cannot account for shows what it cannot account for.
+ */
+export function splitMixOutputs<T extends { amount?: number | null }>(
+  mix: MixRow,
+  outputs: T[],
+): { share: T[]; change: T[]; other: T[] } {
+  const pieces = Math.max(1, mix.pieces || 1);
+  const each = Math.floor((mix.denom_sats || 0) / pieces);
+  const theirChange = mix.their_change_sats || 0;
+  const share: T[] = [];
+  const change: T[] = [];
+  const other: T[] = [];
+  // One change output at most, so the first match takes it and a share that
+  // happens to equal it stays a share.
+  let changeTaken = false;
+  for (const o of outputs) {
+    const amount = o.amount ?? -1;
+    if (each > 0 && amount === each && share.length < pieces) share.push(o);
+    else if (theirChange > 0 && amount === theirChange && !changeTaken) {
+      change.push(o);
+      changeTaken = true;
+    } else other.push(o);
+  }
+  return { share, change, other };
+}
+
 /**
  * Where the change coin went, for the side that has none.
  *
@@ -209,10 +253,36 @@ export function turnLine(
   }
   switch (status) {
     case 'PROPOSED':
-      return `Choose your coins and match it. ${them} approves, then you send it.`;
+      return `Choose your coins and match it. ${them} approves, then you complete it.`;
     case 'ACCEPTED':
-      return `Approve it. ${them} then sends it — nothing is on chain until they do.`;
+      return `Approve it. ${them} then completes it — nothing is on chain until they do.`;
     default:
-      return 'Yours finishes it and puts it on the network.';
+      return 'Complete broadcasts the transaction. That is the last step, and it cannot be undone.';
   }
+}
+
+/** Who had change, from one side's point of view. Both amounts are recorded,
+ *  so the hedge "change on one or both sides" was never necessary — and on a
+ *  round with change on one side only it reads as a claim about both. */
+export function changeLine(
+  mine: number | null | undefined,
+  theirs: number | null | undefined,
+  partner?: string | null,
+): string {
+  const them = partner || 'their side';
+  const m = (mine || 0) > 0;
+  const t = (theirs || 0) > 0;
+  if (m && t) {
+    return 'Change on both sides. An observer can often work out which output '
+      + 'is whose from the amounts.';
+  }
+  if (m) {
+    return 'Your side had change. An observer can often work out which output '
+      + 'is whose from the amounts.';
+  }
+  if (t) {
+    return `Change on ${them}'s side. An observer can often work out which `
+      + 'output is whose from the amounts.';
+  }
+  return 'No change either side — nothing to work out from the amounts.';
 }

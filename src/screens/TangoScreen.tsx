@@ -10,6 +10,7 @@ import {
 } from 'react-native';
 import * as api from '@services/api';
 import { useAuthStore } from '@stores/authStore';
+import { useNavStore } from '@stores/navStore';
 import { getWalletKeys } from '@services/secureKeys';
 import { useBalancesHidden, MASK } from '@stores/balancePrivacy';
 import * as tango from '@services/tango';
@@ -213,6 +214,12 @@ export default function TangoScreen() {
     }
   }, [inkey]);
 
+  // The watcher raises the banner off its own poll, and the screen loaded off
+  // its own. So "it is your turn" arrived while the round on screen still said
+  // it was theirs and offered no button — the banner was right and the page
+  // behind it was a poll behind. One bump, one reload.
+  const tangoTick = useNavStore((s) => s.tangoTick);
+
   useEffect(() => {
     load();
     // Reload on the way back to the foreground.
@@ -227,7 +234,7 @@ export default function TangoScreen() {
       if (state === 'active') load();
     });
     return () => sub.remove();
-  }, [load]);
+  }, [load, tangoTick]);
 
   /**
    * What the chosen coins would do at the entered denomination.
@@ -722,7 +729,7 @@ export default function TangoScreen() {
   // second finishes it, puts it on the network, and cannot be undone — which a
   // button reading "Sign" for both gives no way to tell.
   const signLabel = (r: Row) =>
-    r.status === 'A_SIGNED' ? 'Finish & send' : 'Approve';
+    r.status === 'A_SIGNED' ? 'Complete' : 'Approve';
 
   const renderRound = (r: Row) => {
     const side = r.role!;
@@ -748,10 +755,15 @@ export default function TangoScreen() {
             {myChange ? ` · your change ${sats(myChange)}` : ''}
           </Text>
         ) : null}
+        {/* Which side, not "one or both": both amounts are recorded, and the
+            hedge read as a claim about both on a round that had change on one. */}
         {r.clean === false ? (
           <Text style={styles.warn}>
-            Change on one or both sides. An observer can often work out which
-            output is whose from the amounts.
+            {tango.changeLine(
+              side === 'a' ? r.a_change_sats : r.b_change_sats,
+              side === 'a' ? r.b_change_sats : r.a_change_sats,
+              other,
+            )}
           </Text>
         ) : r.clean === true ? (
           <Text style={styles.good}>

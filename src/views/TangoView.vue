@@ -605,6 +605,10 @@ const shortTxid = (t) => (t ? `${t.slice(0, 10)}…${t.slice(-6)}` : '')
 const partnerOf = (r) => (r.role === 'a' ? r.b_username : r.a_username)
 const myFee = (r) => (r.role === 'a' ? r.a_fee_sats : r.b_fee_sats)
 const myChangeOf = (r) => (r.role === 'a' ? r.a_change_sats : r.b_change_sats)
+// Both are recorded, so "change on one or both sides" was never necessary —
+// and on a round with change on one side it reads as a claim about both.
+const theirChangeOf = (r) => (r.role === 'a' ? r.b_change_sats : r.a_change_sats)
+const changeLine = tango.changeLine
 
 // Who did the last thing, named.
 //
@@ -638,7 +642,7 @@ function statusLabel(r) {
 // two turns are not the same act. The first approves the mix and waits. The
 // second finishes it, puts it on the network, and cannot be undone — which a
 // button reading "Sign" for both gives no way to tell.
-const signLabel = (r) => (r.status === 'A_SIGNED' ? 'Finish & send' : 'Approve mix')
+const signLabel = (r) => (r.status === 'A_SIGNED' ? 'Complete' : 'Approve mix')
 
 // What the person looking at this row is being asked for, in their own terms,
 // and how far along the round is. Both from services/tango.ts so the phone and
@@ -970,8 +974,7 @@ function expiresIn(r) {
                   </template>
                 </div>
                 <div v-if="r.clean === false" class="text-xs text-amber">
-                  Change on one or both sides — an observer can often work out
-                  which output is whose from the amounts.
+                  {{ changeLine(myChangeOf(r), theirChangeOf(r), partnerOf(r)) }}
                 </div>
                 <div v-else-if="r.clean === true" class="text-xs text-green">
                   No change either side — nothing to work out from the amounts.
@@ -1120,8 +1123,8 @@ function expiresIn(r) {
                 <div v-if="r.status === 'BROADCAST'" class="text-xs"
                      :class="r.clean ? 'text-green' : 'text-amber'">
                   {{ r.clean
-                      ? 'Clean — no change either side, so the two shares are the only outputs.'
-                      : 'Change on one or both sides, which an observer can often use to tell the shares apart.' }}
+                      ? 'Clean — no change either side, so the shares are the only outputs.'
+                      : changeLine(myChangeOf(r), theirChangeOf(r), partnerOf(r)) }}
                 </div>
               </div>
             </div>

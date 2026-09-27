@@ -15,7 +15,13 @@ import Clipboard from '@react-native-clipboard/clipboard';
 import { useAuthStore } from '@stores/authStore';
 import { useTxLabelStore } from '@stores/txLabelStore';
 import * as api from '@services/api';
-import { MixRow, mixDustNote, mixOtherShareTitle } from '@services/tangoTurns';
+import {
+  MixRow,
+  mixDustNote,
+  mixOtherChangeTitle,
+  mixOtherShareTitle,
+  splitMixOutputs,
+} from '@services/tangoTurns';
 import { colors } from '@/theme';
 
 const PRIMARY = colors.primary;
@@ -273,25 +279,59 @@ export default function TxDetailModal({
 
               {/* "Recipients" is every output that is not ours — which in a
                   Tango is the other side's own share coming back to them. They
-                  were not paid, and calling them a recipient says they were. */}
+                  were not paid, and calling them a recipient says they were.
+
+                  Their CHANGE is in that list too, and it is not part of their
+                  share: listing both under one heading reported a 14,000 round
+                  as 16,503 to the other side. Split, so each line says what it
+                  is. */}
               {detail.recipients?.length ? (
-                <View style={styles.card}>
-                  <Text style={styles.cardTitle}>
-                    {mix ? mixOtherShareTitle(mix) : 'Recipients'}
-                  </Text>
-                  {detail.recipients.map((r, i) => (
-                    <View key={i} style={styles.recipient}>
-                      <Text style={styles.recipientAddr} numberOfLines={1}>
-                        {r.address || r.type || 'output'}
-                      </Text>
-                      {r.amount != null ? (
-                        <Text style={styles.recipientAmt}>
-                          {groupThousands(r.amount)} sats
+                mix ? (
+                  (() => {
+                    const parts = splitMixOutputs(mix, detail.recipients);
+                    const section = (title: string, rows: typeof detail.recipients) =>
+                      rows.length ? (
+                        <View style={styles.card} key={title}>
+                          <Text style={styles.cardTitle}>{title}</Text>
+                          {rows.map((r, i) => (
+                            <View key={i} style={styles.recipient}>
+                              <Text style={styles.recipientAddr} numberOfLines={1}>
+                                {r.address || r.type || 'output'}
+                              </Text>
+                              {r.amount != null ? (
+                                <Text style={styles.recipientAmt}>
+                                  {groupThousands(r.amount)} sats
+                                </Text>
+                              ) : null}
+                            </View>
+                          ))}
+                        </View>
+                      ) : null;
+                    return (
+                      <>
+                        {section(mixOtherShareTitle(mix), parts.share)}
+                        {section(mixOtherChangeTitle(mix), parts.change)}
+                        {section('Other outputs', parts.other)}
+                      </>
+                    );
+                  })()
+                ) : (
+                  <View style={styles.card}>
+                    <Text style={styles.cardTitle}>Recipients</Text>
+                    {detail.recipients.map((r, i) => (
+                      <View key={i} style={styles.recipient}>
+                        <Text style={styles.recipientAddr} numberOfLines={1}>
+                          {r.address || r.type || 'output'}
                         </Text>
-                      ) : null}
-                    </View>
-                  ))}
-                </View>
+                        {r.amount != null ? (
+                          <Text style={styles.recipientAmt}>
+                            {groupThousands(r.amount)} sats
+                          </Text>
+                        ) : null}
+                      </View>
+                    ))}
+                  </View>
+                )
               ) : null}
             </>
           ) : null}

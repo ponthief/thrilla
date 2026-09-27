@@ -7,7 +7,9 @@ import { useAmount } from '@/composables/useAmount'
 import { useCsvExport } from '@/composables/useCsvExport'
 import { getTxRecipientLabel, getSwapTxLabel } from '@/stores/txlabels'
 import { pendingSends } from '@/stores/pendingsends'
-import { mixDustNote, mixFeeNote, mixOtherShareTitle } from '@/services/tangoTurns'
+import {
+  mixDustNote, mixFeeNote, mixOtherChangeTitle, mixOtherShareTitle, splitMixOutputs,
+} from '@/services/tangoTurns'
 
 const auth   = useAuthStore()
 const { fmt } = useAmount()
@@ -195,6 +197,20 @@ const directionLabel = (kind) => {
 
 const mixOf = (tx) => (tx.kind === 'tango' ? tx.tango : null) || null
 
+// Their share, their change, and anything this build cannot account for — as
+// sections, so each line says what it is rather than all of them claiming to
+// be the share.
+function mixParts(tx, recipients) {
+  const mix = mixOf(tx)
+  if (!mix) return []
+  const { share, change, other } = splitMixOutputs(mix, recipients)
+  return [
+    { title: mixOtherShareTitle(mix), rows: share },
+    { title: mixOtherChangeTitle(mix), rows: change },
+    { title: 'Other outputs', rows: other },
+  ].filter((p) => p.rows.length)
+}
+
 // The headline figure. For a mix that is the denomination, unsigned: nothing
 // arrived and nothing was paid to anyone.
 const rowAmount = (tx) => {
@@ -335,20 +351,32 @@ onMounted(() => {
               </div>
 
               <!-- Every output that is not ours. In a Tango that is the other
-                   side's own share going back to them: nobody was paid. -->
-              <div v-if="expandedDetail.recipients && expandedDetail.recipients.length" class="tx-detail-section">
-                <div class="tx-detail-section-title">
-                  {{ mixOf(tx) ? mixOtherShareTitle(mixOf(tx)) : 'Recipients' }}
+                   side's own share going back to them: nobody was paid — and
+                   their CHANGE, which is not part of that share. Listed
+                   together it reported a 14,000 round as 16,503 to them. -->
+              <template v-if="expandedDetail.recipients && expandedDetail.recipients.length">
+                <template v-if="mixOf(tx)">
+                  <div v-for="part in mixParts(tx, expandedDetail.recipients)" :key="part.title"
+                       class="tx-detail-section">
+                    <div class="tx-detail-section-title">{{ part.title }}</div>
+                    <div v-for="(r, i) in part.rows" :key="i" class="tx-detail-recipient">
+                      <span class="mono text-xs">{{ r.address || '(no address)' }}</span>
+                      <span class="mono text-orange">{{ fmt(r.amount) }}</span>
+                    </div>
+                  </div>
+                </template>
+                <div v-else class="tx-detail-section">
+                  <div class="tx-detail-section-title">Recipients</div>
+                  <div v-for="(r, i) in expandedDetail.recipients" :key="i" class="tx-detail-recipient">
+                    <span v-if="i === 0 && recipientLabel()" class="recipient-label">
+                      <span class="mono text-xs">⌖ {{ recipientLabel() }}</span>
+                      <span class="mono text-dim" style="font-size:10px">{{ r.address || '(no address)' }}</span>
+                    </span>
+                    <span v-else class="mono text-xs">{{ r.address || '(no address)' }}</span>
+                    <span class="mono text-orange">{{ fmt(r.amount) }}</span>
+                  </div>
                 </div>
-                <div v-for="(r, i) in expandedDetail.recipients" :key="i" class="tx-detail-recipient">
-                  <span v-if="i === 0 && recipientLabel()" class="recipient-label">
-                    <span class="mono text-xs">⌖ {{ recipientLabel() }}</span>
-                    <span class="mono text-dim" style="font-size:10px">{{ r.address || '(no address)' }}</span>
-                  </span>
-                  <span v-else class="mono text-xs">{{ r.address || '(no address)' }}</span>
-                  <span class="mono text-orange">{{ fmt(r.amount) }}</span>
-                </div>
-              </div>
+              </template>
 
               <div v-if="expandedDetail.own_outputs && expandedDetail.own_outputs.length" class="tx-detail-section">
                 <div class="tx-detail-section-title">Outputs to this wallet</div>

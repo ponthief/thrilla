@@ -18,7 +18,17 @@ interface NavState {
   // hooks/useTangoWatch; a round the OTHER side started is invisible
   // otherwise, and it expires in a day.
   tangoPending: number;
+  // Bumped whenever the watcher's poll sees the set of rounds waiting on this
+  // user CHANGE. The Tango screen loads on its own schedule, so without this
+  // the banner saying "it is your turn" arrived while the round on screen
+  // still said it was theirs and offered no button to press.
+  //
+  // A counter, not the pending count: a turn can pass from you to them and
+  // back with the count landing on the same number, and the screen still needs
+  // to reload.
+  tangoTick: number;
   setTangoPending: (n: number) => void;
+  bumpTango: () => void;
   goToTango: () => void;
   setTab: (tab: TabKey) => void;
   // Go to Receive AND switch to the plain address, for the wallet screen's
@@ -30,9 +40,11 @@ export const useNavStore = create<NavState>((set) => ({
   tab: 'wallet',
   plainRequest: 0,
   tangoPending: 0,
+  tangoTick: 0,
   setTab: (tab) => set({ tab }),
   goToPlain: () =>
     set((s) => ({ tab: 'receive', plainRequest: s.plainRequest + 1 })),
   setTangoPending: (tangoPending) => set({ tangoPending }),
+  bumpTango: () => set((s) => ({ tangoTick: s.tangoTick + 1 })),
   goToTango: () => set({ tab: 'tango' }),
 }));

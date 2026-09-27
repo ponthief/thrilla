@@ -28,6 +28,8 @@ const POLL_MS = 20000;
 export function useTangoWatch(): void {
   const inkey = useAuthStore((s) => s.inkey);
   const setPending = useNavStore((s) => s.setTangoPending);
+  // Tells the Tango screen to reload; see stores/navStore.
+  const bump = useNavStore((s) => s.bumpTango);
   // Keyed on id AND status: the same round becomes your turn twice, and keying
   // on the id alone would announce only the first — the one where nothing is
   // at stake yet.
@@ -78,8 +80,14 @@ export function useTangoWatch(): void {
           usePushBanner.getState().show({ title: 'Tango', body });
         }
       }
+      // Whatever changed — a new turn, or one that has just left. The screen
+      // showing a round needs the same news the banner just got.
+      const changed =
+        current.size !== known.current.size ||
+        [...current].some((k) => !known.current.has(k));
       known.current = current;
       primed.current = true;
+      if (changed) bump();
     };
 
     poll();
@@ -95,5 +103,5 @@ export function useTangoWatch(): void {
       clearInterval(timer);
       sub.remove();
     };
-  }, [inkey, setPending]);
+  }, [inkey, setPending, bump]);
 }
