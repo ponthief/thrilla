@@ -40,6 +40,23 @@ type Tab = 'mix' | 'people' | 'rounds' | 'past';
 
 const TERMINAL = ['BROADCAST', 'CANCELLED'];
 
+// A coin as the wire wants it, and as the local signer wants it. Module scope
+// because they are pure — and because as consts inside the component they were
+// declared BELOW a useMemo that calls one. A useMemo body runs during render,
+// so `local` was still undefined there: `matchChosen.map(local)` threw "Array
+// prototype map requires callable argument" the moment a coin was tapped.
+// Hoisting is the fix. The reason it shipped is that a lint suppression for
+// exhaustive-deps was sitting on the very hook whose missing dependency was
+// `local` — the rule was pointing straight at it. CLAUDE.md: prefer narrowing
+// the value over suppressing the rule.
+const wire = (u: api.Utxo): api.PayjoinSpWireInput => ({
+  txid: u.txid, vout: u.vout, pub_key: u.pub_key, amount: u.amount,
+});
+const local = (u: api.Utxo): tango.PayjoinInput => ({
+  txid: u.txid, vout: u.vout, amount: u.amount,
+  pub_key: u.pub_key, priv_key_tweak: u.priv_key_tweak,
+});
+
 function parseInputs(raw?: string | null): tango.PayjoinInput[] {
   if (!raw) return [];
   try {
@@ -249,9 +266,6 @@ export default function TangoScreen() {
     } catch (e: any) {
       return { fee: 0, change: 0, clean: false, error: e?.message || 'Does not work.' };
     }
-    // `local` and `parseInputs` are pure and defined above; the inputs that
-    // change are the round and the selection.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [matchFor, matchChosen, rounds]);
 
   const startMatch = (r: Row) => {
@@ -271,13 +285,6 @@ export default function TangoScreen() {
     });
   };
 
-  const wire = (u: api.Utxo): api.PayjoinSpWireInput => ({
-    txid: u.txid, vout: u.vout, pub_key: u.pub_key, amount: u.amount,
-  });
-  const local = (u: api.Utxo): tango.PayjoinInput => ({
-    txid: u.txid, vout: u.vout, amount: u.amount,
-    pub_key: u.pub_key, priv_key_tweak: u.priv_key_tweak,
-  });
 
   const fail = (e: any) => {
     setMsg(null);
@@ -822,7 +829,7 @@ export default function TangoScreen() {
           {mine && r.status === 'PROPOSED' && matchFor === r.id ? (
             <Button
               small
-              label="Match & derive"
+              label="Submit"
               busy={busy === r.id}
               onPress={() => accept(r)} />
           ) : null}
