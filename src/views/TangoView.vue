@@ -355,7 +355,12 @@ function _stopContactPoll() { if (_contactTimer) { clearInterval(_contactTimer);
 // ── A: propose ──────────────────────────────────────────────────────────────
 const partnerName = ref('')
 
-async function propose() {
+// Everything a proposal commits to was on the screen in four different places
+// and nowhere together, and Propose went straight to the server. askPropose
+// gathers it; propose() is what Confirm runs.
+const showProposeConfirm = ref(false)
+
+function askPropose() {
   if (!selectedWallet.value) { pushToast('Pick a wallet.', { type: 'warn' }); return }
   if (!partnerName.value) {
     pushToast('Select who you are mixing with.', { type: 'warn' }); return
@@ -367,6 +372,12 @@ async function propose() {
   if (!mixChosen.value.length) {
     pushToast('Choose which of your coins go in.', { type: 'warn' }); return
   }
+  showProposeConfirm.value = true
+}
+
+async function propose() {
+  showProposeConfirm.value = false
+  const d = parseInt(denom.value, 10)
   busy.value = 'propose'
   try {
     const row = await api.tangoPropose(auth.adminkey, {
@@ -383,7 +394,10 @@ async function propose() {
     recordTangoCommit(row.id, selectedWallet.value, mixChosen.value)
     denom.value = ''
     mixPicked.value = new Set()
-    pushToast('Sent. They match it, then you both sign.', { type: 'success' })
+    pushToast(
+      'Proposed. You can cancel it under Rounds until they match it.',
+      { type: 'success' },
+    )
     tab.value = 'rounds'
     await load()
   } catch (e) {
@@ -544,9 +558,14 @@ async function sign(r) {
 }
 
 async function cancel(r) {
+  // Only true before it is matched, so it is only said then. After that both
+  // sides' coins are held against the round, and a dialog that implies
+  // otherwise is a dialog about money that is wrong.
   if (!confirm(
-    'Cancel this Tango? The other side is told. Nothing has been broadcast, ' +
-    'so no coins move.',
+    r.status === 'PROPOSED'
+      ? 'You can cancel this round before partner matches it.'
+      : 'Both sides\u2019 coins are held for this round. Cancelling frees them; '
+        + 'nothing has been broadcast.',
   )) return
   busy.value = r.id
   try {
@@ -640,23 +659,9 @@ function expiresIn(r) {
 <template>
   <div class="tango-view">
     <div class="tg-tabs">
-      <!-- Icon-only, so it keeps a title and an aria-label: a control whose
-           whole meaning is a picture has to announce itself to anyone not
-           looking at it. Same paths as components/TangoDancers.tsx. -->
-      <button class="btn btn-sm tg-mix-tab" :class="tab === 'mix' ? 'btn-primary' : 'btn-ghost'"
-              title="Mix" aria-label="Mix"
-              @click="tab = 'mix'; loadPartners(); loadFeeRates()">
-        <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor"
-             stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-          <circle cx="8.4" cy="4.3" r="2.3" fill="currentColor" stroke="none" />
-          <circle cx="15.8" cy="3.6" r="2.3" fill="currentColor" stroke="none" />
-          <path d="M8.7 7.4 L 11.6 13" />
-          <path d="M15.5 6.7 L 12.6 13" />
-          <path d="M11.4 13 L 8 21" />
-          <path d="M12.8 13 L 19.6 19.4" />
-          <path d="M5.2 9.6 C 9.4 6.5 14.6 6.1 18.4 8.8" />
-        </svg>
-      </button>
+      <button class="btn btn-sm" :class="tab === 'mix' ? 'btn-primary' : 'btn-ghost'"
+              title="Mini-coinjoin"
+              @click="tab = 'mix'; loadPartners(); loadFeeRates()">CJ</button>
       <button class="btn btn-sm" :class="tab === 'connections' ? 'btn-primary' : 'btn-ghost'"
               @click="tab = 'connections'; loadContacts(); _scheduleContactPoll()">Partners</button>
       <button class="btn btn-sm" :class="tab === 'rounds' ? 'btn-primary' : 'btn-ghost'"
@@ -676,7 +681,7 @@ function expiresIn(r) {
         <div class="card-body">
           <p class="text-dim text-sm tg-intro">
             <b>“It takes 2 to Tango”.</b> Select your WhiSPa partner/coins and
-            amount to start collaborative mini-coinjoin.
+            amount to start collaborative mini-coinjoin round.
           </p>
           <div class="field">
             <label class="text-dim text-xs">Mix from wallet</label>
@@ -725,7 +730,7 @@ function expiresIn(r) {
           </div>
 
           <div class="field">
-            <label class="text-dim text-xs">Take it back as</label>
+            <label class="text-dim text-xs">Number of coins to come out from mini-coinjoin:</label>
             <!-- Its own control, not the fee tiers'. Those are left-aligned
                  cells in an auto-fit grid sized for three lines of text, so a
                  one-word label sat small against the left edge of a wide box
@@ -804,7 +809,7 @@ function expiresIn(r) {
           <button class="btn btn-primary" style="margin-top:0.75rem;"
                   :disabled="busy === 'propose' || !hasKeys || !partnerName || !denom ||
                              !mixChosen.length || !!mixPreview?.error"
-                  @click="propose">
+                  @click="askPropose">
             {{ busy === 'propose' ? 'Proposing…' : 'Propose round' }}
           </button>
         </div>
@@ -1125,6 +1130,52 @@ function expiresIn(r) {
       </div>
     </template>
 
+    <!-- read the proposal before it is sent -->
+    <div v-if="showProposeConfirm" class="modal-overlay"
+         @click.self="showProposeConfirm = false">
+      <div class="card modal" style="max-width:420px">
+        <div class="card-header"><h2>Confirm your proposal</h2></div>
+        <div class="card-body" style="display:flex;flex-direction:column;gap:12px">
+          <div class="tx-detail-row">
+            <span>With</span><span class="mono">{{ partnerName }}</span>
+          </div>
+          <div class="tx-detail-row">
+            <span>Each side gets</span>
+            <span class="text-orange mono">{{ fmtSats(parseInt(denom, 10) || 0) }}</span>
+          </div>
+          <div class="tx-detail-row">
+            <span>Coming out as</span>
+            <span class="mono">{{ pieces === 1 ? '1 coin' : pieces + ' coins' }}</span>
+          </div>
+          <div class="tx-detail-row">
+            <span>Putting in</span>
+            <span class="mono">
+              {{ mixChosen.length }} {{ mixChosen.length === 1 ? 'coin' : 'coins' }} ·
+              {{ fmtSats(sumOf(mixChosen)) }}
+            </span>
+          </div>
+          <template v-if="mixPreview && !mixPreview.error">
+            <div class="tx-detail-row">
+              <span>Your fee about</span><span class="mono">{{ fmtSats(mixPreview.fee) }}</span>
+            </div>
+            <div class="tx-detail-row">
+              <span>Your change</span>
+              <span class="mono">{{ mixPreview.change ? fmtSats(mixPreview.change) : 'none' }}</span>
+            </div>
+          </template>
+          <p class="text-xs text-dim" style="margin:0">
+            You can cancel this round under Rounds until your partner matches it.
+          </p>
+          <div class="flex gap-2 justify-between" style="margin-top:8px">
+            <button class="btn btn-ghost" @click="showProposeConfirm = false">Cancel</button>
+            <button class="btn btn-primary" :disabled="busy === 'propose'" @click="propose">
+              {{ busy === 'propose' ? 'Proposing…' : 'Confirm' }}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
     <!-- confirm before signing: the second signature broadcasts -->
     <div v-if="showSignConfirm && signConfirmRound" class="modal-overlay"
          @click.self="showSignConfirm = false">
@@ -1180,9 +1231,6 @@ function expiresIn(r) {
 .tango-view .card-body { padding: 16px; }
 .tango-view .field { gap: 4px; }
 .tg-tabs { display: flex; gap: 0.5rem; flex-wrap: wrap; }
-/* Square-ish, so an icon-only tab is not a wide button with a small mark
-   floating in the middle of it. */
-.tg-mix-tab { display: inline-flex; align-items: center; justify-content: center; padding: 5px 12px; }
 .tg-intro { margin-top: 0; }
 .tg-badge {
   display: inline-block; margin-left: 0.35rem; padding: 0.05rem 0.35rem;

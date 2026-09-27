@@ -9,7 +9,6 @@ import * as commits from '@services/tangoCommit';
 import { parseSpAddress, fromHex, toHex } from '@services/spSign';
 import { colors, space, type as type_ } from '@/theme';
 import { Block, Button, Chips, Field, Group, Note, Page } from './settings/ui';
-import TangoDancers from '../components/TangoDancers';
 
 // Tango: a two-party mix.
 //
@@ -40,6 +39,12 @@ function parseInputs(raw?: string | null): tango.PayjoinInput[] {
   } catch {
     return [];
   }
+}
+
+// Amounts, honouring "hide balances". Module scope and `hidden` as an argument
+// rather than a closure over it, so a callback can depend on the flag itself.
+function fmtSats(n: number | null | undefined, hidden: boolean): string {
+  return n == null ? '—' : hidden ? MASK : `${n.toLocaleString()} sats`;
 }
 
 export default function TangoScreen() {
@@ -349,17 +354,14 @@ export default function TangoScreen() {
   );
 
   // ── A: propose ──
-  const propose = useCallback(async () => {
+  //
+  // Split in two so the proposal can be read before it is sent. Everything it
+  // commits to — who, how much, how many coins in and out, the fee, the change
+  // — was on the screen in four different places and nowhere together, and
+  // Propose went straight to the server.
+  const sendProposal = useCallback(async () => {
     if (!adminkey || !walletId) return;
     const d = Number(denom);
-    if (!Number.isFinite(d) || d <= 0) {
-      setError('Enter the amount you each want back.');
-      return;
-    }
-    if (!chosen.length) {
-      setError('Choose which of your coins go in.');
-      return;
-    }
     setBusy('propose');
     setError(null);
     try {
@@ -380,7 +382,7 @@ export default function TangoScreen() {
       setPartner('');
       setDenom('');
       setPicked(new Set());
-      setMsg('Sent. They match it, then you both sign.');
+      setMsg('Proposed. You can cancel it under Rounds until they match it.');
       await load();
     } catch (e) {
       fail(e);
@@ -388,6 +390,36 @@ export default function TangoScreen() {
       setBusy(null);
     }
   }, [adminkey, walletId, denom, partner, chosen, pieces, network, committed, load]);
+
+  const propose = useCallback(() => {
+    if (!adminkey || !walletId) return;
+    const d = Number(denom);
+    if (!Number.isFinite(d) || d <= 0) {
+      setError('Enter the amount you each want back.');
+      return;
+    }
+    if (!chosen.length) {
+      setError('Choose which of your coins go in.');
+      return;
+    }
+    const lines = [
+      `With ${partner.trim()}`,
+      `${fmtSats(d, hidden)} each, back as ${pieces === 1 ? '1 coin' : `${pieces} coins`}`,
+      `Putting in ${chosen.length} coin${chosen.length === 1 ? '' : 's'}`
+        + ` \u00b7 ${fmtSats(chosenTotal, hidden)}`,
+    ];
+    if (preview && !preview.error) {
+      lines.push(`Your fee about ${fmtSats(preview.fee, hidden)}`);
+      lines.push(preview.change ? `Your change ${fmtSats(preview.change, hidden)}` : 'No change');
+    }
+    Alert.alert('Confirm your proposal', lines.join('\n'), [
+      { text: 'Cancel', style: 'cancel' },
+      { text: 'Confirm', onPress: () => void sendProposal() },
+    ]);
+  }, [
+    adminkey, walletId, denom, partner, chosen, chosenTotal, pieces, preview,
+    hidden, sendProposal,
+  ]);
 
   // ── B: accept, which means deriving both of this side's outputs ──
   const accept = useCallback(
@@ -542,7 +574,13 @@ export default function TangoScreen() {
     (row: Row) => {
       Alert.alert(
         'Cancel this Tango?',
-        'The other side is told. Nothing has been broadcast, so no coins move.',
+        // Only true before it is matched, so it is only said then. After that
+        // both sides' coins are held against the round, and a dialog that
+        // implies otherwise is a dialog about money that is wrong.
+        row.status === 'PROPOSED'
+          ? 'You can cancel this round before partner matches it.'
+          : 'Both sides\u2019 coins are held for this round. Cancelling frees '
+            + 'them; nothing has been broadcast.',
         [
           { text: 'Keep it', style: 'cancel' },
           {
@@ -568,8 +606,7 @@ export default function TangoScreen() {
     [adminkey, load],
   );
 
-  const sats = (n?: number | null) =>
-    n == null ? '—' : hidden ? MASK : `${n.toLocaleString()} sats`;
+  const sats = (n?: number | null) => fmtSats(n, hidden);
 
   // Who did the last thing, named.
   //
@@ -689,7 +726,7 @@ export default function TangoScreen() {
       title="Tango"
       subtitle={
         '“It takes 2 to Tango”. Select your WhiSPa partner/coins and amount ' +
-        'to start collaborative mini-coinjoin.'
+        'to start collaborative mini-coinjoin round.'
       }>
       {error ? (
         <Block><Note kind="error">{error}</Note></Block>
@@ -699,17 +736,13 @@ export default function TangoScreen() {
       <Block>
         <Chips<Tab>
           options={[
-            {
-              key: 'mix',
-              label: 'Mix',
-              icon: (c) => <TangoDancers size={18} color={c} />,
-            },
+            { key: 'mix', label: 'CJ' },
             { key: 'people', label: 'Partners' },
             {
               key: 'rounds',
               label: waiting.length ? `Rounds (${waiting.length})` : 'Rounds',
             },
-            { key: 'past', label: 'History' },
+            { key: 'past', label: 'Hist.' },
           ]}
           selected={tab}
           onSelect={setTab}
@@ -806,7 +839,7 @@ export default function TangoScreen() {
             </Block>
             <Block>
               <Text style={styles.rowMeta}>
-                Take it back as how many coins?
+                Number of coins to come out from mini-coinjoin:
               </Text>
               <Chips<number>
                 options={[1, 2, 3].map((n) => ({
