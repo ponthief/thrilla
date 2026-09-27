@@ -1,5 +1,13 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { Alert, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import {
+  Alert,
+  AppState,
+  Pressable,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
+} from 'react-native';
 import * as api from '@services/api';
 import { useAuthStore } from '@stores/authStore';
 import { getWalletKeys } from '@services/secureKeys';
@@ -112,6 +120,22 @@ export default function TangoScreen() {
   );
   const chosenTotal = chosen.reduce((s, c) => s + c.amount, 0);
 
+  // MATCHING HAS ITS OWN SELECTION, and it is not a nicety.
+  //
+  // Matching used to read the CJ tab's `picked`, so a round proposed from the
+  // web and opened on the phone showed "Choose which of your coins go in, then
+  // accept." on a page with no coins on it — the picker was a tab away, and
+  // nothing said so. The web has always had the picker inside the round; this
+  // is that. Two sets rather than one, because a half-built proposal on the CJ
+  // tab must not become the coins that match somebody else's round.
+  const [matchFor, setMatchFor] = useState<string | null>(null);
+  const [matchPicked, setMatchPicked] = useState<Set<string>>(new Set());
+  const matchChosen = useMemo(
+    () => selectable.filter((c) => matchPicked.has(key(c))),
+    [selectable, matchPicked],
+  );
+  const matchTotal = matchChosen.reduce((s, c) => s + c.amount, 0);
+
   const load = useCallback(async () => {
     if (!inkey) {
       setLoading(false);
@@ -174,6 +198,18 @@ export default function TangoScreen() {
 
   useEffect(() => {
     load();
+    // Reload on the way back to the foreground.
+    //
+    // The list was loaded once, when the screen mounted. Tapping a Tango
+    // notification resumes an app whose Tango screen is often already mounted
+    // and minutes stale, so the round the notification is ABOUT was missing
+    // from the page it sends you to — appearing later, when something else
+    // happened to reload. Coming back from the background is exactly the
+    // moment the list is most likely to be behind.
+    const sub = AppState.addEventListener('change', (state) => {
+      if (state === 'active') load();
+    });
+    return () => sub.remove();
   }, [load]);
 
   /**
@@ -198,6 +234,42 @@ export default function TangoScreen() {
       return { change: 0, fee: 0, error: e?.message || 'Does not work.' };
     }
   }, [denom, chosen, pieces]);
+
+  // Unlike the proposal preview, this prices EXACTLY: their coins are already
+  // in, so the fee is the real one rather than this side's standing in.
+  const matchPreview = useMemo(() => {
+    const r = rounds.find((x) => x.id === matchFor);
+    if (!r || !matchChosen.length) return null;
+    try {
+      const p = tango.plan(
+        parseInputs(r.a_inputs), matchChosen.map(local), r.denom_sats,
+        r.fee_rate, r.pieces || 1,
+      );
+      return { fee: p.b_fee, change: p.b_change, clean: p.clean, error: null as string | null };
+    } catch (e: any) {
+      return { fee: 0, change: 0, clean: false, error: e?.message || 'Does not work.' };
+    }
+    // `local` and `parseInputs` are pure and defined above; the inputs that
+    // change are the round and the selection.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [matchFor, matchChosen, rounds]);
+
+  const startMatch = (r: Row) => {
+    clearNotice();
+    setMatchFor((cur) => (cur === r.id ? null : r.id));
+    setMatchPicked(new Set());
+  };
+
+  const toggleMatch = (u: api.Utxo) => {
+    clearNotice();
+    setMatchPicked((prev) => {
+      const next = new Set(prev);
+      const k = key(u);
+      if (next.has(k)) next.delete(k);
+      else next.add(k);
+      return next;
+    });
+  };
 
   const wire = (u: api.Utxo): api.PayjoinSpWireInput => ({
     txid: u.txid, vout: u.vout, pub_key: u.pub_key, amount: u.amount,
@@ -425,8 +497,8 @@ export default function TangoScreen() {
   const accept = useCallback(
     async (row: Row) => {
       if (!adminkey || !walletId) return;
-      if (!chosen.length) {
-        setError('Choose which of your coins go in, then accept.');
+      if (!matchChosen.length) {
+        setError('Choose which of your coins go in.');
         return;
       }
       setBusy(row.id);
@@ -437,10 +509,10 @@ export default function TangoScreen() {
 
         // The complete input set exists for the first time here, which is why
         // both scripts are derived in this call and not an earlier one.
-        const all = [...parseInputs(row.a_inputs), ...chosen.map(local)];
+        const all = [...parseInputs(row.a_inputs), ...matchChosen.map(local)];
         const pieces = row.pieces || 1;
         const amounts = tango.plan(
-          parseInputs(row.a_inputs), chosen.map(local), row.denom_sats,
+          parseInputs(row.a_inputs), matchChosen.map(local), row.denom_sats,
           row.fee_rate, pieces,
         );
         const { spend } = parseSpAddress(spAddress);
@@ -450,14 +522,15 @@ export default function TangoScreen() {
 
         await api.acceptTango(adminkey, row.id, {
           wallet_id: walletId,
-          inputs: chosen.map(wire),
+          inputs: matchChosen.map(wire),
           mix_spks: own.mix.map(toHex),
           change_spk: own.change ? toHex(own.change) : null,
         });
         setCommitted(
-          await commits.recordTangoCommit(committed, row.id, walletId, chosen),
+          await commits.recordTangoCommit(committed, row.id, walletId, matchChosen),
         );
-        setPicked(new Set());
+        setMatchFor(null);
+        setMatchPicked(new Set());
         setMsg(
           amounts.clean
             ? 'Matched, and neither side needs change — a clean mix.'
@@ -470,7 +543,7 @@ export default function TangoScreen() {
         setBusy(null);
       }
     },
-    [adminkey, walletId, spAddress, chosen, committed, load],
+    [adminkey, walletId, spAddress, matchChosen, committed, load],
   );
 
   // ── both: sign, after the checks ──
@@ -681,9 +754,76 @@ export default function TangoScreen() {
         {r.txid ? (
           <Text style={styles.rowMeta} numberOfLines={1}>{r.txid}</Text>
         ) : null}
+        {/* The coins go in HERE, on the round they are matching, not on a tab
+            the user has to know to visit first. */}
+        {mine && r.status === 'PROPOSED' && matchFor === r.id ? (
+          <View style={styles.matchPanel}>
+            <Text style={styles.rowMeta}>
+              They put in {parseInputs(r.a_inputs).length} coin
+              {parseInputs(r.a_inputs).length === 1 ? '' : 's'}. Choose yours:
+              you need the amount plus your half of the fee, and anything over
+              comes back as change.
+            </Text>
+            {selectable.length === 0 ? (
+              <Text style={styles.rowMeta}>No spendable coins.</Text>
+            ) : (
+              selectable.map((c) => {
+                const on = matchPicked.has(key(c));
+                return (
+                  <Pressable
+                    key={key(c)}
+                    onPress={() => toggleMatch(c)}
+                    accessibilityRole="checkbox"
+                    accessibilityState={{ checked: on }}
+                    style={[styles.coin, on && styles.coinOn]}>
+                    <View style={[styles.tick, on && styles.tickOn]}>
+                      {on ? <Text style={styles.tickMark}>✓</Text> : null}
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.coinAmount}>{sats(c.amount)}</Text>
+                      <Text style={styles.coinMeta} numberOfLines={1}>
+                        {c.label ? `${c.label} · ` : ''}{c.txid.slice(0, 16)}…:{c.vout}
+                      </Text>
+                    </View>
+                  </Pressable>
+                );
+              })
+            )}
+            {matchChosen.length ? (
+              <Text style={styles.rowMeta}>
+                {matchChosen.length} chosen · {sats(matchTotal)}
+                {matchPreview && !matchPreview.error
+                  ? ` · your fee ${sats(matchPreview.fee)}`
+                  : ''}
+              </Text>
+            ) : null}
+            {matchPreview?.error ? (
+              <Note kind="error">{matchPreview.error}</Note>
+            ) : matchPreview && !matchPreview.clean ? (
+              <Text style={styles.warn}>
+                {matchPreview.change
+                  ? `Your change would be ${sats(matchPreview.change)}. `
+                  : 'Their side needs change. '}
+                Change plus a share adds up to what that side put in, which is
+                often enough to tell the two outputs apart.
+              </Text>
+            ) : matchPreview ? (
+              <Text style={styles.good}>
+                Neither side needs change — a clean mix.
+              </Text>
+            ) : null}
+          </View>
+        ) : null}
         <View style={styles.rowActions}>
-          {mine && r.status === 'PROPOSED' ? (
+          {mine && r.status === 'PROPOSED' && matchFor !== r.id ? (
             <Button small label="Match it" busy={busy === r.id}
+              onPress={() => startMatch(r)} />
+          ) : null}
+          {mine && r.status === 'PROPOSED' && matchFor === r.id ? (
+            <Button
+              small
+              label="Match & derive"
+              busy={busy === r.id}
               onPress={() => accept(r)} />
           ) : null}
           {mine && r.status !== 'PROPOSED' ? (
@@ -960,9 +1100,7 @@ export default function TangoScreen() {
             </Group>
           ) : null}
 
-          <Group
-            title="Connected"
-            footer="A label is yours alone — it never leaves this account, and the other side never sees it.">
+          <Group title="Connected">
             <Block>
               {people.accepted.length === 0 ? (
                 <Text style={styles.rowMeta}>Nobody yet.</Text>
@@ -1029,13 +1167,7 @@ export default function TangoScreen() {
 
       {tab === 'rounds' ? (
         <>
-          <Group
-            title="Waiting on you"
-            footer={
-              waiting.some((r) => r.status === 'PROPOSED')
-                ? 'Matching one derives your outputs from the whole input set, so choose your coins under Mix first.'
-                : undefined
-            }>
+          <Group title="Waiting on you">
             <Block>
               {waiting.length === 0 ? (
                 <Text style={styles.rowMeta}>
@@ -1091,6 +1223,14 @@ const styles = StyleSheet.create({
   rowMeta: { ...type_.caption, color: colors.muted, marginTop: 2 },
   warn: { ...type_.caption, color: colors.primary, marginTop: 4 },
   good: { ...type_.caption, color: colors.green, marginTop: 4 },
+  // Set in from the round it belongs to, so a list of rounds still reads as a
+  // list while one of them is open.
+  matchPanel: {
+    marginTop: space.sm,
+    paddingLeft: space.sm,
+    borderLeftWidth: 2,
+    borderLeftColor: colors.border,
+  },
   rowActions: { flexDirection: 'row', gap: space.sm, marginTop: space.sm },
   coin: {
     flexDirection: 'row',

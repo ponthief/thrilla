@@ -76,11 +76,18 @@ for (const [label, file, loadMarker, tweakCall] of [
 
   // 4. And the picker uses that one, not the raw list. Checked on what the
   //    chosen-coins computation reads, since that is what reaches the wire.
+  // Both pickers: choosing coins for a NEW round, and choosing them to MATCH
+  // one. Matching grew its own selection when it stopped borrowing the new-round
+  // tab's, and a second list reading the raw coins would reintroduce exactly
+  // what this file exists to stop.
+  const flat = src.replace(/\s+/g, ' ');
+  const pickers = flat.match(
+    /selectable[.\s]*(\.value)?\s*\.filter\(\s*\(c\)\s*=>\s*(mix|match)?[Pp]icked/g,
+  ) || [];
   ok('the chosen coins come from the picking list',
-    /selectable[.\s]*(\.value)?\s*\.filter\(\s*\(c\)\s*=>\s*(mix)?[Pp]icked/.test(
-      src.replace(/\s+/g, ' '),
-    ),
-    'the chosen-coins list still filters the unfiltered coins');
+    pickers.length >= 2,
+    `expected both the new-round and the match selection to filter ` +
+    `\`selectable\`; found ${pickers.length}`);
 }
 
 console.log(

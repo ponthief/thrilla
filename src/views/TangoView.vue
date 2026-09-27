@@ -913,7 +913,7 @@ function expiresIn(r) {
             </div>
             <div class="tg-label-row">
               <input class="input tg-label-input" v-model="c.label"
-                     placeholder="private label (only you see this)" @keyup.enter="saveLabel(c)" />
+                     placeholder="private label" @keyup.enter="saveLabel(c)" />
               <button class="btn btn-ghost btn-sm" @click="saveLabel(c)">Save</button>
             </div>
           </div>
