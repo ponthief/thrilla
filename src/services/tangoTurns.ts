@@ -247,9 +247,17 @@ export function turnLine(
   if (status === 'BROADCAST') return 'Done — both shares are on chain.';
   if (status === 'CANCELLED') return '';
   if (!isMyTurn(status, role)) {
-    return status === 'PROPOSED'
-      ? `Waiting for ${them} to match it.`
-      : `Waiting for ${them} to sign.`;
+    // Per status, not "to sign" for both. The two are different waits: one
+    // ends with an approval that puts nothing on chain, the other ends with
+    // the round on the network.
+    switch (status) {
+      case 'PROPOSED':
+        return `Waiting for ${them} to match it.`;
+      case 'ACCEPTED':
+        return `Waiting for ${them} to approve it.`;
+      default:
+        return `Waiting for ${them} to complete the Tango round.`;
+    }
   }
   switch (status) {
     case 'PROPOSED':

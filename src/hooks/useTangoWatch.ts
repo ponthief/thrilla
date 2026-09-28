@@ -35,11 +35,20 @@ export function useTangoWatch(): void {
   // at stake yet.
   const known = useRef<Set<string>>(new Set());
   const primed = useRef(false);
+  // EVERY round, not just the ones waiting on you.
+  //
+  // The reload signal used to come off the my-turn set, which never moves when
+  // the other side cancels a round that was waiting on THEM: the cancellation
+  // push arrived, and the screen behind it went on showing the round as live
+  // with its coins still held. Their status changing is the news, whoever the
+  // turn belonged to.
+  const seen = useRef<Set<string>>(new Set());
 
   useEffect(() => {
     if (!inkey) {
       setPending(0);
       known.current = new Set();
+      seen.current = new Set();
       primed.current = false;
       return;
     }
@@ -54,7 +63,8 @@ export function useTangoWatch(): void {
       }
       if (cancelled) return;
 
-      const mine = (data.rounds || []).filter((r) => isMyTurn(r.status, r.role));
+      const rounds = data.rounds || [];
+      const mine = rounds.filter((r) => isMyTurn(r.status, r.role));
       setPending(mine.length);
 
       const current = new Set(mine.map((r) => `${r.id}:${r.status}`));
@@ -80,11 +90,14 @@ export function useTangoWatch(): void {
           usePushBanner.getState().show({ title: 'Tango', body });
         }
       }
-      // Whatever changed — a new turn, or one that has just left. The screen
-      // showing a round needs the same news the banner just got.
+      // Whatever moved, on any round. The screen showing one needs the same
+      // news the banner just got — and for a cancellation by the other side,
+      // it is the only news there is.
+      const all = new Set(rounds.map((r) => `${r.id}:${r.status}`));
       const changed =
-        current.size !== known.current.size ||
-        [...current].some((k) => !known.current.has(k));
+        all.size !== seen.current.size ||
+        [...all].some((k) => !seen.current.has(k));
+      seen.current = all;
       known.current = current;
       primed.current = true;
       if (changed) bump();

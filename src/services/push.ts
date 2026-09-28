@@ -12,6 +12,7 @@ import messaging from '@react-native-firebase/messaging';
 import * as api from './api';
 import { usePushBanner } from '@stores/pushBanner';
 import { alertsOn } from '@stores/notifyStore';
+import { useNavStore } from '@stores/navStore';
 
 let unsubscribeRefresh: (() => void) | null = null;
 let unsubscribeMessage: (() => void) | null = null;
@@ -62,6 +63,11 @@ function handleForegroundMessage(msg: any): void {
     // for the case the app is closed, which Android displays itself.
     if (type === 'send_confirmed') return;
     const tango = type === 'tango';
+    // The server only pushes about a round when something happened to it, so
+    // this is the earliest the app can know. Without it the screen waited on
+    // the watcher's next poll — up to twenty seconds of a cancelled round
+    // still showing as live, with its coins still held.
+    if (tango) useNavStore.getState().bumpTango();
     const title =
       d?.title || n?.title || (tango ? 'Tango' : 'Payment received');
     const body =

@@ -1040,7 +1040,7 @@ function expiresIn(r) {
                 <button class="btn btn-primary btn-sm"
                         :disabled="busy === r.id || !matchChosen.length || !!matchPreview?.error"
                         @click="submitMatch(r)">
-                  {{ busy === r.id ? 'Matching…' : 'Match & derive' }}
+                  {{ busy === r.id ? 'Matching…' : 'Submit' }}
                 </button>
                 <button class="btn btn-ghost btn-sm" @click="matchFor = null">Close</button>
               </div>

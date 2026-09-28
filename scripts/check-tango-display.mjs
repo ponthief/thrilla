@@ -18,7 +18,10 @@
  *
  * Run: node --experimental-strip-types scripts/check-tango-display.mjs
  */
-import { splitMixOutputs, changeLine } from '../src/services/tangoTurns.ts';
+import { readFileSync } from 'node:fs';
+import {
+  splitMixOutputs, changeLine, turnLine,
+} from '../src/services/tangoTurns.ts';
 
 let failures = 0;
 const ok = (name, cond, detail = '') => {
@@ -98,6 +101,43 @@ console.log('\nevery way the change can fall');
   ok('theirs only', changeLine(0, 20, 'bob').startsWith("Change on bob's side."));
   ok('neither', changeLine(0, 0, 'bob').startsWith('No change either side'));
   ok('no partner name', changeLine(0, 20, null).startsWith("Change on their side's"));
+}
+
+console.log('\nwhat each side is waiting for');
+{
+  // Side A, after approving: the round is on B, and what B does next puts it
+  // on the network. "Waiting for bob to sign" said neither which wait it was
+  // nor that it was the last one.
+  eq('A after approving', turnLine('A_SIGNED', 'a', 'bob'),
+     'Waiting for bob to complete the Tango round.');
+  // Side B, having matched: waiting on an approval that broadcasts nothing.
+  eq('B after matching', turnLine('ACCEPTED', 'b', 'alice'),
+     'Waiting for alice to approve it.');
+  eq('A after proposing', turnLine('PROPOSED', 'a', 'bob'),
+     'Waiting for bob to match it.');
+  // And the turns that ARE yours still say what pressing does.
+  ok('B at the last step is told it broadcasts',
+    turnLine('A_SIGNED', 'b', 'alice').includes('broadcasts the transaction'));
+  ok('and that it cannot be undone',
+    turnLine('A_SIGNED', 'b', 'alice').includes('cannot be undone'));
+  eq('a finished round', turnLine('BROADCAST', 'a', 'bob'),
+     'Done \u2014 both shares are on chain.');
+}
+
+console.log('\nthe two clients name the same actions');
+{
+  // One round, two screens: a button called Complete on the phone and
+  // "Finish & send" in the browser is the same press under two names, and the
+  // browser kept the old one for a release after the phone changed.
+  const RETIRED = ['Match & derive', 'Finish & send', 'Finish & sign'];
+  for (const file of ['src/screens/TangoScreen.tsx', 'src/views/TangoView.vue']) {
+    const src = readFileSync(new URL(`../${file}`, import.meta.url), 'utf8');
+    for (const label of RETIRED) {
+      ok(`${file} has no "${label}"`, !src.includes(label));
+    }
+    ok(`${file} says Complete`, src.includes("'Complete'"));
+    ok(`${file} says Submit`, src.includes('Submit'));
+  }
 }
 
 console.log('');
