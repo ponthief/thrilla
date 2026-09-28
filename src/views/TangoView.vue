@@ -397,7 +397,7 @@ async function propose() {
     denom.value = ''
     mixPicked.value = new Set()
     pushToast(
-      'Proposed. You can cancel it under Rounds until they match it.',
+      'Offer sent. You can cancel it under Rounds until they match it.',
       { type: 'success' },
     )
     tab.value = 'rounds'
@@ -625,7 +625,7 @@ function actor(r, side) {
 }
 function statusLabel(r) {
   switch (r.status) {
-    case 'PROPOSED':  return `${actor(r, 'a')} proposed it`
+    case 'PROPOSED':  return `${actor(r, 'a')} sent the offer`
     case 'ACCEPTED':  return `${actor(r, 'b')} matched it`
     case 'A_SIGNED':  return `${actor(r, 'a')} approved it`
     case 'BROADCAST': return 'Sent'
@@ -809,7 +809,7 @@ function expiresIn(r) {
                   :disabled="busy === 'propose' || !hasKeys || !partnerName || !denom ||
                              !mixChosen.length || !!mixPreview?.error"
                   @click="askPropose">
-            {{ busy === 'propose' ? 'Proposing…' : 'Propose round' }}
+            {{ busy === 'propose' ? 'Sending…' : 'Send Tango offer' }}
           </button>
         </div>
       </div>
@@ -826,15 +826,8 @@ function expiresIn(r) {
         <div class="card-header">Add a connection</div>
         <div class="card-body">
           <p class="text-dim text-sm">
-            Connect with another user by their <b>WhiSPa username</b>. They
-            approve the request, then either of you can propose a Tango. It stays
-            connected until one side removes it.
-          </p>
-          <p class="text-dim text-xs">
-            Connections are per network: this list is your {{ wallet?.network }}
-            connections, and removing one here does not touch another network's.
-            It is shared with PayJoin on the same network — approving someone
-            here connects you for both.
+            Add someone by their <b>WhiSPa username</b>; once they approve,
+            either of you can send a Tango offer.
           </p>
           <label class="text-dim text-xs" style="display:block; margin-bottom:4px;">Username</label>
           <div class="tg-add-row">
@@ -844,15 +837,6 @@ function expiresIn(r) {
               {{ addingContact ? 'Sending…' : 'Send request' }}
             </button>
           </div>
-        </div>
-      </div>
-
-      <div class="card">
-        <div class="card-header">Tango steps</div>
-        <div class="card-body">
-          <ol class="tg-steps text-sm text-dim">
-            <li v-for="step in tango.STEPS" :key="step">{{ step }}</li>
-          </ol>
         </div>
       </div>
 
@@ -1141,7 +1125,7 @@ function expiresIn(r) {
     <div v-if="showProposeConfirm" class="modal-overlay"
          @click.self="showProposeConfirm = false">
       <div class="card modal" style="max-width:420px">
-        <div class="card-header"><h2>Confirm your proposal</h2></div>
+        <div class="card-header"><h2>Confirm your Tango offer</h2></div>
         <div class="card-body" style="display:flex;flex-direction:column;gap:12px">
           <div class="tx-detail-row">
             <span>With</span><span class="mono">{{ partnerName }}</span>
@@ -1176,7 +1160,7 @@ function expiresIn(r) {
           <div class="flex gap-2 justify-between" style="margin-top:8px">
             <button class="btn btn-ghost" @click="showProposeConfirm = false">Cancel</button>
             <button class="btn btn-primary" :disabled="busy === 'propose'" @click="propose">
-              {{ busy === 'propose' ? 'Proposing…' : 'Confirm' }}
+              {{ busy === 'propose' ? 'Sending…' : 'Confirm' }}
             </button>
           </div>
         </div>

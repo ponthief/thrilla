@@ -133,6 +133,8 @@ console.log('\nthe wording that was asked for, and stays gone');
     'Your change would have been',  // the dropped-change note on a history row
     'Confirm this mix',         // the signing modal's old title
     'Other outputs',            // read as "yours", and it cannot know whose
+    'Tango steps',              // the five lines, removed from both screens
+    'Connections are per network',  // three sentences where one does
   ];
   for (const file of [
     'src/screens/TangoScreen.tsx', 'src/views/TangoView.vue',
@@ -148,6 +150,11 @@ console.log('\nthe wording that was asked for, and stays gone');
   for (const file of ['src/components/TxDetailModal.tsx', 'src/views/TransactionsView.vue']) {
     const src = readFileSync(new URL(`../${file}`, import.meta.url), 'utf8');
     ok(`${file} says Tango-ed`, src.includes('Tango-ed'));
+    // The fee share is a fee. Beside "alice's share" — the mixed output —
+    // a bare "Your share" read as the other kind entirely.
+    ok(`${file} calls the fee share a fee share`, src.includes('Your fee share'));
+    ok(`${file} does not say a bare "Your share"`,
+      !/Your share[^ ]/.test(src) && !src.includes('"Your share"'));
   }
 }
 

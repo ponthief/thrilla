@@ -197,7 +197,7 @@ export default function TxDetailModal({
                     </Text>
                   </Row>
                   {mix.fee_sats ? (
-                    <Row label="Your share">
+                    <Row label="Your fee share">
                       <Text style={styles.value}>
                         {groupThousands(mix.fee_sats)} sats
                       </Text>

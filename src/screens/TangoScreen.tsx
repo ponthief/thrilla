@@ -468,7 +468,7 @@ export default function TangoScreen() {
       setPartner('');
       setDenom('');
       setPicked(new Set());
-      setMsg('Proposed. You can cancel it under Rounds until they match it.');
+      setMsg('Offer sent. You can cancel it under Rounds until they match it.');
       await load();
     } catch (e) {
       fail(e);
@@ -498,7 +498,7 @@ export default function TangoScreen() {
       lines.push(`Your fee about ${fmtSats(preview.fee, hidden)}`);
       lines.push(preview.change ? `Your change ${fmtSats(preview.change, hidden)}` : 'No change');
     }
-    Alert.alert('Confirm your proposal', lines.join('\n'), [
+    Alert.alert('Confirm your Tango offer', lines.join('\n'), [
       { text: 'Cancel', style: 'cancel' },
       { text: 'Confirm', onPress: () => void sendProposal() },
     ]);
@@ -709,7 +709,7 @@ export default function TangoScreen() {
 
   const statusLabel = (r: Row) => {
     switch (r.status) {
-      case 'PROPOSED': return `${actor(r, 'a')} proposed it`;
+      case 'PROPOSED': return `${actor(r, 'a')} sent the offer`;
       case 'ACCEPTED': return `${actor(r, 'b')} matched it`;
       case 'A_SIGNED': return `${actor(r, 'a')} approved it`;
       case 'BROADCAST': return 'Sent';
@@ -1028,7 +1028,7 @@ export default function TangoScreen() {
                 }}
                 placeholder="sats each"
                 keyboardType="number-pad"
-                action="Propose"
+                action="Send offer"
                 onAction={propose}
                 actionBusy={busy === 'propose'}
                 actionDisabled={
@@ -1039,15 +1039,6 @@ export default function TangoScreen() {
             </Block>
           </Group>
 
-          <Group title="Tango steps">
-            <Block>
-              {tango.STEPS.map((step, i) => (
-                <Text key={step} style={styles.rowMeta}>
-                  {i + 1}. {step}
-                </Text>
-              ))}
-            </Block>
-          </Group>
         </>
       ) : null}
 

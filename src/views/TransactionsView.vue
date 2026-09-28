@@ -328,7 +328,7 @@ onMounted(() => {
                   <span class="text-dim text-sm">with {{ mixOf(tx).partner || 'someone' }}</span>
                 </div>
                 <div class="tx-detail-row" v-if="mixOf(tx).fee_sats">
-                  <span class="tx-detail-label">Your share:</span>
+                  <span class="tx-detail-label">Your fee share:</span>
                   <span class="mono">{{ fmt(mixOf(tx).fee_sats) }}</span>
                 </div>
                 <div class="tx-detail-row" v-if="mixOf(tx).change_sats">
