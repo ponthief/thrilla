@@ -19,9 +19,7 @@
  * Run: node --experimental-strip-types scripts/check-tango-display.mjs
  */
 import { readFileSync } from 'node:fs';
-import {
-  splitMixOutputs, changeLine, turnLine,
-} from '../src/services/tangoTurns.ts';
+import { changeLine, turnLine } from '../src/services/tangoTurns.ts';
 
 let failures = 0;
 const ok = (name, cond, detail = '') => {
@@ -35,72 +33,27 @@ const eq = (name, got, want) =>
   ok(name, JSON.stringify(got) === JSON.stringify(want),
      `got ${JSON.stringify(got)}, want ${JSON.stringify(want)}`);
 
-console.log('the round that was reported wrong (3331ddbf…, signet)');
+console.log('a round does not report on the partner');
 {
-  // This wallet owns one 14,000 and nothing else, so the outputs it does not
-  // own are the other share and the other side's change.
-  const mix = {
-    denom_sats: 14000, pieces: 1, partner: 'alice',
-    fee_sats: 973, change_sats: 0, their_change_sats: 2503,
-  };
-  const recipients = [{ amount: 14000 }, { amount: 2503 }];
-  const { share, change, other } = splitMixOutputs(mix, recipients);
-  eq('their share is the denomination, once', share.map((o) => o.amount), [14000]);
-  eq('their change is its own line', change.map((o) => o.amount), [2503]);
-  eq('and nothing is left over', other.map((o) => o.amount), []);
-  ok('their share does not add up to 16,503',
-    share.reduce((s, o) => s + o.amount, 0) === 14000);
-
-  eq('the round says which side had change',
-    changeLine(0, 2503, 'alice'),
-    "Change on alice's side. An observer can often work out which output is "
-    + 'whose from the amounts.');
-}
-
-console.log('\nthe other arrangements');
-{
-  // Three pieces a side: three outputs of the share, plus their change.
-  const mix = {
-    denom_sats: 30000, pieces: 3, partner: 'bob',
-    change_sats: 100, their_change_sats: 777,
-  };
-  const { share, change, other } = splitMixOutputs(
-    mix, [{ amount: 10000 }, { amount: 777 }, { amount: 10000 }, { amount: 10000 }],
-  );
-  eq('all three of their pieces are the share',
-    share.map((o) => o.amount), [10000, 10000, 10000]);
-  eq('their change is still its own', change.map((o) => o.amount), [777]);
-  eq('nothing left over', other.map((o) => o.amount), []);
-
-  // A fourth output at the share size is NOT a fourth piece: a side gets
-  // `pieces` of them and no more, so the extra is reported rather than hidden.
-  const extra = splitMixOutputs(mix, [
-    { amount: 10000 }, { amount: 10000 }, { amount: 10000 }, { amount: 10000 },
-  ]);
-  eq('an unexpected extra output is shown as such',
-    extra.other.map((o) => o.amount), [10000]);
-
-  // A change that happens to equal the share size stays a share.
-  const clash = splitMixOutputs(
-    { denom_sats: 5000, pieces: 1, their_change_sats: 5000 },
-    [{ amount: 5000 }, { amount: 5000 }],
-  );
-  eq('a change equal to the share does not eat the share',
-    [clash.share.length, clash.change.length], [1, 1]);
-
-  // A round from a server that sends neither field still lists everything.
-  const old = splitMixOutputs({ denom_sats: 14000 }, [{ amount: 14000 }, { amount: 2503 }]);
-  eq('an old round still accounts for every output',
-    [old.share.length, old.change.length, old.other.length], [1, 0, 1]);
-}
-
-console.log('\nevery way the change can fall');
-{
-  ok('both sides', changeLine(10, 20, 'bob').startsWith('Change on both sides.'));
-  ok('mine only', changeLine(10, 0, 'bob').startsWith('Your side had change.'));
-  ok('theirs only', changeLine(0, 20, 'bob').startsWith("Change on bob's side."));
-  ok('neither', changeLine(0, 0, 'bob').startsWith('No change either side'));
-  ok('no partner name', changeLine(0, 20, null).startsWith("Change on their side's"));
+  // It used to list every output the wallet does not own — the other side's
+  // share AND their change, which reported a 14,000 round as 16,503 going to
+  // them. Those outputs are on chain either way and are none of this wallet's
+  // business, so the section is gone for a Tango and kept for a send, where
+  // the recipient is the point.
+  for (const [file, guard] of [
+    ['src/components/TxDetailModal.tsx', 'detail.recipients?.length && !mix'],
+    ['src/views/TransactionsView.vue', 'expandedDetail.recipients.length && !mixOf(tx)'],
+  ]) {
+    const src = readFileSync(new URL(`../${file}`, import.meta.url), 'utf8');
+    ok(`${file} hides the recipients of a round`, src.includes(guard),
+      'a Tango would list the other side\u2019s outputs again');
+    ok(`${file} still shows them for a send`, src.includes('Recipients'));
+  }
+  // And the machinery for splitting them is gone with it.
+  const svc = readFileSync(new URL('../src/services/tangoTurns.ts', import.meta.url), 'utf8');
+  for (const dead of ['splitMixOutputs', 'mixOtherShareTitle', 'mixOtherChangeTitle']) {
+    ok(`${dead} is gone`, !svc.includes(dead));
+  }
 }
 
 console.log('\nwhat each side is waiting for');

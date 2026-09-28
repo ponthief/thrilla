@@ -158,59 +158,6 @@ export function mixFeeNote(mix: MixRow): string {
 }
 
 /**
- * What to call the outputs of a mix that are not ours.
- *
- * Both clients list "Recipients" — every output the wallet does not own — and
- * in a Tango that is the other side's own share going back to them. Nobody was
- * paid, and a heading that says otherwise is the reading the whole feature is
- * trying to avoid.
- */
-export function mixOtherShareTitle(mix: MixRow): string {
-  return mix.partner ? `${mix.partner}'s share` : 'Their share';
-}
-
-export function mixOtherChangeTitle(mix: MixRow): string {
-  return mix.partner ? `${mix.partner}'s change` : 'Their change';
-}
-
-/**
- * Split the outputs we do not own into the other side's SHARE and their
- * CHANGE.
- *
- * Both are outputs this wallet does not own, so a detail view that lists them
- * together reports a 14,000 round as 16,503 going to the other side. Their
- * share is `pieces` outputs of denom/pieces; their change is the one output
- * matching what the round recorded for it.
- *
- * Only ever a display split: everything here is on chain either way. An amount
- * that matches neither stays in `other` rather than being forced into one, so
- * a round this build cannot account for shows what it cannot account for.
- */
-export function splitMixOutputs<T extends { amount?: number | null }>(
-  mix: MixRow,
-  outputs: T[],
-): { share: T[]; change: T[]; other: T[] } {
-  const pieces = Math.max(1, mix.pieces || 1);
-  const each = Math.floor((mix.denom_sats || 0) / pieces);
-  const theirChange = mix.their_change_sats || 0;
-  const share: T[] = [];
-  const change: T[] = [];
-  const other: T[] = [];
-  // One change output at most, so the first match takes it and a share that
-  // happens to equal it stays a share.
-  let changeTaken = false;
-  for (const o of outputs) {
-    const amount = o.amount ?? -1;
-    if (each > 0 && amount === each && share.length < pieces) share.push(o);
-    else if (theirChange > 0 && amount === theirChange && !changeTaken) {
-      change.push(o);
-      changeTaken = true;
-    } else other.push(o);
-  }
-  return { share, change, other };
-}
-
-/**
  * One sentence saying what happens next and who does it.
  *
  * Names the person rather than the role: "A" and "B" are the protocol's words
