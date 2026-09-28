@@ -337,6 +337,7 @@ onMounted(async () => {
   await load()
   loadMempoolUrl()
   loadContacts()
+  _scheduleContactPoll()
   loadPartners()
   loadFeeRates()
 })
@@ -345,10 +346,11 @@ onUnmounted(() => { _stopContactPoll() })
 let _contactTimer = null
 function _scheduleContactPoll() {
   if (_contactTimer) return
-  _contactTimer = setInterval(() => {
-    if (tab.value !== 'connections') return   // only poll while viewing the tab
-    loadContacts()
-  }, 8000)
+  // Whichever tab is open. It used to poll only while Partners was showing,
+  // which is the one place a pending request was already visible: someone
+  // sitting on CJ learned of a request when they happened to go looking.
+  // Slower than the old 8s, since it now runs all the time.
+  _contactTimer = setInterval(loadContacts, 15000)
 }
 function _stopContactPoll() { if (_contactTimer) { clearInterval(_contactTimer); _contactTimer = null } }
 
@@ -363,7 +365,7 @@ const showProposeConfirm = ref(false)
 function askPropose() {
   if (!selectedWallet.value) { pushToast('Pick a wallet.', { type: 'warn' }); return }
   if (!partnerName.value) {
-    pushToast('Select who you are mixing with.', { type: 'warn' }); return
+    pushToast('Select your Tango partner.', { type: 'warn' }); return
   }
   const d = parseInt(denom.value, 10)
   if (!d || d <= 0) {
@@ -448,7 +450,7 @@ async function submitMatch(r) {
     matchPicked.value = new Set()
     pushToast(
       amounts.clean
-        ? 'Matched, and neither side needs change — a clean mix.'
+        ? 'Matched, and neither side needs change — a clean round.'
         : 'Matched. One or both sides have change, which weakens it.',
       { type: 'success' },
     )
@@ -642,7 +644,7 @@ function statusLabel(r) {
 // two turns are not the same act. The first approves the mix and waits. The
 // second finishes it, puts it on the network, and cannot be undone — which a
 // button reading "Sign" for both gives no way to tell.
-const signLabel = (r) => (r.status === 'A_SIGNED' ? 'Complete' : 'Approve mix')
+const signLabel = (r) => (r.status === 'A_SIGNED' ? 'Complete' : 'Approve')
 
 // What the person looking at this row is being asked for, in their own terms,
 // and how far along the round is. Both from services/tango.ts so the phone and
@@ -667,7 +669,9 @@ function expiresIn(r) {
               title="Mini-coinjoin"
               @click="tab = 'mix'; loadPartners(); loadFeeRates()">CJ</button>
       <button class="btn btn-sm" :class="tab === 'connections' ? 'btn-primary' : 'btn-ghost'"
-              @click="tab = 'connections'; loadContacts(); _scheduleContactPoll()">Partners</button>
+              @click="tab = 'connections'; loadContacts(); _scheduleContactPoll()">
+        Partners<span v-if="contactsIncoming.length" class="tg-badge">{{ contactsIncoming.length }}</span>
+      </button>
       <button class="btn btn-sm" :class="tab === 'rounds' ? 'btn-primary' : 'btn-ghost'"
               @click="tab = 'rounds'; load()">
         Rounds<span v-if="waitingOnMe.length" class="tg-badge">{{ waitingOnMe.length }}</span>
@@ -688,7 +692,7 @@ function expiresIn(r) {
             amount to start collaborative mini-coinjoin round.
           </p>
           <div class="field">
-            <label class="text-dim text-xs">Mix from wallet</label>
+            <label class="text-dim text-xs">Wallet</label>
             <select class="input" v-model="selectedWallet" @change="load">
               <option v-for="w in wallets" :key="w.id" :value="w.id">
                 {{ w.title }} ({{ w.network }})
@@ -703,19 +707,10 @@ function expiresIn(r) {
       </div>
 
       <div class="card">
-        <div class="card-header">Tango steps</div>
-        <div class="card-body">
-          <ol class="tg-steps text-sm text-dim">
-            <li v-for="step in tango.STEPS" :key="step">{{ step }}</li>
-          </ol>
-        </div>
-      </div>
-
-      <div class="card">
-        <div class="card-header">Start a round</div>
+        <div class="card-header">Choose your partner</div>
         <div class="card-body">
           <div class="field">
-            <label class="text-dim text-xs">Mix with</label>
+            <label class="text-dim text-xs">Partner</label>
             <select class="input" v-model="partnerName">
               <option value="">Select from your connections…</option>
               <option v-for="p in partners" :key="p.user_id" :value="p.username">
@@ -802,7 +797,7 @@ function expiresIn(r) {
             </div>
             <p v-else-if="mixPreview && mixPreview.change" class="text-xs text-amber" style="margin-top:0.4rem;">
               Leaves {{ fmtSats(mixPreview.change) }} of change, which weakens
-              the mix — change plus your share is what you put in. Closer to the
+              the round — change plus your share is what you put in. Closer to the
               amount is stronger.
             </p>
             <p v-else-if="mixPreview" class="text-xs text-green" style="margin-top:0.4rem;">
@@ -849,6 +844,15 @@ function expiresIn(r) {
               {{ addingContact ? 'Sending…' : 'Send request' }}
             </button>
           </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-header">Tango steps</div>
+        <div class="card-body">
+          <ol class="tg-steps text-sm text-dim">
+            <li v-for="step in tango.STEPS" :key="step">{{ step }}</li>
+          </ol>
         </div>
       </div>
 
@@ -910,7 +914,7 @@ function expiresIn(r) {
                 <div v-if="c.on_network === false" class="text-xs text-dim">
                   They no longer have a wallet on {{ wallet?.network }}, so a
                   Tango with them cannot be built. Shown so you can see why and
-                  remove them; they are not offered under Mix.
+                  remove them; they are not offered under CJ.
                 </div>
               </div>
               <button class="btn btn-ghost btn-sm" @click="removeContact(c)">Remove</button>
@@ -1034,7 +1038,7 @@ function expiresIn(r) {
                 often enough for someone to tell the two outputs apart.
               </p>
               <p v-else-if="matchPreview" class="text-xs text-green" style="margin-top:0.4rem;">
-                Neither side needs change — a clean mix.
+                Neither side needs change — a clean round.
               </p>
               <div style="display:flex; gap:0.5rem; margin-top:0.5rem;">
                 <button class="btn btn-primary btn-sm"

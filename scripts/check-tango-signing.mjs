@@ -331,7 +331,7 @@ console.log('\nlabels');
     ok(`both sides agree on all ${L.coin_cases.length} coin selections`,
       coinsAgree, coinWhere);
 
-    const mix = (txid, who) => ({ txid, label: `Tango mix - ${who}` });
+    const mix = (txid, who) => ({ txid, label: `Tango share - ${who}` });
     ok('two pieces of ONE round together undo it',
       t.undoesARound([mix('aa'.repeat(32), 'bob'), mix('aa'.repeat(32), 'bob')])
         === 'bob');
@@ -341,29 +341,45 @@ console.log('\nlabels');
     // Labels alone carry no round, so they cannot trip it — and must still
     // trip the rule they always did.
     ok('labels with no txid keep the older rule and only that',
-      t.undoesARound(['Tango mix - bob', 'Tango mix - bob']) === null &&
-      t.undoesARound(['Tango mix - bob', 'Tango change - bob']) === 'bob');
+      t.undoesARound(['Tango share - bob', 'Tango share - bob']) === null &&
+      t.undoesARound(['Tango share - bob', 'Tango change - bob']) === 'bob');
   }
 
   // Stated separately from the table so the point is not just "they agree".
   ok('a share with its own change is refused',
-    t.undoesARound(['Tango mix - alice', 'Tango change - alice']) === 'alice');
+    t.undoesARound(['Tango share - alice', 'Tango change - alice']) === 'alice');
   // This one read the other way round until the reasoning was corrected: the
   // sums not meeting is not what makes it safe, and it is not safe.
   ok('a share with ANOTHER round\'s change is refused too',
-    t.undoesARound(['Tango mix - alice', 'Tango change - bob']) === 'alice');
+    t.undoesARound(['Tango share - alice', 'Tango change - bob']) === 'alice');
   ok('a marker does not make a pair safe',
     t.undoesARound([
-      'Tango mix - alice · 2026-09-24', 'Tango change - alice · 2026-10-01',
+      'Tango share - alice · 2026-09-24', 'Tango change - alice · 2026-10-01',
     ]) === 'alice');
   ok('and the round-id marker it replaced is still recognised',
-    t.undoesARound(['Tango mix - alice #7c2e', 'Tango change - alice #3f9a'])
+    t.undoesARound(['Tango share - alice #7c2e', 'Tango change - alice #3f9a'])
       === 'alice');
   ok('two shares together are not this failure',
-    t.undoesARound(['Tango mix - alice', 'Tango mix - bob']) === null);
+    t.undoesARound(['Tango share - alice', 'Tango share - bob']) === null);
   ok('nor are two changes',
     t.undoesARound(['Tango change - alice', 'Tango change - bob']) === null);
   ok('a label the user wrote themselves is left alone',
+    t.undoesARound(['my Tango share - alice', 'Tango change - alice']) === null &&
+    t.undoesARound(['Tango shared fund', 'Tango change - alice']) === null);
+
+  // Coins labelled before the share/mix rename are in wallets right now and
+  // can never be relabelled — the label is written once, at the scan that
+  // found the coin. A guard that stopped seeing them would stop refusing them
+  // silently, which is the failure this whole block exists to prevent.
+  ok('a coin labelled "Tango mix" is still one of ours',
+    t.undoesARound(['Tango mix - alice', 'Tango change - alice']) === 'alice' &&
+    t.undoesARound([
+      { txid: 'aa', label: 'Tango share - bob' },
+      { txid: 'aa', label: 'Tango mix - bob' },
+    ]) === 'bob' &&
+    t.undoesARound(['Tango mix - alice · 2026-09-24', 'Tango change - alice'])
+      === 'alice');
+  ok('and the user\u2019s own words still are not, either spelling',
     t.undoesARound(['my Tango mix - alice', 'Tango change - alice']) === null &&
     t.undoesARound(['Tango mixer fund', 'Tango change - alice']) === null);
 }

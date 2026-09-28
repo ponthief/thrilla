@@ -510,8 +510,25 @@ export function signOwnInputs(
 // writing half exactly — a prefix that drifted by a character would silently
 // stop refusing anything.
 
-export const MIX_LABEL = 'Tango mix';
+export const MIX_LABEL = 'Tango share';
 export const CHANGE_LABEL = 'Tango change';
+
+// What the share label used to be called. Coins carrying it are in wallets
+// right now, and they can never be rewritten: the label is written once, at
+// the scan that found the coin. The guard below has to know both spellings or
+// it stops seeing those coins — and it is the guard that refuses to spend two
+// shares of one round together, so it would stop refusing them in silence.
+export const LEGACY_MIX_LABEL = 'Tango mix';
+const MIX_LABELS = [MIX_LABEL, LEGACY_MIX_LABEL];
+
+/** party() against every spelling the share label has had. */
+function mixParty(label: string): string | null {
+  for (const prefix of MIX_LABELS) {
+    const who = party(label, prefix);
+    if (who !== null) return who;
+  }
+  return null;
+}
 
 /**
  * The day a coin was made, for the label: "· 2026-09-24".
@@ -672,7 +689,7 @@ export function undoesARound(
     const txid =
       typeof item === 'string' || !item ? '' : String(item.txid || '');
     const raw = typeof item === 'string' ? item : item?.label || '';
-    const asMix = party(raw || '', MIX_LABEL);
+    const asMix = mixParty(raw || '');
     if (asMix !== null) {
       const who = asMix || 'someone';
       mixed.add(who);

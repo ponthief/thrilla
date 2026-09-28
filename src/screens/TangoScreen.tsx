@@ -547,7 +547,7 @@ export default function TangoScreen() {
         setMatchPicked(new Set());
         setMsg(
           amounts.clean
-            ? 'Matched, and neither side needs change — a clean mix.'
+            ? 'Matched, and neither side needs change — a clean round.'
             : 'Matched. One or both sides have change, which weakens it.',
         );
         await load();
@@ -828,7 +828,7 @@ export default function TangoScreen() {
               </Text>
             ) : matchPreview ? (
               <Text style={styles.good}>
-                Neither side needs change — a clean mix.
+                Neither side needs change — a clean round.
               </Text>
             ) : null}
           </View>
@@ -918,7 +918,7 @@ export default function TangoScreen() {
             footer={
               preview && !preview.error
                 ? preview.change
-                  ? `Leaves ${preview.change.toLocaleString()} sats of change, which weakens the mix — change plus your share is what you put in. Closer to the amount is stronger.`
+                  ? `Leaves ${preview.change.toLocaleString()} sats of change, which weakens the round — change plus your share is what you put in. Closer to the amount is stronger.`
                   : 'No change. The strongest shape.'
                 : undefined
             }>
@@ -964,13 +964,13 @@ export default function TangoScreen() {
             ) : null}
           </Group>
 
-          <Group title="Start one">
+          <Group title="Choose your partner">
             <Block>
               {reachable.length === 0 ? (
                 <Text style={styles.rowMeta}>
                   {people.accepted.length
                     ? `None of your connections has a wallet on ${network}, so ` +
-                      'there is nobody to mix with here. See Partners.'
+                      'there is nobody to Tango with here. See Partners.'
                     : 'No partners yet. Add one under Partners — they approve, ' +
                       'then they appear here.'}
                 </Text>
@@ -1136,7 +1136,7 @@ export default function TangoScreen() {
                       <Text style={styles.warn}>
                         They no longer have a wallet on {network}, so a Tango
                         with them cannot be built. Shown so you can see why and
-                        remove them; they are not offered under Mix.
+                        remove them; they are not offered under CJ.
                       </Text>
                     ) : null}
                     <View style={{ height: space.xs }} />

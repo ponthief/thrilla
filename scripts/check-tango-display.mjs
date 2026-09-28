@@ -151,6 +151,34 @@ console.log('\nthe wording that was asked for, and stays gone');
   }
 }
 
+console.log('\nno screen calls it a mix');
+{
+  // A Tango is a round, and its outputs are shares. "Mix" was the word for it
+  // in a dozen places, including the label written onto a coin.
+  for (const file of [
+    'src/screens/TangoScreen.tsx', 'src/views/TangoView.vue',
+    'src/components/TxDetailModal.tsx', 'src/views/TransactionsView.vue',
+  ]) {
+    const src = readFileSync(new URL(`../${file}`, import.meta.url), 'utf8');
+    // Only what a person reads: the identifiers (mixPicked, mixOf, own.mix,
+    // mix_spks) are the protocol's own words and stay.
+    const prose = [...src.matchAll(/'([^'\n]{6,})'|"([^"\n]{6,})"|>([^<>{}\n]{6,})</g)]
+      .map((m) => m[1] || m[2] || m[3])
+      // Sentences, not expressions: a Vue attribute is a string too, and
+      // `tab === 'mix'` is the tab's key, which nobody reads.
+      .filter((t) => /\s/.test(t) && !/[=;(){}]|\?|\bconst\b/.test(t));
+    const offenders = prose.filter((t) => /\bmix(ed|es|ing)?\b/i.test(t));
+    ok(`${file} has no "mix" in anything a person reads`,
+      offenders.length === 0, offenders.slice(0, 3).join(' | '));
+  }
+  const svc = readFileSync(new URL('../src/services/tango.ts', import.meta.url), 'utf8');
+  ok('the coin label is a share', svc.includes("export const MIX_LABEL = 'Tango share'"));
+  // And the old spelling is still recognised, or the guard that refuses two
+  // shares of one round goes quiet on every coin mixed before the rename.
+  ok('the old spelling is still matched',
+    svc.includes("LEGACY_MIX_LABEL = 'Tango mix'") && svc.includes('mixParty('));
+}
+
 console.log('\nthe two clients name the same actions');
 {
   // One round, two screens: a button called Complete on the phone and
