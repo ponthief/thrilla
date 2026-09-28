@@ -17,7 +17,6 @@ import { useTxLabelStore } from '@stores/txLabelStore';
 import * as api from '@services/api';
 import {
   MixRow,
-  mixDustNote,
   mixOtherChangeTitle,
   mixOtherShareTitle,
   splitMixOutputs,
@@ -192,7 +191,7 @@ export default function TxDetailModal({
                   <Text style={styles.cardTitle}>
                     Tango with {mix.partner || 'someone'}
                   </Text>
-                  <Row label="Mixed">
+                  <Row label="Tango-ed">
                     <Text style={styles.value}>
                       {groupThousands(mix.denom_sats)} sats
                     </Text>
@@ -210,9 +209,6 @@ export default function TxDetailModal({
                         {groupThousands(mix.change_sats)} sats
                       </Text>
                     </Row>
-                  ) : null}
-                  {mixDustNote(mix) ? (
-                    <Text style={styles.note}>{mixDustNote(mix)}</Text>
                   ) : null}
                 </View>
               ) : null}
@@ -311,7 +307,7 @@ export default function TxDetailModal({
                       <>
                         {section(mixOtherShareTitle(mix), parts.share)}
                         {section(mixOtherChangeTitle(mix), parts.change)}
-                        {section('Other outputs', parts.other)}
+                        {section('Not identified yet', parts.other)}
                       </>
                     );
                   })()

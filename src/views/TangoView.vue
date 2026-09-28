@@ -1183,21 +1183,8 @@ function expiresIn(r) {
     <div v-if="showSignConfirm && signConfirmRound" class="modal-overlay"
          @click.self="showSignConfirm = false">
       <div class="card modal" style="max-width:420px">
-        <div class="card-header"><h2>Confirm this mix</h2></div>
+        <div class="card-header"><h2>Confirm the Tango round</h2></div>
         <div class="card-body" style="display:flex;flex-direction:column;gap:12px">
-          <p class="text-sm text-dim" style="margin:0">
-            Your device checks the whole transaction before it signs anything —
-            both shares equal, the fee split as computed here, and your two
-            outputs the ones this browser derived.
-            <template v-if="signConfirmRound.status === 'A_SIGNED'">
-              <b>The other side has already approved it, so this sends it to the
-              network immediately</b> and cannot be undone.
-            </template>
-            <template v-else>
-              This approves your half. Nothing reaches the network until the
-              other side does the same.
-            </template>
-          </p>
           <div class="tx-detail-row">
             <span>With</span><span class="mono">{{ partnerOf(signConfirmRound) }}</span>
           </div>

@@ -8,7 +8,7 @@ import { useCsvExport } from '@/composables/useCsvExport'
 import { getTxRecipientLabel, getSwapTxLabel } from '@/stores/txlabels'
 import { pendingSends } from '@/stores/pendingsends'
 import {
-  mixDustNote, mixFeeNote, mixOtherChangeTitle, mixOtherShareTitle, splitMixOutputs,
+  mixFeeNote, mixOtherChangeTitle, mixOtherShareTitle, splitMixOutputs,
 } from '@/services/tangoTurns'
 
 const auth   = useAuthStore()
@@ -191,7 +191,7 @@ const directionColor = (kind) => {
 const directionLabel = (kind) => {
   if (kind === 'receive') return 'Received'
   if (kind === 'send')    return 'Sent'
-  if (kind === 'tango')   return 'Mixed'
+  if (kind === 'tango')   return 'Tango-ed'
   return kind
 }
 
@@ -207,7 +207,7 @@ function mixParts(tx, recipients) {
   return [
     { title: mixOtherShareTitle(mix), rows: share },
     { title: mixOtherChangeTitle(mix), rows: change },
-    { title: 'Other outputs', rows: other },
+    { title: 'Not identified yet', rows: other },
   ].filter((p) => p.rows.length)
 }
 
@@ -323,7 +323,7 @@ onMounted(() => {
                    nothing on chain says why. This is where it gets said. -->
               <template v-if="mixOf(tx)">
                 <div class="tx-detail-row">
-                  <span class="tx-detail-label">Mixed:</span>
+                  <span class="tx-detail-label">Tango-ed:</span>
                   <span class="mono">{{ fmt(mixOf(tx).denom_sats) }}</span>
                   <span class="text-dim text-sm">with {{ mixOf(tx).partner || 'someone' }}</span>
                 </div>
@@ -334,9 +334,6 @@ onMounted(() => {
                 <div class="tx-detail-row" v-if="mixOf(tx).change_sats">
                   <span class="tx-detail-label">Your change:</span>
                   <span class="mono">{{ fmt(mixOf(tx).change_sats) }}</span>
-                </div>
-                <div v-if="mixDustNote(mixOf(tx))" class="tx-detail-note">
-                  {{ mixDustNote(mixOf(tx)) }}
                 </div>
               </template>
               <div class="tx-detail-row">

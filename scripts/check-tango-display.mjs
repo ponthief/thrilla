@@ -124,6 +124,33 @@ console.log('\nwhat each side is waiting for');
      'Done \u2014 both shares are on chain.');
 }
 
+console.log('\nthe wording that was asked for, and stays gone');
+{
+  // Removed on request. Each was a sentence a person had already worked out
+  // from the screen it was printed on.
+  const GONE = [
+    'nothing is on chain',      // under the approve step
+    'Your change would have been',  // the dropped-change note on a history row
+    'Confirm this mix',         // the signing modal's old title
+    'Other outputs',            // read as "yours", and it cannot know whose
+  ];
+  for (const file of [
+    'src/screens/TangoScreen.tsx', 'src/views/TangoView.vue',
+    'src/components/TxDetailModal.tsx', 'src/views/TransactionsView.vue',
+    'src/services/tangoTurns.ts',
+  ]) {
+    const src = readFileSync(new URL(`../${file}`, import.meta.url), 'utf8');
+    for (const text of GONE) ok(`${file} has no "${text}"`, !src.includes(text));
+  }
+  ok('the approve wait says only what it needs',
+    !turnLine('ACCEPTED', 'b', 'alice').includes('on chain'));
+  // A Tango is not a payment, and "Mixed" was the word for it in three places.
+  for (const file of ['src/components/TxDetailModal.tsx', 'src/views/TransactionsView.vue']) {
+    const src = readFileSync(new URL(`../${file}`, import.meta.url), 'utf8');
+    ok(`${file} says Tango-ed`, src.includes('Tango-ed'));
+  }
+}
+
 console.log('\nthe two clients name the same actions');
 {
   // One round, two screens: a button called Complete on the phone and

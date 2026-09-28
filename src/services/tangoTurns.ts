@@ -211,28 +211,6 @@ export function splitMixOutputs<T extends { amount?: number | null }>(
 }
 
 /**
- * Where the change coin went, for the side that has none.
- *
- * THE QUESTION THIS ANSWERS. A side that put in 13,749 for a 13,000 mix expects
- * 749 back and finds nothing in its coin list, while the other side of the same
- * transaction kept its change and paid a smaller fee. The excess was 322 after
- * the fee share — under the dust limit, too small to be worth an output — so it
- * went to the miner. Nothing on chain says that and the wallet has to.
- *
- * Empty unless it happened, so no row carries a sentence about nothing.
- */
-export function mixDustNote(mix: MixRow): string {
-  const dust = mix.dust_to_fee || 0;
-  if (dust <= 0) return '';
-  return (
-    `Your change would have been ${grouped(dust)} sats — too small to be worth ` +
-    `its own output, so it went to the fee instead. That is why this round ` +
-    `cost you more than it cost ${mix.partner || 'the other side'}, and why ` +
-    `there is no change coin from it.`
-  );
-}
-
-/**
  * One sentence saying what happens next and who does it.
  *
  * Names the person rather than the role: "A" and "B" are the protocol's words
@@ -263,7 +241,7 @@ export function turnLine(
     case 'PROPOSED':
       return `Choose your coins and match it. ${them} approves, then you complete it.`;
     case 'ACCEPTED':
-      return `Approve it. ${them} then completes it — nothing is on chain until they do.`;
+      return `Approve it. ${them} then completes it.`;
     default:
       return 'Complete broadcasts the transaction. That is the last step, and it cannot be undone.';
   }
