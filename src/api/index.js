@@ -1054,10 +1054,15 @@ export async function spContactCreate(inkey, label, value, network = undefined) 
     body: JSON.stringify({ label, value }),
   })
 }
-export async function spContactUpdate(inkey, cid, label) {
+// A rename, a repoint, or both. Repointing exists because a saved SP address
+// is frozen at the moment it was saved: its owner can delete that wallet and
+// make another, and nothing tells the sender. Deleting and re-adding the
+// contact would lose its name, so the fix has to be an edit.
+export async function spContactUpdate(inkey, cid, patch) {
+  const body = typeof patch === 'string' ? { label: patch } : patch
   return req(`${SILNT}/api/v1/contacts/${cid}`, {
     method: 'PATCH', headers: keyHeaders(inkey),
-    body: JSON.stringify({ label }),
+    body: JSON.stringify(body),
   })
 }
 export async function spContactDelete(inkey, cid) {

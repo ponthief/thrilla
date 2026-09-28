@@ -419,6 +419,31 @@ function explorerTxUrl(txid) {
 
 // ── Saved contacts (per-user private address book) ──
 const contacts = ref([])
+const editingContact = ref(null)
+const contactDraft = ref('')
+const savingContactValue = ref(false)
+
+async function saveContactValue(c) {
+  savingContactValue.value = true
+  try {
+    await api.spContactUpdate(auth.inkey, c.id, { value: contactDraft.value.trim() })
+    editingContact.value = null
+    await loadContacts()
+  } catch (e) {
+    pushToast(e.detail || e.message || 'Could not update that contact.', { type: 'error' })
+  } finally {
+    savingContactValue.value = false
+  }
+}
+
+// Derived, not stored: the recipient is set from a picker, a paste, a scan and
+// the keyboard, and a flag would have to be cleared in every one of them.
+const recipientUnverified = computed(() => {
+  const v = (recipient.value || '').trim().toLowerCase()
+  if (!v) return false
+  const c = contacts.value.find(x => (x.value || '').trim().toLowerCase() === v)
+  return !!c && c.kind === 'sp' && c.whispa === false
+})
 const showContacts = ref(false)
 const bitmailWarning = ref('')      // why a BitMail didn't resolve, as the backend put it
 const bitmailInvalid = ref(false)   // true → block Build/Send (BitMail didn't resolve)
@@ -676,6 +701,16 @@ onBeforeUnmount(() => { if (scanWatchTimer) clearInterval(scanWatchTimer) })
               <div v-if="bitmailWarning" class="alert alert-warn" style="margin-top:6px">
                 ⚠ {{ bitmailWarning }}
               </div>
+              <!-- A saved address no live WhiSPa wallet holds. Said here and
+                   not only in the picker, because this is the last screen
+                   before coins leave and the picker is long closed. -->
+              <div v-if="recipientUnverified" class="alert alert-warn" style="margin-top:6px">
+                ⚠ This saved address is not a WhiSPa wallet. That is normal for
+                a recipient who does not use WhiSPa. If they do, they may have
+                remade their wallet — coins sent to the old address cannot be
+                recovered. Check with them, and use <b>Change address</b> under
+                saved contacts.
+              </div>
               <div v-if="!isSwapFunding && recipient.trim() && !recipientIsSaved" class="flex gap-2 items-center" style="margin-top:6px;flex-wrap:wrap">
                 <input class="input sc-label" v-model="saveContactLabel" placeholder="Label (e.g. Alice)" maxlength="40" />
                 <button class="btn btn-ghost btn-sm" :disabled="savingContact || bitmailChecking || bitmailInvalid" @click="saveContact">★ Save contact</button>
@@ -888,6 +923,31 @@ onBeforeUnmount(() => { if (scanWatchTimer) clearInterval(scanWatchTimer) })
           <div style="min-width:0">
             <div class="text-sm"><b>{{ c.label }}</b> <span class="text-dim text-xs">{{ c.kind === 'bitmail' ? '✉ BitMail' : 'SP' }}</span></div>
             <div class="mono text-xs text-dim" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ c.value }}</div>
+            <!-- What the server can honestly say. It cannot tell a wallet that
+                 is gone from a recipient who never used WhiSPa, so neither
+                 does this. -->
+            <div v-if="c.kind === 'sp' && c.whispa === true" class="text-xs text-green" style="margin-top:2px">
+              ✓ A WhiSPa wallet holds this address.
+            </div>
+            <div v-else-if="c.kind === 'sp' && c.whispa === false" class="text-xs text-amber" style="margin-top:2px">
+              Cannot be verified: no WhiSPa wallet has this address. Fine for a
+              recipient who does not use WhiSPa — but if they do, they may have
+              remade their wallet, and coins sent to an old address cannot be
+              recovered.
+            </div>
+            <div v-if="editingContact === c.id" class="flex gap-2" style="margin-top:6px">
+              <input class="input mono" style="font-size:12px" v-model="contactDraft"
+                     placeholder="sp1… or name@domain" autocapitalize="off" autocomplete="off" />
+              <button class="btn btn-primary btn-sm" :disabled="savingContactValue || !contactDraft.trim()"
+                      @click="saveContactValue(c)">
+                {{ savingContactValue ? 'Saving…' : 'Save' }}
+              </button>
+              <button class="btn btn-ghost btn-sm" @click="editingContact = null">Cancel</button>
+            </div>
+            <button v-else class="btn btn-ghost btn-sm" style="margin-top:4px;padding-left:0"
+                    @click="editingContact = c.id; contactDraft = c.value">
+              Change address
+            </button>
           </div>
           <div class="flex gap-2" style="flex-shrink:0">
             <button class="btn btn-ghost btn-sm" @click="recipient = c.value; showContacts = false">Use</button>

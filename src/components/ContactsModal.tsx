@@ -1,9 +1,10 @@
-import React from 'react';
+import React, { useState } from 'react';
 import {
   Modal,
   ScrollView,
   StyleSheet,
   Text,
+  TextInput,
   TouchableOpacity,
   View,
 } from 'react-native';
@@ -23,6 +24,7 @@ interface Props {
   onClose: () => void;
   onPick: (value: string) => void;
   onDelete: (id: string) => void;
+  onUpdate?: (id: string, value: string) => Promise<void>;
 }
 
 export default function ContactsModal({
@@ -31,7 +33,29 @@ export default function ContactsModal({
   onClose,
   onPick,
   onDelete,
+  onUpdate,
 }: Props) {
+  // Which contact is being repointed, and at what. A saved SP address cannot
+  // be corrected any other way: deleting and re-adding loses the name.
+  const [editing, setEditing] = useState<string | null>(null);
+  const [draft, setDraft] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  const save = async (id: string) => {
+    if (!onUpdate) return;
+    setBusy(true);
+    setErr(null);
+    try {
+      await onUpdate(id, draft.trim());
+      setEditing(null);
+    } catch (e: any) {
+      setErr(e?.message || 'Could not update that contact.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
   return (
     <Modal visible={visible} animationType="slide" onRequestClose={onClose}>
       <SafeAreaView style={styles.container} edges={['top']}>
@@ -49,29 +73,86 @@ export default function ContactsModal({
             </Text>
           ) : (
             contacts.map((c) => (
-              <View key={c.id} style={styles.row}>
-                <View style={styles.info}>
-                  <Text style={styles.label} numberOfLines={1}>
-                    {c.label || c.value}
-                    {c.kind === 'bitmail' ? '  ✉' : ''}
-                  </Text>
-                  <Text style={styles.value} numberOfLines={1}>
-                    {truncMid(c.value)}
-                  </Text>
+              <View key={c.id} style={styles.card}>
+                <View style={styles.row}>
+                  <View style={styles.info}>
+                    <Text style={styles.label} numberOfLines={1}>
+                      {c.label || c.value}
+                      {c.kind === 'bitmail' ? '  ✉' : ''}
+                    </Text>
+                    <Text style={styles.value} numberOfLines={1}>
+                      {truncMid(c.value)}
+                    </Text>
+                  </View>
+                  <TouchableOpacity
+                    style={styles.useBtn}
+                    onPress={() => {
+                      onPick(c.value);
+                      onClose();
+                    }}>
+                    <Text style={styles.useText}>Use</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={styles.removeBtn}
+                    onPress={() => onDelete(c.id)}>
+                    <Text style={styles.removeText}>Remove</Text>
+                  </TouchableOpacity>
                 </View>
-                <TouchableOpacity
-                  style={styles.useBtn}
-                  onPress={() => {
-                    onPick(c.value);
-                    onClose();
-                  }}>
-                  <Text style={styles.useText}>Use</Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={styles.removeBtn}
-                  onPress={() => onDelete(c.id)}>
-                  <Text style={styles.removeText}>Remove</Text>
-                </TouchableOpacity>
+
+                {/* What the server can honestly say about this address. It
+                    cannot tell a wallet that is gone from a recipient who
+                    never used WhiSPa, so the unverified line says both. */}
+                {c.kind === 'sp' && c.whispa === true ? (
+                  <Text style={styles.okNote}>
+                    ✓ A WhiSPa wallet holds this address.
+                  </Text>
+                ) : c.kind === 'sp' && c.whispa === false ? (
+                  <Text style={styles.warnNote}>
+                    Cannot be verified: no WhiSPa wallet has this address. Fine
+                    for a recipient who does not use WhiSPa — but if they do,
+                    they may have remade their wallet, and coins sent to an old
+                    address cannot be recovered. Ask them to confirm it.
+                  </Text>
+                ) : null}
+
+                {onUpdate && editing === c.id ? (
+                  <View>
+                    <TextInput
+                      style={styles.input}
+                      value={draft}
+                      onChangeText={setDraft}
+                      autoCapitalize="none"
+                      autoCorrect={false}
+                      placeholder="sp1… or name@domain"
+                      placeholderTextColor={colors.faint}
+                    />
+                    {err ? <Text style={styles.warnNote}>{err}</Text> : null}
+                    <View style={styles.editRow}>
+                      <TouchableOpacity
+                        style={styles.useBtn}
+                        disabled={busy || !draft.trim()}
+                        onPress={() => save(c.id)}>
+                        <Text style={styles.useText}>
+                          {busy ? 'Saving…' : 'Save'}
+                        </Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity
+                        style={styles.removeBtn}
+                        onPress={() => setEditing(null)}>
+                        <Text style={styles.cancelText}>Cancel</Text>
+                      </TouchableOpacity>
+                    </View>
+                  </View>
+                ) : onUpdate ? (
+                  <TouchableOpacity
+                    onPress={() => {
+                      setErr(null);
+                      setDraft(c.value);
+                      setEditing(c.id);
+                    }}>
+                    <Text style={styles.editText}>Change address</Text>
+                  </TouchableOpacity>
+                ) : null}
               </View>
             ))
           )}
@@ -94,15 +175,31 @@ const styles = StyleSheet.create({
   close: { fontSize: 16, fontWeight: '600', color: PRIMARY },
   content: { padding: 16, paddingTop: 4 },
   empty: { fontSize: 14, color: colors.faint, textAlign: 'center', marginTop: 24, lineHeight: 20 },
-  row: {
-    flexDirection: 'row',
-    alignItems: 'center',
+  card: {
     backgroundColor: colors.surface,
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: colors.border,
     borderRadius: 10,
     padding: 14,
     marginBottom: 10,
+  },
+  row: { flexDirection: 'row', alignItems: 'center' },
+  okNote: { fontSize: 12, color: colors.green, marginTop: 8, lineHeight: 17 },
+  warnNote: { fontSize: 12, color: colors.warn, marginTop: 8, lineHeight: 17 },
+  editText: { fontSize: 13, fontWeight: '600', color: PRIMARY, marginTop: 10 },
+  cancelText: { color: colors.muted, fontSize: 13, fontWeight: '600' },
+  editRow: { flexDirection: 'row', alignItems: 'center', marginTop: 10 },
+  input: {
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: 8,
+    backgroundColor: colors.surfaceAlt,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    marginTop: 10,
+    fontSize: 13,
+    fontFamily: 'monospace',
+    color: colors.text,
   },
   info: { flex: 1, marginRight: 10 },
   label: { fontSize: 15, fontWeight: '600', color: colors.text },

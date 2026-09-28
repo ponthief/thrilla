@@ -185,6 +185,7 @@ export default function SendScreen() {
   const [contactLabel, setContactLabel] = useState('');
   const [contactMsg, setContactMsg] = useState<string | null>(null);
 
+
   const loadContacts = useCallback(async () => {
     if (!inkey) return;
     try {
@@ -312,6 +313,13 @@ export default function SendScreen() {
     (!!ownBitmail && typed === ownBitmail) ||
     (!!own && !!resolvedSp && resolvedSp.trim().toLowerCase() === own);
   const saveable = rKind === 'sp' || rKind === 'bitmail';
+  const unverified = useMemo(() => {
+    const v = recipient.trim().toLowerCase();
+    if (!v) return false;
+    const c = contacts.find((x) => (x.value || '').toLowerCase() === v);
+    return !!c && c.kind === 'sp' && c.whispa === false;
+  }, [contacts, recipient]);
+
   const alreadySaved = contacts.some(
     (c) => c.value.trim().toLowerCase() === recipient.trim().toLowerCase(),
   );
@@ -1016,6 +1024,20 @@ export default function SendScreen() {
             ) : null}
           </View>
 
+          {/* A saved address no live WhiSPa wallet holds. Said here and not
+              only in the picker, because by the time the amount is typed the
+              picker is long gone — and this is the last screen before coins
+              leave. The server cannot tell a wallet that is gone from someone
+              who never used WhiSPa, so neither does this. */}
+          {unverified ? (
+            <Text style={styles.unverifiedNote}>
+              ⚠ This saved address is not a WhiSPa wallet. That is normal for a
+              recipient who does not use WhiSPa. If they do, they may have
+              remade their wallet — coins sent to the old address cannot be
+              recovered. Check with them, and use Change address in Contacts.
+            </Text>
+          ) : null}
+
           {showSaveContact && saveable ? (
             <View style={styles.saveContactRow}>
               <TextInput
@@ -1279,6 +1301,11 @@ export default function SendScreen() {
           validateBitmail(v);
         }}
         onDelete={onDeleteContact}
+        onUpdate={async (id, v) => {
+          if (!inkey) return;
+          await api.updateContact(inkey, id, { value: v });
+          await loadContacts();
+        }}
       />
     </SafeAreaView>
   );
@@ -1364,6 +1391,12 @@ const styles = StyleSheet.create({
     paddingVertical: 9,
   },
   actionBtnText: { color: PRIMARY, fontSize: 13, fontWeight: '600' },
+  unverifiedNote: {
+    color: colors.warn,
+    fontSize: 12,
+    lineHeight: 17,
+    marginTop: 10,
+  },
   savedHint: { color: colors.green, fontSize: 13, fontWeight: '600' },
   saveContactRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 10 },
   contactLabelInput: { flex: 1 },

@@ -1007,6 +1007,16 @@ export interface SpContact {
   label: string;
   kind: string; // 'sp' | 'bitmail'
   value: string;
+  // Whether a WhiSPa wallet holds this address RIGHT NOW.
+  //
+  // A saved SP address is frozen at the moment it was saved, and the person it
+  // belongs to can delete that wallet and make another without anything
+  // telling the sender. `false` means no live WhiSPa wallet has it — which is
+  // a non-WhiSPa recipient OR a wallet that is gone, and the server cannot
+  // tell those apart, so the wording must not claim it can. `null` is a
+  // BitMail contact, resolved through DNS at send time and never stale.
+  // Absent when the server predates the check.
+  whispa?: boolean | null;
 }
 
 // The address book is per-network; the backend requires an explicit `network`,
@@ -1031,6 +1041,20 @@ export async function createContact(
     method: 'POST',
     headers: apiKey(inkey),
     body: JSON.stringify({ label, value }),
+  });
+}
+
+// Rename a contact, or point it at a different recipient. Both optional: a
+// rename need not resend the address, and repointing need not resend the name.
+export async function updateContact(
+  inkey: string,
+  cid: string,
+  patch: { label?: string; value?: string },
+): Promise<unknown> {
+  return req(`${SILNT}/api/v1/contacts/${encodeURIComponent(cid)}`, {
+    method: 'PATCH',
+    headers: apiKey(inkey),
+    body: JSON.stringify(patch),
   });
 }
 
