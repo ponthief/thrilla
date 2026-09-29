@@ -23,7 +23,7 @@
 // Going forward past it is what makes the check work for the people who
 // already have the wrong number.
 
-export const APP_VERSION = '0.2.1';
+export const APP_VERSION = '0.3.0';
 
 /** The git tag and GitHub release that carry this version. */
 export const RELEASE_TAG = `v${APP_VERSION}`;

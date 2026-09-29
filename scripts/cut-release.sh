@@ -168,8 +168,35 @@ step "Verifying the way a user would"
 ( cd "$work" && sha256sum -c SHA256SUMS | sed 's/^/  /' )
 
 # -------------------------------------------------------------------- publish
+# What changed goes at the top, read out of CHANGELOG.md by tag. Kept in the
+# repo rather than typed into the web UI: the notes are then reviewable before
+# the release exists, and a release cut twice says the same thing both times.
+step "Reading the changelog"
+changelog=""
+if [ -f "$repo_root/CHANGELOG.md" ]; then
+  changelog="$(awk -v tag="## $tag" '
+    $0 == tag { found = 1; next }
+    found && /^## / { exit }
+    found { print }
+  ' "$repo_root/CHANGELOG.md")"
+fi
+# Trim leading and trailing blank lines.
+changelog="$(printf '%s' "$changelog" | sed -e '/./,$!d' | sed -e :a -e '/^\n*$/{$d;N;};/\n$/ba')"
+
+if [ -n "$changelog" ]; then
+  note "found a section for $tag ($(printf '%s' "$changelog" | wc -l | tr -d ' ') lines)"
+else
+  # Not fatal — a hotfix with nothing worth saying is a real case — but it is
+  # the kind of omission nobody notices until the release is published.
+  note "no '## $tag' section in CHANGELOG.md; publishing without a what's-new."
+fi
+
 notes="$(cat <<EOF
-Android builds for mainnet and Signet. The Signet build installs alongside the
+${changelog:+$changelog
+
+---
+
+}Android builds for mainnet and Signet. The Signet build installs alongside the
 mainnet one.
 
 **Verify before installing** — see [whispawallet.com/download.html#verify](https://whispawallet.com/download.html#verify):
