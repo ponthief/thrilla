@@ -18,6 +18,7 @@ import { useAuthStore } from '@stores/authStore';
 import { useAppLockStore } from '@stores/appLockStore';
 import * as api from '@services/api';
 import { undoesARound } from '@services/tango';
+import { chainMismatch } from '@services/chains';
 // Shared with the web app, so the two cannot say this differently.
 import {
   CONTACT_UNVERIFIED,
@@ -331,9 +332,30 @@ export default function SendScreen() {
     (c) => c.value.trim().toLowerCase() === recipient.trim().toLowerCase(),
   );
 
+  // Is the recipient on this wallet's chain? Mirrors helpers/chains.py; the
+  // server refuses the send either way, and this is so the refusal arrives
+  // while the address is being typed. The whole reason it needs saying: a
+  // mainnet sp1… derives a perfectly valid signet output, so nothing
+  // downstream notices and the coins are simply gone.
+  //
+  // Depends on the network string rather than the wallet object, so a refresh
+  // that returns an equal wallet does not recompute it.
+  const walletNetwork = wallet?.network || '';
+  const chainWarning = useMemo(
+    () => (walletNetwork ? chainMismatch(recipient, walletNetwork) : null),
+    [recipient, walletNetwork],
+  );
+
   const onSaveContact = useCallback(async () => {
     if (!inkey) return;
     const value = recipient.trim();
+    // A contact is stored per network and only ever offered on that network,
+    // so one on the wrong chain is a send that cannot succeed under a name
+    // that says it can. The endpoint refuses it too.
+    if (chainWarning) {
+      setContactMsg(chainWarning);
+      return;
+    }
     setSavingContact(true);
     setContactMsg(null);
     try {
@@ -347,7 +369,7 @@ export default function SendScreen() {
     } finally {
       setSavingContact(false);
     }
-  }, [inkey, recipient, contactLabel, loadContacts]);
+  }, [inkey, recipient, contactLabel, loadContacts, chainWarning]);
 
   const onDeleteContact = useCallback(
     async (id: string) => {
@@ -439,6 +461,7 @@ export default function SendScreen() {
 
   const canBuild =
     !!recipient.trim() &&
+    !chainWarning &&
     amountSats > 0 &&
     selectedUtxos.length > 0 &&
     feeRate > 0 &&
@@ -1040,6 +1063,17 @@ export default function SendScreen() {
             <Text style={styles.unverifiedNote}>{CONTACT_UNVERIFIED}</Text>
           ) : null}
 
+          {/* Wrong chain. Refused rather than warned: there is no version of
+              this that works, and it is the one mistake on this screen with no
+              feedback of any kind — it would build, sign, broadcast and
+              confirm, and the recipient would never see it. */}
+          {chainWarning ? (
+            <View style={styles.undoWarn}>
+              <Text style={styles.undoTitle}>⛔ Wrong network</Text>
+              <Text style={styles.privacyText}>{chainWarning}</Text>
+            </View>
+          ) : null}
+
           {showSaveContact && saveable ? (
             <View style={styles.saveContactRow}>
               <TextInput
@@ -1051,9 +1085,12 @@ export default function SendScreen() {
                 maxLength={40}
               />
               <TouchableOpacity
-                style={[styles.inlineSaveBtn, savingContact && styles.btnDisabled]}
+                style={[
+                  styles.inlineSaveBtn,
+                  (savingContact || !!chainWarning) && styles.btnDisabled,
+                ]}
                 onPress={onSaveContact}
-                disabled={savingContact}>
+                disabled={savingContact || !!chainWarning}>
                 {savingContact ? (
                   <ActivityIndicator color={PRIMARY} />
                 ) : (

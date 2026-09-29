@@ -12,6 +12,7 @@ import {
 import { useAmount } from '@/composables/useAmount'
 import { saveTxRecipientLabel, saveSwapTxLabel } from '@/stores/txlabels'
 import { undoesARound } from '@/services/tango'
+import { chainMismatch } from '@/services/chains'
 // Shared with the phone, so the two apps cannot say this differently.
 import {
   CONTACT_UNVERIFIED,
@@ -200,9 +201,22 @@ const selectionTooSmall = computed(() =>
   maxSendable.value < DUST_SATS,
 )
 
+// The chain the selected wallet is on, and whether the recipient is on it.
+// Mirrors helpers/chains.py; the server refuses the send either way, and this
+// is so the refusal arrives while the address is being typed. The whole reason
+// it needs saying at all: a mainnet sp1… derives a perfectly valid signet
+// output, so nothing downstream notices.
+const walletNetwork = computed(
+  () => (wallets.value.find((w) => w.id === selectedWallet.value) || {}).network || '',
+)
+const chainWarning = computed(() =>
+  walletNetwork.value ? chainMismatch(recipient.value, walletNetwork.value) : null,
+)
+
 const canBuild = computed(() =>
   selectedWallet.value &&
   recipient.value.trim() &&
+  !chainWarning.value &&
   amount.value > 0 &&
   selectedUtxos.value.length > 0 &&
   feeRate.value > 0 &&
@@ -522,6 +536,13 @@ function onScanned(value) {
 async function saveContact() {
   const v = recipient.value.trim()
   if (!v) return
+  // A contact is stored per network and only ever offered on that network, so
+  // one on the wrong chain is a send that cannot succeed, saved under a name
+  // that says it can. The endpoint refuses it too.
+  if (chainWarning.value) {
+    pushToast(chainWarning.value, { type: 'error' })
+    return
+  }
   // Don't save a BitMail contact that doesn't resolve — verify first so we never
   // persist an already-dead address the user can't actually send to.
   if (v.includes('@')) {
@@ -736,9 +757,16 @@ onBeforeUnmount(() => { if (scanWatchTimer) clearInterval(scanWatchTimer) })
               <div v-if="recipientUnverified" class="alert alert-warn" style="margin-top:6px">
                 {{ CONTACT_UNVERIFIED }}
               </div>
+              <!-- Wrong chain. Refused rather than warned: there is no version
+                   of this that works, and it is the one mistake here with no
+                   feedback of any kind — it would build, sign, broadcast and
+                   confirm, and the recipient would never see it. -->
+              <div v-if="chainWarning" class="alert alert-error" style="margin-top:6px">
+                ⛔ {{ chainWarning }}
+              </div>
               <div v-if="!isSwapFunding && recipient.trim() && !recipientIsSaved" class="flex gap-2 items-center" style="margin-top:6px;flex-wrap:wrap">
                 <input class="input sc-label" v-model="saveContactLabel" placeholder="Label (e.g. Alice)" maxlength="40" />
-                <button class="btn btn-ghost btn-sm" :disabled="savingContact || bitmailChecking || bitmailInvalid" @click="saveContact">★ Save contact</button>
+                <button class="btn btn-ghost btn-sm" :disabled="savingContact || bitmailChecking || bitmailInvalid || !!chainWarning" @click="saveContact">★ Save contact</button>
               </div>
               <p v-if="isSwapFunding" class="text-dim text-xs" style="margin:4px 0 0">
                 This must go to the exact Boltz address for your swap — it can't be changed. Editing or sending elsewhere would forfeit the funds without completing the swap.

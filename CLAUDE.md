@@ -98,18 +98,25 @@ is only compiled by a real Gradle build, so a change there needs one:
 npm run apk:signet          # or apk:signet:lowmem
 ```
 
-`check:signing` holds `src/services/spSign.ts`, `src/services/plainSign.ts` and
-`src/services/spPayjoin.ts` to vectors generated from the backend's own
-builders. Both apps now build and sign every send on the device, so a change to
-a fee formula, an output ordering or a derivation — **on either side** — needs
-the vectors regenerated:
+`check:signing` holds `src/services/spSign.ts`, `src/services/plainSign.ts`,
+`src/services/spPayjoin.ts` and `src/services/chains.ts` to vectors generated
+from the backend's own code. Both apps now build and sign every send on the
+device, so a change to a fee formula, an output ordering or a derivation —
+**on either side** — needs the vectors regenerated:
 
 ```bash
 cd ../siLNt
 python3 helpers/_client_signing_fixtures.py > fixtures/client-signing.json
 python3 helpers/_plain_signing_fixtures.py  > fixtures/plain-signing.json
 python3 helpers/_payjoin_sp_fixtures.py     > fixtures/payjoin-sp.json
+python3 helpers/_chain_guard_fixtures.py    > fixtures/chain-guard.json
 ```
+
+The last one is the address-to-chain rule, and it is pinned down to the
+sentence rather than the verdict. `helpers/chains.py` is the authority;
+`services/chains.ts` exists only so a cross-chain recipient is refused while
+it is being typed. Two apps that agree to refuse and disagree about why is
+still a drift.
 
 The PayJoin one carries the most weight of the three. An ordinary send that
 derives wrongly makes an output the recipient cannot find — one party's bug. A

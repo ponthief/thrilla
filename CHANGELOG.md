@@ -68,6 +68,13 @@ same size. Nothing on chain says which output is whose.
   Tango is holding is shown as held rather than offered and then refused.
 - **Sends:** a self-send is caught for a BitMail name, not only for your own
   `sp1…`, and on the web as well as the phone.
+- **An address from the wrong chain is refused**, rather than being paid. A
+  mainnet `sp1…` on a Signet wallet used to reach the broadcast confirmation
+  and could be saved as a contact: the two addresses differ only in their
+  prefix, so the transaction built, signed and confirmed while the recipient —
+  watching the other chain — never saw it. Nothing bounced. This is now
+  refused on both apps as the address is typed, and by the server whatever the
+  app allows, for Silent Payments and on-chain addresses alike.
 - **Transaction list:** a Tango reads as a Tango rather than as a tiny payment
   to nobody, and shows what it mixed instead of what it cost.
 - **Updates:** the app reports its real version and can check for, download and
