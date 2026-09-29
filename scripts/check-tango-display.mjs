@@ -155,6 +155,41 @@ console.log('\nthe two clients name the same actions');
   }
 }
 
+console.log('\nthe warning about undoing a round is read before it is too late');
+{
+  // A share spent with change publishes which outputs were whose, and no
+  // later transaction takes that back. It was six lines below the coin list,
+  // off the bottom of the page in the browser, under the selection that
+  // caused it. Short, loud, and above the fold in both apps now.
+  const W = readFileSync(new URL('../src/services/sendWarnings.ts', import.meta.url), 'utf8');
+  const m = W.match(/TANGO_UNDO_NOTE\s*=\s*([\s\S]*?);/);
+  ok('the wording is in one place', !!m, 'TANGO_UNDO_NOTE not found');
+  const text = (m ? m[1] : '').replace(/['+\n]/g, ' ').replace(/\s+/g, ' ').trim();
+  ok('it stays short', text.length <= 220, `${text.length} chars: ${text}`);
+  ok('it is two sentences at most',
+    (text.match(/[.!?](\s|$)/g) || []).length <= 2, text);
+  ok('it says the loss is permanent', /permanent/i.test(text));
+  ok('it says what to do instead', /separate transactions/i.test(text));
+
+  const WEB = readFileSync(new URL('../src/views/SendView.vue', import.meta.url), 'utf8');
+  const RN = readFileSync(new URL('../src/screens/SendScreen.tsx', import.meta.url), 'utf8');
+  for (const [label, src] of [['web', WEB], ['mobile', RN]]) {
+    ok(`${label} renders the shared wording`, src.includes('TANGO_UNDO_NOTE'));
+    // The acknowledgement is what gates the send; losing it turns the whole
+    // warning into decoration.
+    ok(`${label} still gates on the acknowledgement`, src.includes('tangoAck'));
+  }
+  // Above the coin list in the browser, not below it. The selection is on the
+  // right-hand card, and the alert used to render after it.
+  const alertAt = WEB.indexOf('tangoPairing && !broadcastDone');
+  ok('web puts it above the coin list',
+    alertAt !== -1 && alertAt < WEB.indexOf('<h2>Select coins</h2>'),
+    'the alert renders after the coin list again');
+  // And in the tampering alert's colours rather than an ordinary privacy note.
+  ok('web uses the alarm colours', /tangoPairing && !broadcastDone[\s\S]{0,200}--red/.test(WEB));
+  ok('mobile uses the alarm colours', RN.includes('styles.undoWarn'));
+}
+
 console.log('');
 if (failures) {
   console.log(`${failures} check(s) failed`);

@@ -12,6 +12,14 @@ import {
 import { useAmount } from '@/composables/useAmount'
 import { saveTxRecipientLabel, saveSwapTxLabel } from '@/stores/txlabels'
 import { undoesARound } from '@/services/tango'
+// Shared with the phone, so the two apps cannot say this differently.
+import {
+  CONTACT_UNVERIFIED,
+  CONTACT_VERIFIED,
+  TANGO_UNDO_ACK,
+  TANGO_UNDO_NOTE,
+  tangoUndoTitle,
+} from '@/services/sendWarnings'
 import { pushToast } from '@/stores/toasts'
 import { addPendingSend } from '@/stores/pendingsends'
 import QrScanModal from '@/components/QrScanModal.vue'
@@ -585,6 +593,27 @@ onBeforeUnmount(() => { if (scanWatchTimer) clearInterval(scanWatchTimer) })
       <p class="text-dim text-sm" style="margin-top:2px">Build and broadcast a Bitcoin transaction</p>
     </div>
 
+    <!-- A Tango undone: a share selected with change, from any round. Top of
+         the page and in the tampering alert's colours, because it is the only
+         warning here about something that cannot be taken back once the
+         transaction is out — and it used to sit below the coin list, off the
+         bottom of the screen, where the selection that caused it had already
+         scrolled away. -->
+    <div v-if="tangoPairing && !broadcastDone" class="alert alert-warn"
+         style="margin-bottom:20px;border-color:var(--red,#ff5f56);background:rgba(255,95,86,.08)">
+      <div style="display:flex;align-items:flex-start;gap:10px">
+        <span style="font-size:18px;line-height:1">⛔</span>
+        <div style="flex:1;min-width:0">
+          <strong style="color:var(--red,#ff5f56)">{{ tangoUndoTitle(tangoPairing) }}</strong>
+          <div class="text-sm" style="margin-top:4px">{{ TANGO_UNDO_NOTE }}</div>
+          <label class="text-sm" style="margin-top:8px;display:flex;align-items:center;gap:8px">
+            <input type="checkbox" v-model="tangoAck" />
+            {{ TANGO_UNDO_ACK }}
+          </label>
+        </div>
+      </div>
+    </div>
+
     <div v-if="walletScanning && !scanNoticeDismissed" class="card"
          style="border:1px solid rgba(234,179,8,.4);background:rgba(234,179,8,.07);margin-bottom:20px">
       <div class="card-body" style="display:flex;align-items:flex-start;gap:12px;flex-wrap:wrap">
@@ -705,11 +734,7 @@ onBeforeUnmount(() => { if (scanWatchTimer) clearInterval(scanWatchTimer) })
                    not only in the picker, because this is the last screen
                    before coins leave and the picker is long closed. -->
               <div v-if="recipientUnverified" class="alert alert-warn" style="margin-top:6px">
-                ⚠ This saved address is not a WhiSPa wallet. That is normal for
-                a recipient who does not use WhiSPa. If they do, they may have
-                remade their wallet — coins sent to the old address cannot be
-                recovered. Check with them, and use <b>Change address</b> under
-                saved contacts.
+                {{ CONTACT_UNVERIFIED }}
               </div>
               <div v-if="!isSwapFunding && recipient.trim() && !recipientIsSaved" class="flex gap-2 items-center" style="margin-top:6px;flex-wrap:wrap">
                 <input class="input sc-label" v-model="saveContactLabel" placeholder="Label (e.g. Alice)" maxlength="40" />
@@ -865,29 +890,8 @@ onBeforeUnmount(() => { if (scanWatchTimer) clearInterval(scanWatchTimer) })
         </div>
       </div>
 
-      <!-- A Tango undone: its own share with its own change -->
-      <div v-if="tangoPairing" class="alert alert-warn" style="margin-top:14px;display:flex;align-items:flex-start;gap:10px">
-        <span style="font-size:18px;line-height:1">⚠</span>
-        <div style="flex:1">
-          <strong>This undoes your Tango with {{ tangoPairing }}</strong>
-          <div class="text-sm text-dim" style="margin-top:2px">
-            You have selected a Tango share and a Tango change coin. Change can
-            be traced back to the coins you put in — its value plus a share is
-            an input total. A share is the coin that history was cut off from.
-            Spending them together repairs the link: the share stops being one
-            of two indistinguishable outputs, and nothing undoes that
-            afterwards. It does not matter which round the change came from.
-            Send them in separate transactions, or drop one from the selection.
-          </div>
-          <label class="text-sm" style="margin-top:8px;display:flex;align-items:center;gap:8px">
-            <input type="checkbox" v-model="tangoAck" />
-            I understand, spend them together anyway
-          </label>
-        </div>
-      </div>
-
       <!-- Mixed labels warning (privacy) -->
-      <div v-else-if="mixedLabels" class="alert alert-warn" style="margin-top:14px;display:flex;align-items:flex-start;gap:10px">
+      <div v-if="!tangoPairing && mixedLabels" class="alert alert-warn" style="margin-top:14px;display:flex;align-items:flex-start;gap:10px">
         <span style="font-size:18px;line-height:1">⚠</span>
         <div style="flex:1">
           <strong>Mixed coin labels selected</strong>
@@ -898,7 +902,7 @@ onBeforeUnmount(() => { if (scanWatchTimer) clearInterval(scanWatchTimer) })
       </div>
 
       <!-- Multi-input caution (privacy) — softer, fires when 2+ inputs share a label -->
-      <div v-else-if="multiInputSelected" class="alert alert-info" style="margin-top:14px;display:flex;align-items:flex-start;gap:10px">
+      <div v-else-if="!tangoPairing && multiInputSelected" class="alert alert-info" style="margin-top:14px;display:flex;align-items:flex-start;gap:10px">
         <span style="font-size:18px;line-height:1">ⓘ</span>
         <div style="flex:1">
           <strong>Spending {{ selectedUtxos.length }} coins together</strong>
@@ -927,13 +931,10 @@ onBeforeUnmount(() => { if (scanWatchTimer) clearInterval(scanWatchTimer) })
                  is gone from a recipient who never used WhiSPa, so neither
                  does this. -->
             <div v-if="c.kind === 'sp' && c.whispa === true" class="text-xs text-green" style="margin-top:2px">
-              ✓ A WhiSPa wallet holds this address.
+              {{ CONTACT_VERIFIED }}
             </div>
             <div v-else-if="c.kind === 'sp' && c.whispa === false" class="text-xs text-amber" style="margin-top:2px">
-              Cannot be verified: no WhiSPa wallet has this address. Fine for a
-              recipient who does not use WhiSPa — but if they do, they may have
-              remade their wallet, and coins sent to an old address cannot be
-              recovered.
+              {{ CONTACT_UNVERIFIED }}
             </div>
             <div v-if="editingContact === c.id" class="flex gap-2" style="margin-top:6px">
               <input class="input mono" style="font-size:12px" v-model="contactDraft"

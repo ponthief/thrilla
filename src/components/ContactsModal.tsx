@@ -10,6 +10,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import * as api from '@services/api';
+import { CONTACT_UNVERIFIED, CONTACT_VERIFIED } from '@services/sendWarnings';
 import { colors } from '@/theme';
 
 const PRIMARY = colors.primary;
@@ -99,20 +100,13 @@ export default function ContactsModal({
                   </TouchableOpacity>
                 </View>
 
-                {/* What the server can honestly say about this address. It
-                    cannot tell a wallet that is gone from a recipient who
-                    never used WhiSPa, so the unverified line says both. */}
+                {/* What the server can honestly say about this address, in the
+                    words the web app uses too — services/sendWarnings.ts has
+                    the reasoning behind the wording. */}
                 {c.kind === 'sp' && c.whispa === true ? (
-                  <Text style={styles.okNote}>
-                    ✓ A WhiSPa wallet holds this address.
-                  </Text>
+                  <Text style={styles.okNote}>{CONTACT_VERIFIED}</Text>
                 ) : c.kind === 'sp' && c.whispa === false ? (
-                  <Text style={styles.warnNote}>
-                    Cannot be verified: no WhiSPa wallet has this address. Fine
-                    for a recipient who does not use WhiSPa — but if they do,
-                    they may have remade their wallet, and coins sent to an old
-                    address cannot be recovered. Ask them to confirm it.
-                  </Text>
+                  <Text style={styles.warnNote}>{CONTACT_UNVERIFIED}</Text>
                 ) : null}
 
                 {onUpdate && editing === c.id ? (

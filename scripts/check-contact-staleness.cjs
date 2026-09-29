@@ -51,16 +51,35 @@ for (const [label, src, flag] of [
 }
 
 console.log('\nthe wording claims only what the server knows');
-for (const [label, src] of [['mobile', MODAL_RN], ['web', SEND_WEB], ['mobile send', SEND_RN]]) {
-  const text = src.replace(/\s+/g, ' ');
-  ok(`${label} does not claim the wallet was deleted`,
+{
+  // One sentence, in four places — the picker and the recipient field, on the
+  // phone and on the web. They were four hand-written paragraphs, and two were
+  // long enough that the warning was in the middle. So the words live in
+  // services/sendWarnings.ts and every screen renders that.
+  const WARNINGS = read('src/services/sendWarnings.ts');
+  const m = WARNINGS.match(/CONTACT_UNVERIFIED\s*=\s*([\s\S]*?);/);
+  ok('the wording is in one place', !!m, 'CONTACT_UNVERIFIED not found');
+  const text = (m ? m[1] : '').replace(/['+\n]/g, ' ').replace(/\s+/g, ' ').trim();
+
+  ok('it does not claim the wallet was deleted',
     !/has deleted|was deleted|no longer exists/i.test(text),
     'the server cannot tell a gone wallet from a non-WhiSPa one');
-  ok(`${label} says a non-WhiSPa recipient is normal`,
-    /does not use WhiSPa/.test(text),
+  ok('it says a non-WhiSPa recipient is normal',
+    /do(es)? not use WhiSPa/.test(text),
     'without it, every ordinary SP address reads as a warning');
-  ok(`${label} says the loss is unrecoverable`,
-    /cannot be recovered/.test(text));
+  ok('it says the loss is unrecoverable', /cannot be recovered/.test(text));
+  // Short enough to be read standing in front of a send. Two sentences was
+  // the brief; this is the ceiling that keeps it there.
+  ok('it stays short', text.length <= 220, `${text.length} chars: ${text}`);
+  ok('it is two sentences at most',
+    (text.match(/[.!?](\s|$)/g) || []).length <= 2, text);
+
+  for (const [label, src] of [
+    ['mobile picker', MODAL_RN], ['web', SEND_WEB], ['mobile send', SEND_RN],
+  ]) {
+    ok(`${label} renders the shared wording`, src.includes('CONTACT_UNVERIFIED'),
+      'a second copy of this sentence is a second wording');
+  }
 }
 
 console.log('\nand the contact can be corrected');

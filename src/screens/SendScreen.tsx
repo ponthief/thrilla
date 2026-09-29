@@ -18,6 +18,13 @@ import { useAuthStore } from '@stores/authStore';
 import { useAppLockStore } from '@stores/appLockStore';
 import * as api from '@services/api';
 import { undoesARound } from '@services/tango';
+// Shared with the web app, so the two cannot say this differently.
+import {
+  CONTACT_UNVERIFIED,
+  TANGO_UNDO_ACK,
+  TANGO_UNDO_NOTE,
+  tangoUndoTitle,
+} from '@services/sendWarnings';
 import { getWalletKeys } from '@services/secureKeys';
 import { usePendingSends } from '@stores/pendingSends';
 import { useTxLabelStore } from '@stores/txLabelStore';
@@ -1030,12 +1037,7 @@ export default function SendScreen() {
               leave. The server cannot tell a wallet that is gone from someone
               who never used WhiSPa, so neither does this. */}
           {unverified ? (
-            <Text style={styles.unverifiedNote}>
-              ⚠ This saved address is not a WhiSPa wallet. That is normal for a
-              recipient who does not use WhiSPa. If they do, they may have
-              remade their wallet — coins sent to the old address cannot be
-              recovered. Check with them, and use Change address in Contacts.
-            </Text>
+            <Text style={styles.unverifiedNote}>{CONTACT_UNVERIFIED}</Text>
           ) : null}
 
           {showSaveContact && saveable ? (
@@ -1198,17 +1200,12 @@ export default function SendScreen() {
           ) : null}
 
           {tangoPairing ? (
-            <View style={styles.privacyWarn}>
-              <Text style={styles.privacyText}>
-                ⚠ This undoes your Tango with {tangoPairing}. You have selected
-                a Tango share and a Tango change coin. Change can be traced back
-                to the coins you put in — its value plus a share is an input
-                total. A share is the coin that history was cut off from.
-                Spending them together repairs the link: the share stops being
-                one of two indistinguishable outputs, and nothing undoes that
-                afterwards. It does not matter which round the change came from.
-                Send them separately, or drop one from the selection.
-              </Text>
+            // The one warning here about something that cannot be taken back
+            // once the transaction is out, so it gets the alarm colours rather
+            // than the ordinary privacy-note ones.
+            <View style={styles.undoWarn}>
+              <Text style={styles.undoTitle}>⛔ {tangoUndoTitle(tangoPairing)}</Text>
+              <Text style={styles.privacyText}>{TANGO_UNDO_NOTE}</Text>
               <TouchableOpacity
                 style={styles.ackRow}
                 onPress={() => setTangoAck((v) => !v)}
@@ -1217,9 +1214,7 @@ export default function SendScreen() {
                 <View style={[styles.checkbox, tangoAck && styles.checkboxOn]}>
                   {tangoAck ? <Text style={styles.checkMark}>✓</Text> : null}
                 </View>
-                <Text style={styles.privacyText}>
-                  I understand, spend them together anyway
-                </Text>
+                <Text style={styles.privacyText}>{TANGO_UNDO_ACK}</Text>
               </TouchableOpacity>
             </View>
           ) : selectedUtxos.length > 1 ? (
@@ -1572,6 +1567,22 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     padding: 12,
     marginTop: 14,
+  },
+  // Louder than privacyWarn on purpose: the privacy notes are about a cost
+  // that can be weighed, and this is about a round that stops being a round.
+  undoWarn: {
+    backgroundColor: 'rgba(255,95,86,0.10)',
+    borderWidth: 1,
+    borderColor: colors.danger,
+    borderRadius: 8,
+    padding: 12,
+    marginTop: 14,
+  },
+  undoTitle: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: colors.danger,
+    marginBottom: 4,
   },
   privacyText: { fontSize: 13, color: colors.primary, lineHeight: 18 },
   ackRow: {
