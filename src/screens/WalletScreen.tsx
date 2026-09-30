@@ -17,7 +17,7 @@ import { useBitmailAlert } from '@stores/bitmailAlert';
 import * as api from '@services/api';
 import { hasWalletKeys } from '@services/secureKeys';
 import { mixFeeNote, mixRowLabel } from '@services/tangoTurns';
-import { colors, LIGHTNING_ENABLED, type } from '@/theme';
+import { colors, type } from '@/theme';
 import CoinsScreen from './CoinsScreen';
 import CreateWalletModal from '../components/CreateWalletModal';
 import RecoverKeysModal from '../components/RecoverKeysModal';
@@ -80,18 +80,6 @@ function spTxToItem(t: api.SpTransaction, labelMap: Record<string, string>): TxI
   };
 }
 
-function lnPayToItem(p: api.LnPayment): TxItem {
-  const msat = p.amount ?? 0;
-  return {
-    id: p.payment_hash || p.checking_id || '',
-    direction: msat < 0 ? 'out' : 'in',
-    amountSats: Math.floor(Math.abs(msat) / 1000),
-    label: p.memo || (msat < 0 ? 'Sent' : 'Received'),
-    timestamp: normalizeTime(p.time),
-    pending: p.pending === true || p.status === 'pending',
-  };
-}
-
 // Group thousands without relying on Intl (Hermes ships without full Intl).
 function groupThousands(n: number): string {
   return Math.floor(n)
@@ -99,15 +87,11 @@ function groupThousands(n: number): string {
     .replace(/\B(?=(\d{3})+(?!\d))/g, ',');
 }
 
-type WalletKind = 'sp' | 'ln';
 
 export default function WalletScreen() {
   const inkey = useAuthStore((s) => s.inkey);
   const setBalance = useWalletStore((s) => s.setBalance);
   const tamper = useBitmailAlert((s) => s.tamper);
-
-  // Silent Payments is the primary wallet — land here, offer Lightning as a tab.
-  const [kind, setKind] = useState<WalletKind>('sp');
 
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -131,9 +115,6 @@ export default function WalletScreen() {
   // No wallet exists on this network (distinct from a request failure).
   const [spMissing, setSpMissing] = useState(false);
 
-  const [lnSats, setLnSats] = useState<number | null>(null);
-  const [lnName, setLnName] = useState('');
-  const [lnError, setLnError] = useState<string | null>(null);
 
   // Server rows, kept raw: the display rows are derived from these plus the
   // device-only labels, so editing a label re-renders the list without a
@@ -181,7 +162,6 @@ export default function WalletScreen() {
     // most recent thing that happened.
     return [...incoming, ...rows];
   }, [spRawTxs, txLabelMap, pendingLocal, spWallet?.id]);
-  const [lnTxs, setLnTxs] = useState<TxItem[]>([]);
 
   const load = useCallback(async () => {
     if (!inkey) {
@@ -257,25 +237,6 @@ export default function WalletScreen() {
       setSpError(spRes.reason?.message || 'Failed to load balance');
     }
 
-    let newLnSats: number | null = null;
-    if (LIGHTNING_ENABLED) {
-      const [lnRes, lnPayRes] = await Promise.allSettled([
-        api.lnGetWallet(inkey),
-        api.lnListPayments(inkey, 25),
-      ]);
-      setLnTxs(
-        lnPayRes.status === 'fulfilled' ? lnPayRes.value.map(lnPayToItem) : [],
-      );
-      if (lnRes.status === 'fulfilled') {
-        newLnSats = Math.floor((lnRes.value.balance ?? 0) / 1000); // msat → sats
-        setLnSats(newLnSats);
-        setLnName(lnRes.value.name || 'Lightning');
-        setLnError(null);
-      } else {
-        setLnError(lnRes.reason?.message || 'Failed to load balance');
-      }
-    }
-
     // Fiat is best-effort; a failure must not blank a balance.
     setRate(
       rateRes.status === 'fulfilled' && rateRes.value.rate > 0
@@ -283,8 +244,9 @@ export default function WalletScreen() {
         : null,
     );
 
-    // Mirror the combined balance into the shared store (BTC).
-    setBalance(((newSpSats ?? 0) + (newLnSats ?? 0)) / 1e8);
+    // Mirror the balance into the shared store (BTC). There is one wallet
+    // again, so there is nothing left to combine it with.
+    setBalance((newSpSats ?? 0) / 1e8);
 
     setLoading(false);
   }, [inkey, setBalance]);
@@ -315,12 +277,9 @@ export default function WalletScreen() {
   // Reload balances when a scan finishes so newly found funds show up.
   const scan = useCatchUpScan(inkey, spWallet, load);
 
-  const isSp = LIGHTNING_ENABLED ? kind === 'sp' : true;
-  const sats = isSp ? spWallet?.balance ?? null : lnSats;
-  const error = isSp ? spError : lnError;
-  const name = isSp
-    ? spWallet?.title || 'Silent Payments'
-    : lnName || 'Lightning';
+  const sats = spWallet?.balance ?? null;
+  const error = spError;
+  const name = spWallet?.title || 'Silent Payments';
 
   const btc = sats != null ? (sats / 1e8).toFixed(8) : null;
   const usd = sats != null && rate != null ? (sats / 1e8) * rate : null;
@@ -367,22 +326,7 @@ export default function WalletScreen() {
           </View>
         </View>
 
-        {LIGHTNING_ENABLED ? (
-          <View style={styles.segment}>
-            <SegmentButton
-              label="Silent Payments"
-              active={isSp}
-              onPress={() => setKind('sp')}
-            />
-            <SegmentButton
-              label="Lightning"
-              active={!isSp}
-              onPress={() => setKind('ln')}
-            />
-          </View>
-        ) : null}
-
-        {isSp && tamper ? (
+        {tamper ? (
           <View style={styles.tamperCard}>
             <Text style={styles.tamperTitle}>⚠ BitMail tampering detected</Text>
             <Text style={styles.tamperBody}>
@@ -393,7 +337,7 @@ export default function WalletScreen() {
           </View>
         ) : null}
 
-        {isSp && spMissing && !loading ? (
+        {spMissing && !loading ? (
           <View style={styles.emptyCard}>
             <Text style={styles.emptyIcon}>🔒</Text>
             <Text style={styles.emptyTitle}>No wallet yet</Text>
@@ -450,7 +394,7 @@ export default function WalletScreen() {
               )}
             </TouchableOpacity>
 
-            {isSp && keysMissing && !loading ? (
+            {keysMissing && !loading ? (
               <View style={styles.scanBanner}>
                 <View style={styles.scanTextWrap}>
                   <Text style={styles.scanTitle}>Wallet keys missing</Text>
@@ -466,7 +410,7 @@ export default function WalletScreen() {
               </View>
             ) : null}
 
-            {isSp && scan.status === 'scanning' ? (
+            {scan.status === 'scanning' ? (
               <View style={styles.scanBanner}>
                 <ActivityIndicator size="small" color={colors.primary} />
                 <View style={styles.scanTextWrap}>
@@ -491,7 +435,7 @@ export default function WalletScreen() {
               </View>
             ) : null}
 
-            {isSp && scan.status === 'prompt' ? (
+            {scan.status === 'prompt' ? (
               <View style={styles.scanBanner}>
                 <View style={styles.scanTextWrap}>
                   <Text style={styles.scanTitle}>
@@ -512,7 +456,7 @@ export default function WalletScreen() {
               </View>
             ) : null}
 
-            {isSp && !keysMissing && (plainSpendable > 0 || plainIncoming > 0) ? (
+            {!keysMissing && (plainSpendable > 0 || plainIncoming > 0) ? (
               <View style={styles.plainBanner}>
                 <View style={styles.scanTextWrap}>
                   <Text style={styles.scanTitle}>
@@ -531,7 +475,7 @@ export default function WalletScreen() {
               </View>
             ) : null}
 
-            {isSp && !keysMissing ? (
+            {!keysMissing ? (
               <TouchableOpacity
                 style={styles.coinsBtn}
                 onPress={() => setShowCoins(true)}>
@@ -541,14 +485,10 @@ export default function WalletScreen() {
 
             <TransactionList
               title="Recent Transactions"
-              items={isSp ? spTxs : lnTxs}
+              items={spTxs}
               loading={loading}
-              emptyText={
-                isSp
-                  ? 'No transactions yet'
-                  : 'No Lightning payments yet'
-              }
-              onPressItem={isSp ? (id) => setDetailTxid(id) : undefined}
+              emptyText="No transactions yet"
+              onPressItem={(id) => setDetailTxid(id)}
             />
 
             <Text style={styles.hint}>Pull down to refresh</Text>
@@ -604,28 +544,6 @@ export default function WalletScreen() {
   );
 }
 
-function SegmentButton({
-  label,
-  active,
-  onPress,
-}: {
-  label: string;
-  active: boolean;
-  onPress: () => void;
-}) {
-  return (
-    <TouchableOpacity
-      style={[styles.segmentBtn, active && styles.segmentBtnActive]}
-      onPress={onPress}
-      accessibilityRole="button"
-      accessibilityState={{ selected: active }}>
-      <Text style={[styles.segmentText, active && styles.segmentTextActive]}>
-        {label}
-      </Text>
-    </TouchableOpacity>
-  );
-}
-
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.bg },
   brand: {
@@ -654,31 +572,6 @@ const styles = StyleSheet.create({
     lineHeight: 15,
   },
   content: { flex: 1, padding: 16 },
-  segment: {
-    flexDirection: 'row',
-    backgroundColor: colors.surfaceAlt,
-    borderRadius: 10,
-    padding: 3,
-    marginBottom: 16,
-  },
-  segmentBtn: {
-    flex: 1,
-    paddingVertical: 8,
-    borderRadius: 8,
-    alignItems: 'center',
-  },
-  segmentBtnActive: {
-    backgroundColor: colors.surface,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: colors.border,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.1,
-    shadowRadius: 1,
-    elevation: 1,
-  },
-  segmentText: { fontSize: 14, fontWeight: '600', color: colors.muted },
-  segmentTextActive: { color: colors.primary },
   card: {
     backgroundColor: colors.surface,
     borderWidth: StyleSheet.hairlineWidth,

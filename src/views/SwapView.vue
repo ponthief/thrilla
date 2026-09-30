@@ -149,9 +149,6 @@ async function createSwap() {
       network: NETWORK,
     })
 
-    // Register this swap's invoice hash so the global LN-receive poller never
-    // toasts "Received" for the swap credit (the swap-complete toast covers it).
-    try { window.__registerSwapHash && window.__registerSwapHash(swap.payment_hash) } catch { /* ignore */ }
 
     // The exact on-chain amount to send (incl. swap fees) is what Boltz expects.
     const payAddress = swap.address

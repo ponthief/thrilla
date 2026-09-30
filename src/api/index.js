@@ -90,53 +90,6 @@ export async function getAccount(token) {
   return req('/api/v1/auth', { headers: bearerHeaders(token) })
 }
 
-// ── Lightning (LNbits native wallet) send/receive ─────────────────────────────
-// The LNbits wallet auto-created with the account holds the LN balance. These
-// wrap the standard LNbits payments API. inkey can create invoices + read;
-// adminkey is required to PAY. Keys come from the LNbits wallet (auth store).
-
-// Current LN balance (msat) + wallet name. Uses inkey (read).
-export async function lnGetWallet(inkey) {
-  return req('/api/v1/wallet', { headers: keyHeaders(inkey) })
-}
-
-// RECEIVE: create a bolt11 invoice. Uses inkey. amount in sats.
-export async function lnCreateInvoice(inkey, { amount, memo = '', expiry = 3600 }) {
-  return req('/api/v1/payments', {
-    method: 'POST',
-    headers: keyHeaders(inkey),
-    body: JSON.stringify({ out: false, amount, memo, expiry }),
-  })
-}
-
-// SEND: pay a bolt11 invoice. Requires adminkey.
-export async function lnPayInvoice(adminkey, bolt11) {
-  return req('/api/v1/payments', {
-    method: 'POST',
-    headers: keyHeaders(adminkey),
-    body: JSON.stringify({ out: true, bolt11 }),
-  })
-}
-
-// Decode a bolt11 to show amount/memo/destination before paying. Uses inkey.
-export async function lnDecodeInvoice(inkey, bolt11) {
-  return req('/api/v1/payments/decode', {
-    method: 'POST',
-    headers: keyHeaders(inkey),
-    body: JSON.stringify({ data: bolt11 }),
-  })
-}
-
-// Payment history (most recent first). Uses inkey.
-export async function lnListPayments(inkey, limit = 25) {
-  return req(`/api/v1/payments?limit=${limit}`, { headers: keyHeaders(inkey) })
-}
-
-// Check a single payment's status (paid?) by payment_hash. Uses inkey.
-export async function lnPaymentStatus(inkey, paymentHash) {
-  return req(`/api/v1/payments/${encodeURIComponent(paymentHash)}`, { headers: keyHeaders(inkey) })
-}
-
 // ── Silent Payments wallets ───────────────────────────────────────────────────
 // Network scoping: a build locked to a network (signet/regtest/mainnet APK or
 // web build) must only ever see that network's wallets. Default the filter to

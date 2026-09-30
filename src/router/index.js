@@ -22,7 +22,6 @@ const userRoutes = [
   { path: '/transactions', name: 'transactions', component: () => import('@/views/TransactionsView.vue') },
   { path: '/send',   name: 'send',    component: () => import('@/views/SendView.vue')     },
   { path: '/swap',   name: 'swap',    component: () => import('@/views/SwapView.vue')     },
-  { path: '/lightning', name: 'lightning', component: () => import('@/views/LightningView.vue') },
   { path: '/payjoin', name: 'payjoin', component: () => import('@/views/PayJoinView.vue') },
   { path: '/tango', name: 'tango', component: () => import('@/views/TangoView.vue') },
   { path: '/scan',   name: 'scan',    component: () => import('@/views/ScanView.vue')     },
@@ -68,11 +67,6 @@ router.beforeEach((to) => {
   if (to.name === 'swap') {
     const lock = import.meta.env.VITE_NETWORK_LOCK || null
     if (lock !== 'regtest' && lock !== 'mainnet') return { name: 'wallets' }
-  }
-  // Lightning is behind a build flag — block direct nav when it is off, or the
-  // hidden nav item is only hidden and the URL still works.
-  if (to.name === 'lightning') {
-    if (import.meta.env.VITE_LIGHTNING_ENABLED !== 'true') return { name: 'wallets' }
   }
   // PayJoin is behind an explicit build flag (default off). It is the PSBT
   // flavour: descriptors, P2WPKH and an external signer, which is why it is

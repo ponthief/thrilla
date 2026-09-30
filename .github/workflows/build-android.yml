@@ -53,15 +53,6 @@ on:
           2016; add armeabi-v7a for older hardware, x86_64 only for an emulator.
         type: string
         default: arm64-v8a,armeabi-v7a
-      lightning:
-        description: >-
-          Lightning for THIS BUILD ONLY. "default" uses the flavour's .env,
-          which is on for signet and off for mainnet. "on" is how you get a
-          mainnet APK with the LN wallet in it without turning mainnet
-          Lightning on for everybody in .env.mainnet.
-        type: choice
-        options: [default, 'on', 'off']
-        default: default
       selfTestSigning:
         description: >-
           Prove the release-signing path works using a throwaway key generated
@@ -132,37 +123,6 @@ jobs:
       # Caches ~/.gradle across runs, so a rebuild is a few minutes rather than
       # a cold one every time.
       - uses: gradle/actions/setup-gradle@v3
-
-      # Lightning, for this build only.
-      #
-      # WHY AN INPUT AND NOT AN EDIT TO .env.mainnet. Mainnet Lightning is off
-      # in the repo and should stay off until it is turned on deliberately —
-      # scripts/check-lightning-flag.cjs fails the moment .env.mainnet says
-      # otherwise, which is the point of that check. But testing the LN wallet
-      # against the mainnet backend needs an APK with it in, and the two are
-      # not in conflict: the override lives in the run's inputs, where it is
-      # visible on the run page forever, and touches nothing that merges.
-      #
-      # Only the un-prefixed key reaches an APK; VITE_ is the browser's. Both
-      # are set so the file does not end up saying two different things, and
-      # because a later step may build the web bundle.
-      - name: Override Lightning for this build
-        if: ${{ inputs.lightning && inputs.lightning != 'default' }}
-        env:
-          WANT: ${{ inputs.lightning == 'on' && 'true' || 'false' }}
-        run: |
-          set -euo pipefail
-          ENVFILE=".env.${{ matrix.flavor }}"
-          [ -f "$ENVFILE" ] || { echo "::error::$ENVFILE not found"; exit 1; }
-          for KEY in LIGHTNING_ENABLED VITE_LIGHTNING_ENABLED; do
-            if grep -qE "^${KEY}=" "$ENVFILE"; then
-              sed -i -E "s|^${KEY}=.*|${KEY}=${WANT}|" "$ENVFILE"
-            else
-              printf '%s=%s\n' "$KEY" "$WANT" >> "$ENVFILE"
-            fi
-          done
-          echo "::warning::Lightning forced ${{ inputs.lightning }} for this ${{ matrix.flavor }} build — not a repo change."
-          grep -nE '^(VITE_)?LIGHTNING_ENABLED=' "$ENVFILE"
 
       - name: Install dependencies
         run: npm ci

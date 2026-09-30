@@ -39,15 +39,6 @@ const NETWORK_LOCK = import.meta.env.VITE_NETWORK_LOCK || null
 // Swaps require a Boltz backend, which only exists on regtest and mainnet
 // (there is no Boltz signet). Show the Swap tab only where it can actually work.
 const SWAP_ENABLED = NETWORK_LOCK === 'regtest' || NETWORK_LOCK === 'mainnet'
-// Lightning: the LNbits wallet every WhiSPa account already has. Was derived
-// from `NETWORK_LOCK === 'regtest'`, which meant it could not be turned on for
-// signet — where the work that needs it is being tested — and disagreed with
-// the phone's own hardcoded flag about what Lightning was. Now a build flag
-// under one name both clients read (src/theme.ts has the phone's reader), and
-// set per flavour in .env.*: whether Lightning works is a fact about the
-// LNbits instance a build points at, which the network lock does not know.
-// Set VITE_LIGHTNING_ENABLED=true to show it.
-const LIGHTNING_ENABLED = import.meta.env.VITE_LIGHTNING_ENABLED === 'true'
 // PayJoin (imported BIP-84 watch-only + external Sparrow signing) is a feature
 // toggle, default OFF. Works on any network, so it's gated by an explicit build
 // flag rather than the network lock. Set VITE_PAYJOIN_ENABLED=true to show it.
@@ -68,7 +59,6 @@ const baseNav = [
   { name: 'wallets', label: 'Wallet',   icon: '◈' },
   { name: 'utxos',   label: 'Coins',    icon: '⬡' },
   { name: 'send',    label: 'Send',     icon: '↗' },
-  ...(LIGHTNING_ENABLED ? [{ name: 'lightning', label: 'Lightning', icon: '⚡' }] : []),
   ...(SWAP_ENABLED ? [{ name: 'swap', label: 'Swap ⚡', icon: '⇌' }] : []),
   // The descriptor and Sparrow flavour, kept for the watch-only wallets people
   // already imported. It cannot carry Silent Payments; the Silent Payments
@@ -128,7 +118,6 @@ watch(() => auth.isLoggedIn, (loggedIn) => {
     stopPayjoinWatch()
     stopTangoWatch()
     stopSendWatch()
-    stopLnReceiveWatch()
     stopScanWatch()
     // Whenever we transition to logged-out — from ANY path (logout button, idle
     // timeout, device revoke, a child view calling auth.logout()) — leave any
@@ -143,8 +132,8 @@ watch(() => auth.isLoggedIn, (loggedIn) => {
 })
 
 // Run the same "logged-in" startup the watcher does, but from onMounted so it
-// executes AFTER all top-level const/let state (swapPoll, lnRecvPoll, _seenPayments,
-// bitmailCheckTimer, …) is initialized. Calling it during setup via
+// executes AFTER all top-level const/let state (swapPoll, bitmailCheckTimer,
+// …) is initialized. Calling it during setup via
 // { immediate: true } hit a temporal-dead-zone ReferenceError because those
 // pollers reference state declared further down the file.
 // Build the local wallet-key index. On mobile the native bridge has no list
@@ -173,7 +162,6 @@ function startLoggedInTasks() {
   startSwapPolling()
   startBitmailChecks()
   kickSendWatch()
-  if (LIGHTNING_ENABLED) startLnReceiveWatch()
   if (PAYJOIN_ENABLED) startPayjoinWatch()
   // The SP PayJoin's own poller. A browser tab gets no push, and an SP
   // PayJoin needs its turn taken three times before it is on the network.
@@ -221,15 +209,12 @@ async function pollSwaps() {
   const swaps = res?.swaps || []
   let anyPending = false
   for (const s of swaps) {
-    // Track this swap's invoice hash so the Lightning-receive poller doesn't
-    // also toast for the swap credit (the swap-complete toast covers it).
-    if (s.payment_hash) _swapHashes.add(s.payment_hash)
     const prev = _swapSeen.get(s.swap_id)
     // Detect a transition into "completed" that we haven't notified about yet.
     if (s.status === 'completed' && prev && prev !== 'completed') {
       const amt = s.amount ? `${s.amount.toLocaleString()} sats` : 'Your swap'
-      pushToast(`⚡ Swap complete — ${amt} is now in your Lightning balance.`, { type: 'success' })
-      // Nudge any balance-showing view (LightningView) to refresh now.
+      pushToast(`⚡ Swap complete — ${amt} is now in your LNbits Lightning wallet.`, { type: 'success' })
+      // Nudge any balance-showing view to refresh now.
       notifySwapCompleted()
       // Auto-scan the SP wallet that funded this swap: funding spent an SP UTXO,
       // and any change comes back as a NEW output only a scan can detect. Without
@@ -278,7 +263,6 @@ function startSwapPolling() {
   api.listSwaps(auth.adminkey).then(res => {
     for (const s of (res?.swaps || [])) {
       _swapSeen.set(s.swap_id, s.status)
-      if (s.payment_hash) _swapHashes.add(s.payment_hash)   // dedup vs receive toast
     }
   }).catch(() => {}).finally(() => scheduleSwapPoll(2000))
 }
@@ -346,83 +330,6 @@ function kickSendWatch() {
 }
 function stopSendWatch() { if (sendWatch) { clearTimeout(sendWatch); sendWatch = null } }
 if (typeof window !== 'undefined') window.__kickSendWatch = kickSendWatch
-
-// ── Global Lightning-receive notifications ────────────────────────────────────
-// Toasts when the Lightning wallet receives a payment, from any screen. Unlike
-// sends/swaps there's no "in flight" window — a payment can arrive anytime — so
-// this is an always-on poll while logged in, kept gentle (45s). Seeds silently
-// on login so existing payments don't toast. Swap-driven credits are skipped
-// (the "⚡ Swap complete" toast already covers those) via _swapHashes.
-let lnRecvPoll = null
-const _seenPayments = new Set()
-const _swapHashes = new Set()   // payment hashes that belong to swaps (skip)
-let _lnRecvSeeded = false
-
-function _payHash(p) { return p.payment_hash || p.checking_id || '' }
-
-// A swap leg? Swap invoices are tagged 'silnt_swap' at creation (see the
-// apipayments row: tag='silnt_swap', extra.tag='silnt_swap'). This is a robust,
-// timing-independent way to exclude swap credits from the generic "Received"
-// toast — the swap-complete toast already covers them.
-function _isSwapPayment(p) {
-  // Swap invoices are tagged 'silnt_swap'. Be robust to LNbits field shapes:
-  // top-level tag, extra as an object, OR extra as a JSON *string* (LNbits often
-  // returns extra stringified, in which case p.extra.tag would silently be
-  // undefined). Memo is a last-resort fallback ("WhiSPa swap-in …").
-  if (p.tag === 'silnt_swap') return true
-  let ex = p.extra
-  if (typeof ex === 'string') {
-    try { ex = JSON.parse(ex) } catch { ex = null }
-  }
-  if (ex && ex.tag === 'silnt_swap') return true
-  const memo = (p.memo || p.description || '')
-  if (/swap-?in/i.test(memo)) return true
-  return false
-}
-
-function _isSettledIncoming(p) {
-  // Must be INCOMING and EXPLICITLY settled. A freshly-created (unpaid) invoice —
-  // e.g. the one minted when a user clicks Continue on a swap — has status
-  // 'pending' and must NOT count. (Confirmed against the apipayments row shape.)
-  const amt = typeof p.amount === 'number' ? p.amount : 0
-  if (amt <= 0) return false                       // outgoing or zero
-  const status = p.status || ''
-  if (status === 'success') return true            // explicit success (DB status col)
-  if (p.paid === true) return true                 // status endpoint exposes .paid
-  if (p.pending === false && status !== 'pending' && status !== 'failed') return true
-  return false                                      // default: NOT settled
-}
-
-async function pollLnReceives() {
-  if (!auth.isLoggedIn || !auth.inkey) { lnRecvPoll = null; return }
-  try {
-    const list = await api.lnListPayments(auth.inkey, 25)
-    const payments = Array.isArray(list) ? list : (list?.data || [])
-    for (const p of payments) {
-      if (!_isSettledIncoming(p)) continue
-      const h = _payHash(p)
-      if (!h || _seenPayments.has(h)) continue
-      _seenPayments.add(h)
-      if (!_lnRecvSeeded) continue            // first pass: seed silently
-      if (_isSwapPayment(p) || _swapHashes.has(h)) continue   // swap leg: swap toast covers it
-      const sats = Math.floor(Math.abs(p.amount) / 1000).toLocaleString()
-      pushToast(`⚡ Received ${sats} sats on Lightning.`, { type: 'success' })
-      notifySwapCompleted()                    // nudge balance-showing views to refresh
-    }
-    _lnRecvSeeded = true
-  } catch { /* transient; retry next tick */ }
-  lnRecvPoll = setTimeout(pollLnReceives, 45000)
-}
-function startLnReceiveWatch() {
-  if (lnRecvPoll || !auth.inkey) return
-  _seenPayments.clear(); _lnRecvSeeded = false
-  lnRecvPoll = setTimeout(pollLnReceives, 1500)
-}
-function stopLnReceiveWatch() { if (lnRecvPoll) { clearTimeout(lnRecvPoll); lnRecvPoll = null } }
-// Let SwapView register a freshly-created swap's invoice hash immediately, so the
-// receive poller never toasts for it even if it sees the hash before the swap
-// poller does.
-if (typeof window !== 'undefined') window.__registerSwapHash = (h) => { if (h) _swapHashes.add(h) }
 
 // ── Global BitMail tamper check ───────────────────────────────────────────────
 // Runs app-wide so a hijacked BitMail (DNS repointed to a different SP address)
@@ -593,7 +500,6 @@ onBeforeUnmount(() => {
   stopSwapPolling()
   stopBitmailChecks()
   stopSendWatch()
-  stopLnReceiveWatch()
   stopScanWatch()
   stopPayjoinWatch()
   stopTangoWatch()

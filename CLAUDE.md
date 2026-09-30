@@ -76,20 +76,31 @@ npm run build:signet        # web app
 npm run check:signing       # both on-device signers vs the Python
 npm run check:update        # what the update path offers, vs a real release
 npm run check:contacts      # a stale saved address is visible and fixable
-npm run check:lightning     # one LN flag, and nothing LN on a build without it
 cd ../siLNt && python3 -m pytest tests/ -q
 ```
 
-`check:lightning` exists because the two clients had two different Lightning
-flags — a hardcoded `false` in `src/theme.ts` and
-`NETWORK_LOCK === 'regtest'` in `App.vue` — so they disagreed about what turned
-Lightning on and neither could be on for signet. There is now one name,
-`LIGHTNING_ENABLED` / `VITE_LIGHTNING_ENABLED`, set per flavour in `.env.*`.
-Two readers remain because `import.meta.env` does not exist under Babel and
-`react-native-config` does not exist under Vite; the name and the files do not.
-It is a build flag and not a network check: whether Lightning works is a fact
-about the LNbits instance a build points at. **Mainnet is off** until somebody
-turns it on deliberately, which is the thing that check is really guarding.
+## WhiSPa is not a Lightning wallet
+
+There is no LN balance, no bolt11 to receive, no invoice to pay, and no
+`LIGHTNING_ENABLED` flag. That surface existed, gated off, and was removed on
+2026-09-30 rather than finished: a Silent Payments wallet that also keeps a
+custodial Lightning balance is two products, and the second one is somebody
+else's.
+
+Lightning has exactly one place here, and it is not a wallet. A Tango round
+leaves a change output, which is the strongest remaining linkability problem
+in the protocol — its value is fixed by the round's arithmetic, so spending it
+later identifies which of the two identical shares were yours. A user may give
+a **Lightning address** for that change to be sent to instead, minus a service
+fee; the output itself goes to the instance's SP address. Their money leaves
+over somebody else's network to an account this app never touches.
+
+So: `helpers/tangopayout.py` and the Tango payout path are Lightning. Anything
+that would give a user a balance here is not.
+
+Swaps are unaffected — Boltz creates its invoice against an LNbits wallet the
+account already has, through `getLnbitsWallets`, and never used the payment
+API that went.
 
 `lint` is two rules, not a style pass: `react-hooks/exhaustive-deps` and
 `rules-of-hooks`. It had no config at all until 2026-09-24 and so had never

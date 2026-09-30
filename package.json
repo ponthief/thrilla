@@ -36,8 +36,7 @@
     "check:signing:coins": "node scripts/check-tango-coins.cjs",
     "check:signing:display": "node --experimental-strip-types scripts/check-tango-display.mjs",
     "check:signing:chains": "node --experimental-strip-types scripts/check-chain-guard.mjs",
-    "check:contacts": "node scripts/check-contact-staleness.cjs",
-    "check:lightning": "node scripts/check-lightning-flag.cjs"
+    "check:contacts": "node scripts/check-contact-staleness.cjs"
   },
   "dependencies": {
     "@capacitor-mlkit/barcode-scanning": "^6.0.0",

@@ -22,13 +22,12 @@ import PlainAddressCard from '../components/PlainAddressCard';
 import ScanPanel from './ScanScreen';
 import { useNavStore } from '@stores/navStore';
 import { useSilntWallet } from '../hooks/useSilntWallet';
-import { colors, LIGHTNING_ENABLED } from '@/theme';
+import { colors } from '@/theme';
 
 const PRIMARY = colors.primary;
 const GREEN = colors.green;
 const POLL_INTERVAL_MS = 3000;
 
-type Mode = 'lightning' | 'onchain';
 
 // Middle-truncate long strings (invoices, addresses) for display.
 function truncateMiddle(s: string, head = 14, tail = 10): string {
@@ -147,42 +146,17 @@ function PlainReceive() {
   );
 }
 
-// The "get paid" side: your reusable Silent Payments address (plus an invoice
-// generator if Lightning is ever enabled).
+// The "get paid" side: your reusable Silent Payments address.
 function AddressReceive({ onScan }: { onScan: () => void }) {
-  const [mode, setMode] = useState<Mode>(
-    LIGHTNING_ENABLED ? 'lightning' : 'onchain',
-  );
-
   return (
     <KeyboardAvoidingView
       style={styles.flex}
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-      {LIGHTNING_ENABLED ? (
-        <View style={styles.subSegmentWrap}>
-          <View style={styles.segment}>
-            <SegmentButton
-              label="Lightning"
-              active={mode === 'lightning'}
-              onPress={() => setMode('lightning')}
-            />
-            <SegmentButton
-              label="On-chain"
-              active={mode === 'onchain'}
-              onPress={() => setMode('onchain')}
-            />
-          </View>
-        </View>
-      ) : null}
       <ScrollView
         style={styles.flex}
         contentContainerStyle={styles.content}
         keyboardShouldPersistTaps="handled">
-        {LIGHTNING_ENABLED && mode === 'lightning' ? (
-          <LightningReceive />
-        ) : (
-          <OnchainReceive onScan={onScan} />
-        )}
+        <OnchainReceive onScan={onScan} />
       </ScrollView>
     </KeyboardAvoidingView>
   );
@@ -246,169 +220,6 @@ function ShareButton({ value }: { value: string }) {
   );
 }
 
-// ── Lightning ────────────────────────────────────────────────────────────────
-function LightningReceive() {
-  const inkey = useAuthStore((s) => s.inkey);
-
-  const [amount, setAmount] = useState('');
-  const [memo, setMemo] = useState('');
-  const [creating, setCreating] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  const [invoice, setInvoice] = useState('');
-  const [hash, setHash] = useState('');
-  const [paid, setPaid] = useState(false);
-
-  const pollTimer = useRef<ReturnType<typeof setInterval> | null>(null);
-
-  const stopPolling = useCallback(() => {
-    if (pollTimer.current) {
-      clearInterval(pollTimer.current);
-      pollTimer.current = null;
-    }
-  }, []);
-
-  // Clean up the poller if the component unmounts while an invoice is pending.
-  useEffect(() => stopPolling, [stopPolling]);
-
-  const startPolling = useCallback(
-    (paymentHash: string) => {
-      stopPolling();
-      pollTimer.current = setInterval(async () => {
-        if (!inkey) return;
-        try {
-          const st = await api.lnPaymentStatus(inkey, paymentHash);
-          if (st.paid) {
-            setPaid(true);
-            stopPolling();
-          }
-        } catch {
-          /* transient — keep polling */
-        }
-      }, POLL_INTERVAL_MS);
-    },
-    [inkey, stopPolling],
-  );
-
-  const onCreate = useCallback(async () => {
-    Keyboard.dismiss();
-    setError(null);
-    const amt = Number(amount);
-    if (!Number.isFinite(amt) || amt <= 0) {
-      setError('Enter an amount in sats.');
-      return;
-    }
-    if (!inkey) {
-      setError('Not logged in.');
-      return;
-    }
-    setCreating(true);
-    setPaid(false);
-    setInvoice('');
-    try {
-      const res = await api.lnCreateInvoice(inkey, { amount: Math.floor(amt), memo });
-      const bolt11 = res.bolt11 || res.payment_request || '';
-      if (!bolt11 || !res.payment_hash) {
-        throw new Error('Invoice created but no bolt11 was returned.');
-      }
-      setInvoice(bolt11);
-      setHash(res.payment_hash);
-      startPolling(res.payment_hash);
-    } catch (e: any) {
-      setError(e?.message || 'Could not create invoice.');
-    } finally {
-      setCreating(false);
-    }
-  }, [amount, memo, inkey, startPolling]);
-
-  const reset = useCallback(() => {
-    stopPolling();
-    setInvoice('');
-    setHash('');
-    setPaid(false);
-    setAmount('');
-    setMemo('');
-    setError(null);
-  }, [stopPolling]);
-
-  // Paid confirmation.
-  if (paid) {
-    return (
-      <View style={styles.card}>
-        <Text style={styles.paidIcon}>✓</Text>
-        <Text style={styles.paidTitle}>Payment received</Text>
-        {amount ? (
-          <Text style={styles.paidSub}>{groupThousands(Number(amount))} sats</Text>
-        ) : null}
-        <TouchableOpacity style={styles.primaryBtn} onPress={reset}>
-          <Text style={styles.primaryBtnText}>New invoice</Text>
-        </TouchableOpacity>
-      </View>
-    );
-  }
-
-  // Generated invoice — show QR + actions, wait for payment.
-  if (invoice) {
-    return (
-      <View style={styles.card}>
-        <QRCode value={invoice} size={240} />
-        <View style={styles.pendingRow}>
-          <ActivityIndicator size="small" color={PRIMARY} />
-          <Text style={styles.pendingText}>Waiting for payment…</Text>
-        </View>
-        <Text style={styles.mono}>{truncateMiddle(invoice, 18, 12)}</Text>
-        <View style={styles.actionRow}>
-          <CopyButton value={invoice} label="Copy invoice" />
-          <ShareButton value={invoice} />
-        </View>
-        <TouchableOpacity style={styles.linkBtn} onPress={reset}>
-          <Text style={styles.linkBtnText}>Cancel</Text>
-        </TouchableOpacity>
-      </View>
-    );
-  }
-
-  // Invoice form.
-  return (
-    <View style={styles.card}>
-      <Text style={styles.label}>Amount (sats)</Text>
-      <TextInput
-        style={styles.input}
-        value={amount}
-        onChangeText={(t) => setAmount(t.replace(/[^0-9]/g, ''))}
-        keyboardType="number-pad"
-        placeholder="0"
-        placeholderTextColor={colors.faint}
-        returnKeyType="done"
-      />
-      <Text style={styles.label}>Memo (optional)</Text>
-      <TextInput
-        style={styles.input}
-        value={memo}
-        onChangeText={setMemo}
-        placeholder="What's it for?"
-        placeholderTextColor={colors.faint}
-        maxLength={120}
-        returnKeyType="done"
-      />
-
-      {error ? <Text style={styles.error}>{error}</Text> : null}
-
-      <TouchableOpacity
-        style={[styles.primaryBtn, creating && styles.btnDisabled]}
-        onPress={onCreate}
-        disabled={creating}>
-        {creating ? (
-          <ActivityIndicator color={colors.onPrimary} />
-        ) : (
-          <Text style={styles.primaryBtnText}>Create Invoice</Text>
-        )}
-      </TouchableOpacity>
-    </View>
-  );
-}
-
-// ── On-chain (Silent Payments) ───────────────────────────────────────────────
 function OnchainReceive({ onScan }: { onScan: () => void }) {
   const { wallet, loading, error, missing, reload: load } = useSilntWallet();
 

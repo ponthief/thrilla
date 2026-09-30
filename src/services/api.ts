@@ -15,28 +15,6 @@ export interface LnbitsWallet {
   balance_msat?: number;
 }
 
-export interface WalletInfo {
-  id?: string;
-  name: string;
-  balance: number; // millisatoshis
-}
-
-// A bolt11 invoice as returned by LNbits POST /api/v1/payments (out:false).
-export interface Invoice {
-  payment_hash: string;
-  // Older/newer LNbits builds use different field names for the bolt11 string.
-  bolt11?: string;
-  payment_request?: string;
-  checking_id?: string;
-}
-
-// A single payment's status (LNbits GET /api/v1/payments/{hash}).
-export interface PaymentStatus {
-  paid: boolean;
-  preimage?: string;
-  details?: unknown;
-}
-
 // A Silent-Payments wallet as returned by the siLNt extension
 // (GET /siLNt/api/v1/wallet). Carries the static receive address.
 export interface SilntWallet {
@@ -425,111 +403,9 @@ export async function sendInvite(
   });
 }
 
-// ── Lightning wallet ────────────────────────────────────────────────────────
-// Current LN balance (in millisatoshis) + wallet name. Uses inkey (read).
-export async function lnGetWallet(inkey: string): Promise<WalletInfo> {
-  return req('/api/v1/wallet', { headers: apiKey(inkey) });
-}
-
 // BTC/USD rate via the siLNt backend. Returns { rate } (0 if unavailable).
 export async function getUsdRate(inkey: string): Promise<{ rate: number }> {
   return req(`${SILNT}/api/v1/rate/usd`, { headers: apiKey(inkey) });
-}
-
-// ── Receive: Lightning ──────────────────────────────────────────────────────
-// Create an incoming bolt11 invoice. Uses inkey (invoice key can receive).
-// `amount` is in sats; `expiry` in seconds.
-export async function lnCreateInvoice(
-  inkey: string,
-  { amount, memo = '', expiry = 3600 }: { amount: number; memo?: string; expiry?: number },
-): Promise<Invoice> {
-  return req('/api/v1/payments', {
-    method: 'POST',
-    headers: apiKey(inkey),
-    body: JSON.stringify({ out: false, amount, memo, expiry }),
-  });
-}
-
-// A Lightning payment as listed by LNbits core. `amount` is msat, signed
-// (negative = outgoing). Field names vary a little across LNbits versions, so
-// the optional fields are handled defensively by the caller.
-export interface LnPayment {
-  payment_hash?: string;
-  checking_id?: string;
-  amount?: number; // msat, signed
-  fee?: number;
-  memo?: string;
-  time?: number | string;
-  pending?: boolean;
-  status?: string;
-  bolt11?: string;
-}
-
-// Lightning payment history (most recent first). Uses inkey. Some LNbits builds
-// return a bare array, others { data: [...] } — unwrap to an array either way.
-export async function lnListPayments(
-  inkey: string,
-  limit = 25,
-): Promise<LnPayment[]> {
-  const res = await req<any>(`/api/v1/payments?limit=${limit}`, {
-    headers: apiKey(inkey),
-  });
-  return Array.isArray(res) ? res : res?.data ?? [];
-}
-
-// Poll a single payment by hash to see whether it has been paid. Uses inkey.
-export async function lnPaymentStatus(
-  inkey: string,
-  paymentHash: string,
-): Promise<PaymentStatus> {
-  return req(`/api/v1/payments/${encodeURIComponent(paymentHash)}`, {
-    headers: apiKey(inkey),
-  });
-}
-
-// ── Send: Lightning ─────────────────────────────────────────────────────────
-//
-// The phone could receive over Lightning and never spend, which was survivable
-// while the LN balance only ever arrived from a swap the user started. It stops
-// being survivable once a Tango's change is credited there: a balance the
-// wallet puts in your account and gives you no way to move is not a balance.
-//
-// Mirrors src/api/index.js::lnDecodeInvoice / lnPayInvoice on the web.
-
-// What a bolt11 says, so the amount and the memo can be shown before anything
-// is paid. `amount_msat` is what the payee asked for; a zero-amount invoice
-// leaves it 0, and LNbits will not let us choose, so those are refused.
-export interface DecodedInvoice {
-  payment_hash?: string;
-  amount_msat?: number;
-  description?: string;
-  date?: number;
-  expiry?: number;
-  payee?: string;
-}
-
-export async function lnDecodeInvoice(
-  inkey: string,
-  bolt11: string,
-): Promise<DecodedInvoice> {
-  return req('/api/v1/payments/decode', {
-    method: 'POST',
-    headers: apiKey(inkey),
-    body: JSON.stringify({ data: bolt11 }),
-  });
-}
-
-// Pay a bolt11. ADMIN KEY, not the invoice key: creating an invoice asks to be
-// paid, and this one spends.
-export async function lnPayInvoice(
-  adminkey: string,
-  bolt11: string,
-): Promise<{ payment_hash?: string; checking_id?: string }> {
-  return req('/api/v1/payments', {
-    method: 'POST',
-    headers: apiKey(adminkey),
-    body: JSON.stringify({ out: true, bolt11 }),
-  });
 }
 
 // ── Receive: on-chain (Silent Payments) ─────────────────────────────────────

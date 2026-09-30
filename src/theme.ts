@@ -1,24 +1,3 @@
-import Config from 'react-native-config';
-
-// Feature flags.
-//
-// Lightning: the LNbits wallet every WhiSPa account already has — its balance
-// on the Wallet tab, a bolt11 invoice on Receive, and paying one on Send.
-//
-// ONE FLAG, TWO READERS. This used to be a hardcoded `false` here while the
-// web app derived its own from `NETWORK_LOCK === 'regtest'`, so the two
-// clients disagreed about what Lightning even was and neither could be turned
-// on for signet — where the work that needs it is being tested. The name and
-// the .env.* files are now shared with the web app's
-// VITE_LIGHTNING_ENABLED; only the reader differs, because
-// `import.meta.env` does not exist under Babel and `react-native-config`
-// does not exist under Vite. Same arrangement as TANGO_ENABLED.
-//
-// A build flag, not a network check: whether Lightning works is a fact about
-// the LNbits instance this build points at, and the network lock does not
-// know it.
-export const LIGHTNING_ENABLED = Config.LIGHTNING_ENABLED === 'true';
-
 // Device-trust (email 2FA) for the native app. When enabled, every API request
 // carries `X-Thrilla-Client: 1`, which activates the backend's device-trust gate
 // (helpers/device_auth.py). A device must be confirmed with a 6-digit email code
