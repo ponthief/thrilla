@@ -75,8 +75,21 @@ npm run lint                # stale hook closures (see below)
 npm run build:signet        # web app
 npm run check:signing       # both on-device signers vs the Python
 npm run check:update        # what the update path offers, vs a real release
+npm run check:contacts      # a stale saved address is visible and fixable
+npm run check:lightning     # one LN flag, and nothing LN on a build without it
 cd ../siLNt && python3 -m pytest tests/ -q
 ```
+
+`check:lightning` exists because the two clients had two different Lightning
+flags — a hardcoded `false` in `src/theme.ts` and
+`NETWORK_LOCK === 'regtest'` in `App.vue` — so they disagreed about what turned
+Lightning on and neither could be on for signet. There is now one name,
+`LIGHTNING_ENABLED` / `VITE_LIGHTNING_ENABLED`, set per flavour in `.env.*`.
+Two readers remain because `import.meta.env` does not exist under Babel and
+`react-native-config` does not exist under Vite; the name and the files do not.
+It is a build flag and not a network check: whether Lightning works is a fact
+about the LNbits instance a build points at. **Mainnet is off** until somebody
+turns it on deliberately, which is the thing that check is really guarding.
 
 `lint` is two rules, not a style pass: `react-hooks/exhaustive-deps` and
 `rules-of-hooks`. It had no config at all until 2026-09-24 and so had never

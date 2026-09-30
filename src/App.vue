@@ -39,8 +39,15 @@ const NETWORK_LOCK = import.meta.env.VITE_NETWORK_LOCK || null
 // Swaps require a Boltz backend, which only exists on regtest and mainnet
 // (there is no Boltz signet). Show the Swap tab only where it can actually work.
 const SWAP_ENABLED = NETWORK_LOCK === 'regtest' || NETWORK_LOCK === 'mainnet'
-// Lightning (Boltz-backed) is only wired for regtest — off on signet/mainnet.
-const LIGHTNING_ENABLED = NETWORK_LOCK === 'regtest'
+// Lightning: the LNbits wallet every WhiSPa account already has. Was derived
+// from `NETWORK_LOCK === 'regtest'`, which meant it could not be turned on for
+// signet — where the work that needs it is being tested — and disagreed with
+// the phone's own hardcoded flag about what Lightning was. Now a build flag
+// under one name both clients read (src/theme.ts has the phone's reader), and
+// set per flavour in .env.*: whether Lightning works is a fact about the
+// LNbits instance a build points at, which the network lock does not know.
+// Set VITE_LIGHTNING_ENABLED=true to show it.
+const LIGHTNING_ENABLED = import.meta.env.VITE_LIGHTNING_ENABLED === 'true'
 // PayJoin (imported BIP-84 watch-only + external Sparrow signing) is a feature
 // toggle, default OFF. Works on any network, so it's gated by an explicit build
 // flag rather than the network lock. Set VITE_PAYJOIN_ENABLED=true to show it.

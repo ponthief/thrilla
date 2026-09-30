@@ -487,6 +487,51 @@ export async function lnPaymentStatus(
   });
 }
 
+// ── Send: Lightning ─────────────────────────────────────────────────────────
+//
+// The phone could receive over Lightning and never spend, which was survivable
+// while the LN balance only ever arrived from a swap the user started. It stops
+// being survivable once a Tango's change is credited there: a balance the
+// wallet puts in your account and gives you no way to move is not a balance.
+//
+// Mirrors src/api/index.js::lnDecodeInvoice / lnPayInvoice on the web.
+
+// What a bolt11 says, so the amount and the memo can be shown before anything
+// is paid. `amount_msat` is what the payee asked for; a zero-amount invoice
+// leaves it 0, and LNbits will not let us choose, so those are refused.
+export interface DecodedInvoice {
+  payment_hash?: string;
+  amount_msat?: number;
+  description?: string;
+  date?: number;
+  expiry?: number;
+  payee?: string;
+}
+
+export async function lnDecodeInvoice(
+  inkey: string,
+  bolt11: string,
+): Promise<DecodedInvoice> {
+  return req('/api/v1/payments/decode', {
+    method: 'POST',
+    headers: apiKey(inkey),
+    body: JSON.stringify({ data: bolt11 }),
+  });
+}
+
+// Pay a bolt11. ADMIN KEY, not the invoice key: creating an invoice asks to be
+// paid, and this one spends.
+export async function lnPayInvoice(
+  adminkey: string,
+  bolt11: string,
+): Promise<{ payment_hash?: string; checking_id?: string }> {
+  return req('/api/v1/payments', {
+    method: 'POST',
+    headers: apiKey(adminkey),
+    body: JSON.stringify({ out: true, bolt11 }),
+  });
+}
+
 // ── Receive: on-chain (Silent Payments) ─────────────────────────────────────
 // Fetch the account's Silent-Payments wallets from the siLNt extension. The
 // returned records carry the static `sp_address` used to receive on-chain.

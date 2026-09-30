@@ -69,10 +69,10 @@ router.beforeEach((to) => {
     const lock = import.meta.env.VITE_NETWORK_LOCK || null
     if (lock !== 'regtest' && lock !== 'mainnet') return { name: 'wallets' }
   }
-  // Lightning is wired for regtest only — block direct nav elsewhere.
+  // Lightning is behind a build flag — block direct nav when it is off, or the
+  // hidden nav item is only hidden and the URL still works.
   if (to.name === 'lightning') {
-    const lock = import.meta.env.VITE_NETWORK_LOCK || null
-    if (lock !== 'regtest') return { name: 'wallets' }
+    if (import.meta.env.VITE_LIGHTNING_ENABLED !== 'true') return { name: 'wallets' }
   }
   // PayJoin is behind an explicit build flag (default off). It is the PSBT
   // flavour: descriptors, P2WPKH and an external signer, which is why it is

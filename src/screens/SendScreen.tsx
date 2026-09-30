@@ -31,9 +31,10 @@ import { usePendingSends } from '@stores/pendingSends';
 import { useTxLabelStore } from '@stores/txLabelStore';
 import { markScanStarted } from '@services/scanCooldown';
 import { parseScannedAddress } from '@services/addressUri';
-import { colors } from '@/theme';
+import { colors, LIGHTNING_ENABLED } from '@/theme';
 import QRScanner from '../components/QRScanner';
 import ContactsModal from '../components/ContactsModal';
+import LightningSend from '../components/LightningSend';
 import ConfirmLockModal from '../components/ConfirmLockModal';
 import {
   buildSignedTx,
@@ -112,7 +113,68 @@ function estimateFee(
 // screen uses to flag a received output as a suspected dust attack.
 const DUST_SATS = 546;
 
+type SendMode = 'onchain' | 'lightning';
+
+/**
+ * On-chain or Lightning, when the LN wallet is turned on for this build.
+ *
+ * A thin wrapper rather than a mode inside OnchainSend: the on-chain flow's
+ * first act is to load a Silent Payments wallet and show "no wallet on this
+ * network" when there is none, and a Lightning balance does not depend on one.
+ * Deciding above that check is what lets an account with no SP wallet still
+ * spend what a Tango credited it.
+ *
+ * With the flag off this renders exactly what it always did, top inset and
+ * all — nothing new appears on a build that has no Lightning.
+ */
 export default function SendScreen() {
+  const [mode, setMode] = useState<SendMode>('onchain');
+  if (!LIGHTNING_ENABLED) return <OnchainSend safeTop />;
+  return (
+    <SafeAreaView style={styles.container} edges={['top']}>
+      <View style={styles.modeSegment}>
+        <ModeButton
+          label="On-chain"
+          active={mode === 'onchain'}
+          onPress={() => setMode('onchain')}
+        />
+        <ModeButton
+          label="Lightning"
+          active={mode === 'lightning'}
+          onPress={() => setMode('lightning')}
+        />
+      </View>
+      {mode === 'lightning' ? <LightningSend /> : <OnchainSend />}
+    </SafeAreaView>
+  );
+}
+
+// Presentational, and a fourth copy of this shape in the app — Wallet, Receive
+// and Tango each have their own. Pulling them into one component is worth
+// doing, and is not worth doing inside a change about Lightning.
+function ModeButton({
+  label,
+  active,
+  onPress,
+}: {
+  label: string;
+  active: boolean;
+  onPress: () => void;
+}) {
+  return (
+    <TouchableOpacity
+      style={[styles.modeBtn, active && styles.modeBtnOn]}
+      onPress={onPress}
+      accessibilityRole="button"
+      accessibilityState={{ selected: active }}>
+      <Text style={[styles.modeBtnText, active && styles.modeBtnTextOn]}>
+        {label}
+      </Text>
+    </TouchableOpacity>
+  );
+}
+
+function OnchainSend({ safeTop = false }: { safeTop?: boolean }) {
   const inkey = useAuthStore((s) => s.inkey);
   const adminkey = useAuthStore((s) => s.adminkey);
   // When an app lock (PIN or biometric) is on, re-authenticate before sending.
@@ -810,7 +872,7 @@ export default function SendScreen() {
   // ── Render ────────────────────────────────────────────────────────────────
   if (loading) {
     return (
-      <SafeAreaView style={styles.container} edges={['top']}>
+      <SafeAreaView style={styles.container} edges={safeTop ? ['top'] : []}>
         <View style={styles.center}>
           <ActivityIndicator color={PRIMARY} />
         </View>
@@ -820,7 +882,7 @@ export default function SendScreen() {
 
   if (missing) {
     return (
-      <SafeAreaView style={styles.container} edges={['top']}>
+      <SafeAreaView style={styles.container} edges={safeTop ? ['top'] : []}>
         <View style={styles.center}>
           <Text style={styles.info}>
             No Silent Payments wallet on this network. Create one on the Wallet
@@ -833,7 +895,7 @@ export default function SendScreen() {
 
   if (loadError) {
     return (
-      <SafeAreaView style={styles.container} edges={['top']}>
+      <SafeAreaView style={styles.container} edges={safeTop ? ['top'] : []}>
         <View style={styles.center}>
           <Text style={styles.error}>{loadError}</Text>
           <TouchableOpacity style={styles.primaryBtn} onPress={() => load()}>
@@ -846,7 +908,7 @@ export default function SendScreen() {
 
   if (step === 'done') {
     return (
-      <SafeAreaView style={styles.container} edges={['top']}>
+      <SafeAreaView style={styles.container} edges={safeTop ? ['top'] : []}>
         <View style={styles.center}>
           <Text style={styles.doneIcon}>✓</Text>
           <Text style={styles.doneTitle}>Transaction broadcast</Text>
@@ -873,7 +935,7 @@ export default function SendScreen() {
   if (step === 'review' && built) {
     const total = amountSats + (built.fee || 0);
     return (
-      <SafeAreaView style={styles.container} edges={['top']}>
+      <SafeAreaView style={styles.container} edges={safeTop ? ['top'] : []}>
         <ScrollView contentContainerStyle={styles.content}>
           <Text style={styles.header}>Review</Text>
           <View style={styles.card}>
@@ -925,7 +987,7 @@ export default function SendScreen() {
 
   // step === 'form'
   return (
-    <SafeAreaView style={styles.container} edges={['top']}>
+    <SafeAreaView style={styles.container} edges={safeTop ? ['top'] : []}>
       <KeyboardAvoidingView
         style={styles.flex}
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
@@ -1381,6 +1443,23 @@ function SummaryRow({ label, value }: { label: string; value: string }) {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.bg },
+  modeSegment: {
+    flexDirection: 'row',
+    gap: 8,
+    paddingHorizontal: 16,
+    paddingTop: 12,
+  },
+  modeBtn: {
+    flex: 1,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: 8,
+    paddingVertical: 9,
+    alignItems: 'center',
+  },
+  modeBtnOn: { borderColor: colors.primary, backgroundColor: colors.surface },
+  modeBtnText: { fontSize: 13, fontWeight: '600', color: colors.muted },
+  modeBtnTextOn: { color: colors.primary },
   flex: { flex: 1 },
   center: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 24 },
   content: { padding: 16 },
