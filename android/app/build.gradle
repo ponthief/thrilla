@@ -23,7 +23,10 @@ apply from: project(':react-native-config').projectDir.getPath() + "/dotenv.grad
 // Diagnostic: prints the network config actually baked into this build. Look for
 // this line (and react-native-config's "Reading env from: …") in the Gradle log
 // to confirm you built the flavor you intended.
-println "🔧 Thrilla build config → NETWORK_LOCK=${project.env?.NETWORK_LOCK}  LNBITS_URL=${project.env?.LNBITS_URL}"
+// LIGHTNING_ENABLED is here because it is the one flag a CI run can override
+// per build (see .github/workflows/build-android.yml), and an APK you are
+// holding gives no other way to tell which way it was baked.
+println "🔧 Thrilla build config → NETWORK_LOCK=${project.env?.NETWORK_LOCK}  LNBITS_URL=${project.env?.LNBITS_URL}  LIGHTNING_ENABLED=${project.env?.LIGHTNING_ENABLED}"
 
 // ── the app version, read from the repo rather than repeated here ────────────
 //
