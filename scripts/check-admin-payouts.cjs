@@ -91,6 +91,29 @@ console.log('\nand the API is admin-scoped');
   }
 }
 
+console.log('\nliquidity is shown, and shown as the reason the feature stops');
+{
+  // An undelivered payout is almost always this, and when the floor is
+  // breached the feature has already stopped being offered to users — the
+  // operator needs to be told why rather than discover it.
+  ok('the balance is shown', /liquidity\.balance_sats/.test(ADMIN));
+  ok('and what is already owed against it', /liquidity\.owed_sats/.test(ADMIN));
+  ok('and what is therefore available', /liquidity\.available_sats/.test(ADMIN));
+  ok('and the floor it is measured against', /liquidity\.threshold_sats/.test(ADMIN));
+  // A raw balance would be the wrong measure, so the page says what
+  // "available" means rather than leaving an operator to assume.
+  ok('it explains that owed is subtracted', /already owed/.test(ADMIN));
+  ok('a breach reads as a warning, not a statistic',
+    /alert-warn/.test(ADMIN) && /not being offered to users/.test(ADMIN));
+  ok('it says rounds already routed still get paid',
+    /keep retrying/.test(ADMIN),
+    'otherwise a breach looks like money lost rather than money delayed');
+  ok('the threshold is editable',
+    /config\.tango_change_min_wallet_balance_sats/.test(ADMIN));
+  ok('and the field says users are not told the number',
+    /not told the number/.test(ADMIN));
+}
+
 console.log('');
 if (failures) {
   console.log(`${failures} check(s) failed`);

@@ -20,7 +20,8 @@ const config  = ref({ blindbit_url: '', mempool_url: 'https://mempool.space', ex
   tango_change_payout_enabled: false, tango_change_sp_address: '',
   tango_change_scan_secret: '', tango_change_payout_wallet_id: '',
   tango_change_fee_pct: 0.005, tango_change_fee_floor_sats: 100,
-  tango_change_min_confirmations: 3 })
+  tango_change_min_confirmations: 3,
+  tango_change_min_wallet_balance_sats: 10000 })
 
 // The LNbits wallets this admin can pay out from. The change payout needs a
 // wallet with real outbound Lightning liquidity; only its ID is stored, and
@@ -60,6 +61,10 @@ async function generateChangeAddress() {
 // undelivered payout is a debt and is shown as one.
 const payouts       = ref([])
 const payoutTotals  = ref(null)
+// Balance, what is already owed against it, and whether the operator's
+// floor is still clear. An operator looking at a stuck payout is usually
+// looking at this.
+const liquidity     = ref(null)
 const payoutFilter  = ref('')          // '' = all statuses
 const payoutsLoading = ref(false)
 const payoutsError  = ref('')
@@ -73,6 +78,7 @@ async function loadPayouts() {
     })
     payouts.value = res.payouts || []
     payoutTotals.value = res.totals || null
+    liquidity.value = res.liquidity || null
   } catch (e) {
     payoutsError.value = e.detail || e.message || 'Could not load payouts.'
   } finally {
@@ -631,6 +637,18 @@ onBeforeUnmount(() => {
               carry is impossible by construction.
             </p>
             <div class="field">
+              <label>Stop offering below (sats available)</label>
+              <input class="input" v-model.number="config.tango_change_min_wallet_balance_sats"
+                     type="number" min="0" placeholder="10000" style="max-width:200px" />
+              <span class="text-dim text-xs">
+                Available means the payout wallet's balance <em>minus what is
+                already owed</em> on payouts not yet delivered — a wallet
+                holding 100,000 with 90,000 owed can cover one more payout of
+                10,000 and not of 20,000. Below this, users stop being offered
+                the setting and an ntfy fires. They are not told the number.
+              </span>
+            </div>
+            <div class="field">
               <label>Confirmations before paying out</label>
               <input class="input" v-model.number="config.tango_change_min_confirmations"
                      type="number" min="1" placeholder="3" style="max-width:160px" />
@@ -664,6 +682,37 @@ onBeforeUnmount(() => {
             </button>
           </div>
           <div class="card-body">
+            <!-- Liquidity first: an undelivered payout is almost always this.
+                 Shown as an alert when the floor is breached, because at that
+                 point the feature has stopped being offered to users and the
+                 operator needs to know why rather than discover it. -->
+            <div v-if="liquidity" class="alert"
+                 :class="liquidity.ok ? 'alert-info' : 'alert-warn'"
+                 style="margin-bottom:14px">
+              <strong>
+                {{ liquidity.ok
+                  ? '⚡ Payout wallet can cover new payouts'
+                  : '⚠ Payout wallet below the floor — not being offered to users' }}
+              </strong>
+              <div class="text-sm" style="margin-top:4px">
+                <template v-if="liquidity.balance_sats === null">
+                  {{ liquidity.reason }}
+                </template>
+                <template v-else>
+                  {{ fmtSats(liquidity.balance_sats) }} balance −
+                  {{ fmtSats(liquidity.owed_sats) }} already owed =
+                  <strong>{{ fmtSats(liquidity.available_sats) }} available</strong>,
+                  against a {{ fmtSats(liquidity.threshold_sats) }} sat floor.
+                </template>
+              </div>
+              <div v-if="!liquidity.ok" class="text-xs" style="margin-top:6px">
+                Top the wallet up, or lower the floor in System Config. Rounds
+                already routed are unaffected — their payouts keep retrying
+                and will go out once there is balance. An ntfy was sent when
+                this crossed, and another will be sent when it recovers.
+              </div>
+            </div>
+
             <div v-if="payoutTotals" class="payout-totals">
               <div class="payout-stat">
                 <span class="payout-stat-label">Service fees earned</span>
