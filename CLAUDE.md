@@ -77,6 +77,7 @@ npm run check:signing       # both on-device signers vs the Python
 npm run check:update        # what the update path offers, vs a real release
 npm run check:contacts      # a stale saved address is visible and fixable
 npm run check:payout        # the Tango change payout says what it takes
+npm run check:vue           # a .vue file importing what it calls
 cd ../siLNt && python3 -m pytest tests/ -q
 ```
 
@@ -113,6 +114,17 @@ would have the instance paying real sats for faucet coins.
 Swaps are unaffected — Boltz creates its invoice against an LNbits wallet the
 account already has, through `getLnbitsWallets`, and never used the payment
 API that went.
+
+`lint` does NOT cover `.vue` — it is `--ext .ts,.tsx`, and
+`eslint-plugin-vue` is not installed — and `vite build` compiles an SFC
+without resolving the identifiers in it. So a `<script setup>` calling
+`computed()` without importing it builds clean and dies at runtime with
+"computed is not defined". That shipped to the admin portal's System Settings
+page on 2026-10-01: the build passed and the page was dead on arrival.
+`check:vue` is the narrow replacement — it knows the names that come from
+'vue' and checks a file calling one imports it. Not a general
+undefined-variable check, which would need real scope analysis to avoid
+crying wolf.
 
 `lint` is two rules, not a style pass: `react-hooks/exhaustive-deps` and
 `rules-of-hooks`. It had no config at all until 2026-09-24 and so had never
