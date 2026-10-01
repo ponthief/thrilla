@@ -12,9 +12,9 @@
 // service instead, with its value sent on. WhiSPa holds no Lightning balance
 // — this money goes to an account the app never touches.
 //
-// IT SAYS THE COIN STOPS BEING YOURS, in those words, before it is switched
-// on. That is the part nobody would guess from "send my change over
-// Lightning", and it is not something to discover after a round.
+// IT SAYS WHEN, before the field rather than after a round: the change goes
+// out once the round's transaction confirms, not when the address is saved.
+// That gap is what makes a payout look lost when it is only pending.
 //
 // ONE PLACE: the Tango screen. It was briefly in Settings as well, which made
 // the same switch answerable from two screens with no way to tell which one
@@ -43,8 +43,8 @@ import {
 import * as api from '@services/api';
 import {
   LN_ADDRESS_EXAMPLE,
-  PAYOUT_CONSENT,
   PAYOUT_PROMPT,
+  PAYOUT_WHEN,
   PAYOUT_TITLE,
   PAYOUT_WHY,
   lnAddressProblem,
@@ -179,7 +179,7 @@ export default function TangoPayoutCard({
       ) : (
         <>
           <Text style={styles.body}>{PAYOUT_WHY}</Text>
-          <Text style={styles.consent}>{PAYOUT_CONSENT}</Text>
+          <Text style={styles.when}>{PAYOUT_WHEN}</Text>
           <Text style={styles.muted}>
             {payoutMinimumNote(setting.min_change_sats)}
           </Text>
@@ -291,7 +291,7 @@ const styles = StyleSheet.create({
   },
   title: { fontSize: 15, fontWeight: '600', color: colors.text },
   body: { fontSize: 13, color: colors.muted, lineHeight: 18, marginTop: 6 },
-  consent: { fontSize: 13, color: colors.warn, lineHeight: 18, marginTop: 8 },
+  when: { fontSize: 13, color: colors.muted, lineHeight: 18, marginTop: 8 },
   muted: { fontSize: 12, color: colors.faint, lineHeight: 17, marginTop: 8 },
   input: {
     borderWidth: 1,

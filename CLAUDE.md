@@ -102,9 +102,10 @@ So: `helpers/tangopayout.py`, `helpers/lnaddress.py` and the Tango payout path
 are Lightning. Anything that would give a user a balance here is not.
 
 `check:payout` holds that one setting to five things, each of which has a way
-of going wrong quietly. The **consent line** — "send my change over Lightning"
-does not tell anyone the coin stops being theirs, which is the part nobody
-would guess — must be rendered before the input, not after it. The
+of going wrong quietly. It must say **when** — the change goes out once the
+round's transaction confirms, not when the address is saved, and that gap is
+what makes a payout look lost while it is only pending — rendered before the
+input, not after it. The
 **threshold comes from the server**, because a number written into a client is
 one the backend can change underneath it, and the user reading the stale one
 is the one it applies to; no fee figure appears in either client at all (the
@@ -136,12 +137,17 @@ components anyway, because that experiment is what a second copy of the markup
 turns into.
 
 The copy is short on purpose and the order is load-bearing: why (the change is
-the linkable part, send it to yourself over Lightning), then the one consent
-sentence, then the minimum, then "Save your Lightning address below" directly
-above the field. The consent line is held to a single sentence by a test —
-"send it to yourself via Lightning" is true about where the value ends up and
-says nothing about the coin itself changing hands, which is the part nobody
-would guess.
+the linkable part, send it to yourself over Lightning), then when it is sent,
+then the minimum, then "Save your Lightning address below" directly above the
+field. Four lines, each held to one sentence by a test.
+
+There is no longer a line saying the change output pays the instance rather
+than the user. It was there, at two sentences and then one, and was cut on
+2026-10-01 at the user's explicit instruction after being raised twice. What
+that costs: if the Lightning leg fails permanently the coin is the instance's
+and the user holds a claim, not a coin — so the honest disclosure of that is
+the payout ledger, the retry, and the failure notification, not the setting.
+Do not re-add prose about it without asking.
 
 Swaps are unaffected — Boltz creates its invoice against an LNbits wallet the
 account already has, through `getLnbitsWallets`, and never used the payment

@@ -71,13 +71,11 @@ export function payoutMinimumNote(minChangeSats: number | null): string {
   );
 }
 
-/** The one sentence that has to be read before it is switched on, because it
- *  is the part a person would not guess: the coin stops being theirs. Kept to
- *  a single line — "send it to yourself via Lightning" is true about where the
- *  value ends up and says nothing about the coin itself changing hands. */
-export const PAYOUT_CONSENT =
-  'Your change leaves your wallet: the output pays this service, which sends '
-  + 'the value on after the round confirms.';
+/** When, which is the question somebody waiting for their change asks. Not
+ *  immediately: the round's transaction has to confirm first, and the gap is
+ *  what makes a payout look lost when it is only pending. */
+export const PAYOUT_WHEN =
+  'Change is sent once the Tango transaction confirms.';
 
 /** Why anyone would want this. The risk is the whole pitch, so it leads. */
 export const PAYOUT_WHY =

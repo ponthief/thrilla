@@ -12,10 +12,10 @@
  *
  * THREE THINGS THIS GUARDS, each of which has a way of going wrong quietly:
  *
- *  1. The consent line. "Send my change over Lightning" does not tell anyone
- *     the coin stops being theirs, and that is the part nobody would guess.
- *     It must be in front of them before they switch it on, not discovered
- *     after a round.
+ *  1. When it happens. The change goes out once the round's transaction
+ *     confirms, not when the address is saved, and the gap is what makes a
+ *     payout look lost when it is only pending. It must be in front of them
+ *     before they switch it on, not discovered while they wait.
  *  2. The minimum comes from the server, and no fee figure is written into a
  *     client at all. A number typed into a client is one the backend can
  *     change underneath it, and the user reading the stale one is the one it
@@ -53,7 +53,7 @@ const WEB_API = read('src/api/index.js');
 
 console.log('one wording, shared by both clients');
 {
-  for (const k of ['PAYOUT_TITLE', 'PAYOUT_WHY', 'PAYOUT_CONSENT', 'PAYOUT_PROMPT']) {
+  for (const k of ['PAYOUT_TITLE', 'PAYOUT_WHY', 'PAYOUT_WHEN', 'PAYOUT_PROMPT']) {
     ok(`${k} is defined once`, new RegExp(`export const ${k}`).test(SHARED));
     ok(`the phone renders ${k}`, CARD.includes(k));
     ok(`the browser renders ${k}`, WEB.includes(k));
@@ -74,24 +74,22 @@ console.log('one wording, shared by both clients');
   }
 }
 
-console.log('\nit says the coin stops being theirs, before it is switched on');
+console.log('\nit says when the change is sent, before the field');
 {
-  const consent = (SHARED.match(/PAYOUT_CONSENT\s*=\s*([\s\S]*?);/) || [])[1] || '';
-  const text = consent.replace(/['+\n]/g, ' ').replace(/\s+/g, ' ').trim();
-  ok('the consent line exists', text.length > 20, text);
-  // Short on purpose, and still the one thing nobody would guess. "Send it to
-  // yourself via Lightning" says where the value ends up and nothing about
-  // the coin itself changing hands.
+  const when = (SHARED.match(/PAYOUT_WHEN\s*=\s*([\s\S]*?);/) || [])[1] || '';
+  const text = when.replace(/['+\n]/g, ' ').replace(/\s+/g, ' ').trim();
+  ok('the line exists', text.length > 20, text);
   ok('and is one sentence', (text.match(/\./g) || []).length === 1, text);
-  ok('it says the change leaves their wallet', /leaves your wallet/i.test(text), text);
-  ok('it says what pays for it', /pays this service/i.test(text), text);
-  ok('it says when', /after the round confirms/i.test(text), text);
-  // Rendered where the decision is made, not on a page they would have to go
-  // and find.
+  // NOT when the address is saved. The round's transaction has to confirm
+  // first, and that gap is what makes a payout look lost when it is only
+  // pending — which is the question an operator gets asked.
+  ok('it says what has to happen first', /confirms/i.test(text), text);
+  ok('it names the round, not the setting', /tango/i.test(text), text);
+  // In front of the decision, not on a page they would have to go and find.
   for (const [label, src] of [['phone', CARD], ['browser', WEB]]) {
     ok(`the ${label} shows it beside the field`,
-      src.indexOf('PAYOUT_CONSENT') < src.lastIndexOf('LN_ADDRESS_EXAMPLE'),
-      'the consent line must come before the input, not after it');
+      src.indexOf('PAYOUT_WHEN') < src.lastIndexOf('LN_ADDRESS_EXAMPLE'),
+      'it must come before the input, not after it');
   }
 }
 
@@ -158,7 +156,7 @@ console.log('\nthe switch lives on the Tango screen, and only there');
   // panel are the control, so a second set of markup would drift.
   for (const [label, src] of [['phone', RN_TANGO], ['browser', WEB_TANGO]]) {
     ok(`the ${label} screen keeps no copy of the form`,
-      !/PAYOUT_CONSENT/.test(src));
+      !/PAYOUT_WHEN|PAYOUT_PROMPT/.test(src));
   }
 }
 

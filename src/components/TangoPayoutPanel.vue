@@ -22,8 +22,8 @@ import * as api from '@/api'
 // Shared with the phone, so the two cannot describe this setting differently.
 import {
   LN_ADDRESS_EXAMPLE,
-  PAYOUT_CONSENT,
   PAYOUT_PROMPT,
+  PAYOUT_WHEN,
   PAYOUT_TITLE,
   PAYOUT_WHY,
   lnAddressProblem,
@@ -130,7 +130,7 @@ async function forget() {
       </p>
       <template v-else>
         <p class="text-dim text-sm" style="margin-top:0.4rem;">{{ PAYOUT_WHY }}</p>
-        <p class="text-amber text-sm" style="margin-top:0.5rem;">{{ PAYOUT_CONSENT }}</p>
+        <p class="text-dim text-sm" style="margin-top:0.5rem;">{{ PAYOUT_WHEN }}</p>
         <p class="text-dim text-xs" style="margin-top:0.5rem;">
           {{ payoutMinimumNote(payout.min_change_sats) }}
         </p>
