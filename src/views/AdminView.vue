@@ -14,7 +14,33 @@ const isAdmin   = ref(false)
 const meLoading = ref(true)
 
 // System config (BlindBit / network / limits)
-const config  = ref({ blindbit_url: '', mempool_url: 'https://mempool.space', explorer_url: 'https://mempool.space', boltz_url: '', min_scan_height: 0, dust_threshold_sats: 5000, fulcrum_host: '', fulcrum_port: 50001, fulcrum_tls: false, login_scan_enabled: true, login_scan_auto_threshold: 432 })
+const config  = ref({ blindbit_url: '', mempool_url: 'https://mempool.space', explorer_url: 'https://mempool.space', boltz_url: '', min_scan_height: 0, dust_threshold_sats: 5000, fulcrum_host: '', fulcrum_port: 50001, fulcrum_tls: false, login_scan_enabled: true, login_scan_auto_threshold: 432,
+  // Tango change routed to Lightning. See the section in the template; the
+  // percentage is stored as a fraction and shown as one.
+  tango_change_payout_enabled: false, tango_change_sp_address: '',
+  tango_change_scan_secret: '', tango_change_payout_wallet_id: '',
+  tango_change_fee_pct: 0.005, tango_change_fee_floor_sats: 100,
+  tango_change_min_confirmations: 3 })
+
+// The LNbits wallets this admin can pay out from. The change payout needs a
+// wallet with real outbound Lightning liquidity; only its ID is stored, and
+// the extension looks the wallet up server-side so no spending key reaches
+// the config blob.
+const payoutWallets = ref([])
+
+// Shown as a percentage because that is how it was specified and how an
+// operator thinks about it; stored as a fraction because that is what the fee
+// arithmetic multiplies by. One conversion, in one place.
+const feePctInput = computed({
+  get: () => {
+    const v = Number(config.value.tango_change_fee_pct)
+    return Number.isFinite(v) ? Number((v * 100).toFixed(4)) : 0
+  },
+  set: (v) => {
+    const n = Number(v)
+    config.value.tango_change_fee_pct = Number.isFinite(n) ? n / 100 : 0
+  },
+})
 const loading = ref(true)
 const saving  = ref(false)
 const error   = ref(null)
@@ -144,6 +170,11 @@ async function loadConfig() {
       try { cfConfig.value = await api.getCloudflareConfig(auth.adminkey) } catch { /* may be unset */ }
     }
     try { ntfy.value = await api.getNtfyConfig(auth.adminkey) } catch { /* may be unset */ }
+    // Best-effort: a config page that cannot list wallets should still let the
+    // rest of itself be edited.
+    try {
+      payoutWallets.value = (await api.getLnbitsWallets(auth.token)) || []
+    } catch { payoutWallets.value = [] }
     ntfyTopicsText.value = (ntfy.value.topics || []).join('\n')
   } catch (e) { error.value = e.message }
   finally { loading.value = false }
@@ -394,6 +425,101 @@ onBeforeUnmount(() => {
               <input class="input" v-model.number="config.login_scan_auto_threshold" type="number" min="1" placeholder="432" style="max-width:160px;" />
               <span class="text-dim text-xs">Gaps smaller than this scan silently in the background; larger gaps ask the user first (avoids surprise long scans). 432 ≈ 3 days.</span>
             </div>
+            <!-- ── Tango change → Lightning ──────────────────────────── -->
+            <!-- A round's change output is the strongest remaining
+                 linkability problem in Tango: its value is fixed by the
+                 round's arithmetic, so spending it later identifies which of
+                 the two identical shares were its owner's. A user who gives a
+                 Lightning address has that output pay US instead, and the
+                 value sent on minus a fee. -->
+            <h3 style="margin:28px 0 4px">Tango change → Lightning</h3>
+            <p class="text-dim text-xs" style="margin:0 0 12px">
+              Mainnet only. A user who saves a Lightning address has their
+              round's change output pay the address below, and this server
+              sends them the value minus the fee. All four settings are needed
+              before any round will route.
+            </p>
+            <div class="field">
+              <label style="display:flex;align-items:center;gap:8px">
+                <input type="checkbox" v-model="config.tango_change_payout_enabled" />
+                Route Tango change through this server
+              </label>
+              <span class="text-dim text-xs">
+                Off, every round leaves its change in the user's own wallet —
+                which is what every round did before this existed.
+              </span>
+            </div>
+            <div class="field">
+              <label>Change destination (Silent Payments address)</label>
+              <input class="input mono" v-model="config.tango_change_sp_address"
+                     placeholder="sp1…" autocapitalize="off" autocomplete="off" />
+              <span class="text-dim text-xs">
+                An SP address, not a fixed on-chain one: every routed change is
+                then a fresh taproot key. A reused address would tag every
+                Tango publicly the moment two of them paid it, and
+                retroactively identify the protocol on every round this server
+                has ever coordinated.
+              </span>
+            </div>
+            <div class="field">
+              <label>Scan key for that address</label>
+              <input class="input mono" v-model="config.tango_change_scan_secret"
+                     type="password" placeholder="64 hex characters"
+                     autocapitalize="off" autocomplete="off" />
+              <span class="text-dim text-xs">
+                A <strong>view key</strong>: it derives each round's change
+                output and finds those coins afterwards. Spending them needs
+                the <em>spend</em> key, which belongs in an offline wallet and
+                must never be entered here. Not shown back to non-admins.
+              </span>
+            </div>
+            <div class="field">
+              <label>Pay out from</label>
+              <select class="input" v-model="config.tango_change_payout_wallet_id">
+                <option value="">— none —</option>
+                <option v-for="w in payoutWallets" :key="w.id" :value="w.id">
+                  {{ w.name }}
+                </option>
+              </select>
+              <span class="text-dim text-xs">
+                The LNbits wallet each payout is sent from. It needs real
+                outbound Lightning liquidity — the money goes to somebody
+                else's node. Only the wallet ID is stored.
+              </span>
+            </div>
+            <div class="field" style="display:flex;gap:16px;flex-wrap:wrap">
+              <div style="flex:1;min-width:140px">
+                <label>Service fee (%)</label>
+                <input class="input" v-model.number="feePctInput" type="number"
+                       min="0" max="50" step="0.05" placeholder="0.5" />
+                <span class="text-dim text-xs">Of the change, not of the round.</span>
+              </div>
+              <div style="flex:1;min-width:140px">
+                <label>Minimum fee (sats)</label>
+                <input class="input" v-model.number="config.tango_change_fee_floor_sats"
+                       type="number" min="0" placeholder="100" />
+                <span class="text-dim text-xs">
+                  Cost recovery: a routing fee plus eventually sweeping the
+                  collected output.
+                </span>
+              </div>
+            </div>
+            <p class="text-dim text-xs" style="margin:-4px 0 12px">
+              The fee is the percentage or the minimum, whichever is more. A
+              change too small to leave a worthwhile payout after it is left in
+              the user's wallet instead — charging more than the change can
+              carry is impossible by construction.
+            </p>
+            <div class="field">
+              <label>Confirmations before paying out</label>
+              <input class="input" v-model.number="config.tango_change_min_confirmations"
+                     type="number" min="1" placeholder="3" style="max-width:160px" />
+              <span class="text-dim text-xs">
+                A one-confirmation payout can be reversed by a reorg, and a
+                Lightning payment cannot be clawed back.
+              </span>
+            </div>
+
             <div v-if="error" class="alert alert-error">⚠ {{ error }}</div>
             <div v-if="saved" class="alert alert-success">✓ Saved.</div>
             <div>
