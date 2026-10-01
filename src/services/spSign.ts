@@ -187,6 +187,58 @@ export function taggedHash(tag: string, ...data: Uint8Array[]): Uint8Array {
 // ── BIP-352 ──────────────────────────────────────────────────────────────────
 
 /** B_scan and B_spend, as 33-byte compressed keys, from an sp1…/tsp1… address. */
+/**
+ * Does `script` pay the holder of `spAddress`'s spend key?
+ *
+ * MIRRORS helpers/tangochange.py::verify_payout_output, and
+ * ../siLNt/fixtures/tango-change-payout.json holds that one's answers so the
+ * two cannot drift.
+ *
+ * WHY A VERIFIER AND NOT A DERIVATION. A Tango round's change may be routed to
+ * the instance's Silent Payments address, and a BIP-352 output is
+ * P_k = B_spend + t_k·G where t_k comes from a shared secret needing either the
+ * payee's scan key or the inputs' private keys. A client has neither, so it
+ * cannot re-derive the script — payjoin_sp.py::payment_script says the same
+ * thing about its own output: "the payer cannot compute it and cannot check
+ * it."
+ *
+ * So the round reveals t_k and this checks the arithmetic. What that proves is
+ * the part that matters: the output's private key is b_spend + t_k, which only
+ * the holder of b_spend can produce, so the change CANNOT be redirected to a
+ * third party. It does not prove t_k is the real shared-secret derivative — a
+ * dishonest server could hand over any matching pair — but the money goes to
+ * the instance either way, and what the instance would lose is the ability to
+ * find its own coin. That is its problem, not the user's.
+ *
+ * Without this, a taproot key-path signature over the whole transaction means
+ * a coordinator could put any script in the change position and both sides
+ * would sign it.
+ */
+export function verifyPayoutOutput(
+  spAddress: string,
+  tweak: Uint8Array,
+  script: Uint8Array,
+): boolean {
+  if (!spAddress || tweak?.length !== 32 || script?.length !== 34) return false;
+  let spend: Uint8Array;
+  try {
+    spend = parseSpAddress(spAddress).spend;
+  } catch {
+    return false;
+  }
+  const t = bytesToBig(tweak);
+  if (t === 0n || t >= N) return false;
+  try {
+    const P = secp256k1.ProjectivePoint.fromHex(spend).add(
+      secp256k1.ProjectivePoint.BASE.multiply(t),
+    );
+    return toHex(concat(new Uint8Array([0x51, 0x20]), P.toRawBytes(true).slice(1)))
+      === toHex(script);
+  } catch {
+    return false;
+  }
+}
+
 export function parseSpAddress(addr: string): { scan: Uint8Array; spend: Uint8Array } {
   const dec = bech32m.decode(addr as `${string}1${string}`, BECH32M_LIMIT);
   const payload = bech32m.fromWords(dec.words.slice(1)); // drop the version word

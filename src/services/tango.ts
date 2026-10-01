@@ -33,6 +33,7 @@ import {
   serializeUnsigned,
   taprootSighash,
   toHex,
+  verifyPayoutOutput,
   type TxIn,
   type TxOut,
 } from './spSign';
@@ -354,6 +355,27 @@ export interface CheckOpts {
    * round, which is exactly how this was found.
    */
   pieces?: number;
+  /**
+   * The INSTANCE's Silent Payments address, when this round routes a change
+   * output to it. From the round record, which carries it so this device does
+   * not have to be told twice.
+   */
+  payoutSpAddress?: string | null;
+  /**
+   * t_k for OUR side's routed change, as the round reveals it. Present exactly
+   * when our change is routed — see verifyPayoutOutput for why a tweak rather
+   * than a derivation.
+   */
+  myPayoutTweak?: Uint8Array | null;
+  /**
+   * Whether THIS DEVICE agreed to route its change, from its own record of the
+   * round it proposed or accepted.
+   *
+   * Not read from the server's copy, and that is the whole reason it is here:
+   * a coordinator that flipped the flag on would take a change coin the user
+   * never offered, and a check against the server's own claim would not notice.
+   */
+  myPayoutIntended?: boolean;
 }
 
 /**
@@ -429,10 +451,51 @@ export function checkBeforeSigning(opts: CheckOpts): Assembled {
       'Your share is not going to the addresses this device derived. Cancel it.',
     );
   }
-  const expectChangeHex = opts.expectChange ? toHex(opts.expectChange) : null;
+  // 4b. Our change, which has two shapes now.
+  //
+  //  - Not routed: it is ours, this device derived it, and the server's copy
+  //    must equal what we derived. Unchanged.
+  //  - Routed: it pays the INSTANCE, so there is nothing of ours to compare
+  //    against. The round reveals t_k and we check the arithmetic instead.
+  //
+  // Which of the two it is comes from THIS DEVICE's record of what it agreed,
+  // never from the server's claim. A coordinator that turned routing on would
+  // otherwise take a change coin the user never offered, and comparing the
+  // server's flag against itself would not notice — the same shape of mistake
+  // that let every PayJoin substitution through.
+  const routed = !!opts.myPayoutTweak;
+  if (routed !== !!opts.myPayoutIntended) {
+    throw new Error(
+      routed
+        ? 'This Tango sends your change to the service, which you did not '
+          + 'ask for. Cancel it.'
+        : 'This Tango keeps your change in your wallet, but you asked for it '
+          + 'to be sent over Lightning. Cancel it.',
+    );
+  }
   const ourChangeHex = ourChange ? toHex(ourChange) : null;
-  if (expectChangeHex !== ourChangeHex) {
-    throw new Error('Your change is not going where this device sent it. Cancel it.');
+  if (routed) {
+    const myChangeAmount = side === 'a' ? amounts.a_change : amounts.b_change;
+    if (myChangeAmount) {
+      if (!ourChange || !opts.payoutSpAddress) {
+        throw new Error(
+          'This Tango routes your change but does not say where. Cancel it.',
+        );
+      }
+      if (
+        !verifyPayoutOutput(opts.payoutSpAddress, opts.myPayoutTweak!, ourChange)
+      ) {
+        throw new Error(
+          'Your change is not going to the service address this app was told '
+            + 'to expect. Cancel it.',
+        );
+      }
+    }
+  } else {
+    const expectChangeHex = opts.expectChange ? toHex(opts.expectChange) : null;
+    if (expectChangeHex !== ourChangeHex) {
+      throw new Error('Your change is not going where this device sent it. Cancel it.');
+    }
   }
 
   const assembled = assemble(

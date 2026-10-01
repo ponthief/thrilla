@@ -146,7 +146,27 @@ python3 helpers/_client_signing_fixtures.py > fixtures/client-signing.json
 python3 helpers/_plain_signing_fixtures.py  > fixtures/plain-signing.json
 python3 helpers/_payjoin_sp_fixtures.py     > fixtures/payjoin-sp.json
 python3 helpers/_chain_guard_fixtures.py    > fixtures/chain-guard.json
+python3 helpers/_tango_change_fixtures.py  > fixtures/tango-change-payout.json
 ```
+
+The last one is the routed Tango change output, and it is the one check with
+no fallback behind it. A round's change may pay the **instance's** SP address,
+and a client cannot re-derive that script: a BIP-352 output is
+`B_spend + t_k·G`, and `t_k` needs the payee's scan key or the inputs' private
+keys — `payjoin_sp.py::payment_script` says exactly this about its own output
+("the payer cannot compute it and cannot check it"). Since a taproot key-path
+signature commits to every output, a client that cannot tell a legitimate
+change script from the coordinator's own signs the coin away. So the round
+reveals `t_k` and each client checks `script == OP_1 <x(B_spend + t_k·G)>`,
+which proves the output is spendable only by the instance. `verifyPayoutOutput`
+in `services/spSign.ts` is the mirror of
+`helpers/tangochange.py::verify_payout_output`, and the fixture's negatives —
+a crossed tweak, a foreign script — matter as much as its positives: a
+verifier that ignored the tweak would pass every real case and be worthless.
+
+Whether a side routes at all is checked against **this device's own record**
+(`myPayoutIntended`), never the server's flag. A coordinator that turned
+routing on would otherwise take a change coin the user never offered.
 
 The last one is the address-to-chain rule, and it is pinned down to the
 sentence rather than the verdict. `helpers/chains.py` is the authority;
