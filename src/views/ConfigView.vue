@@ -3,16 +3,27 @@ import { ref, onMounted, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import * as api from '@/api'
+// Where a Tango round's change goes. An account setting that outlives any one
+// round, so it belongs here as well as on the Tango screen — one component,
+// rendered twice, because a setting you can only turn off from the screen you
+// start rounds on is one you cannot turn back on.
+import TangoPayoutPanel from '@/components/TangoPayoutPanel.vue'
 
 const BIP353_ENABLED = import.meta.env.VITE_DISABLE_BIP353 !== 'true'
 
 const confirmForget = ref(false)
 const myWalletIds = ref([])
 
+// The network of the wallet this account is using, for the Tango change panel.
+// Read from the same call that lists the wallet ids rather than a second one.
+const walletNetwork = ref('')
+
 async function loadMyWalletIds() {
   try {
     const wallets = await api.getSilntWallets(auth.inkey)
     myWalletIds.value = (wallets || []).map(w => w.id)
+    const mine = (wallets || []).find(w => w.id === auth.walletId) || (wallets || [])[0]
+    walletNetwork.value = mine?.network || ''
   } catch (e) {
     // Fallback: at least the active wallet
     myWalletIds.value = auth.walletId ? [auth.walletId] : []
@@ -276,6 +287,10 @@ onMounted(async () => {
         </div>
       </div>
     </div>
+
+    <!-- Where a Tango round's change goes. Renders nothing unless the server
+         offers it, so this is empty on signet rather than a dead field. -->
+    <TangoPayoutPanel v-if="!loading" :network="walletNetwork" />
 
     <!-- Trusted Devices -->
     <div class="card" style="margin-top:20px">

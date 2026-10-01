@@ -1153,6 +1153,22 @@ export async function setTangoLnAddress(inkey, network, address) {
   })
 }
 
+// Switching it off KEEPS the address, so turning it back on is one tap rather
+// than remembering what was typed. Rounds read the switch; a payout already
+// owed from a round that routed does not.
+export async function setTangoPayoutEnabled(inkey, network, enabled) {
+  return req(
+    `${SILNT}/api/v1/tango/ln-address/enabled?network=${encodeURIComponent(network)}`,
+    {
+      method: 'PUT',
+      headers: keyHeaders(inkey),
+      body: JSON.stringify({ enabled: !!enabled }),
+    },
+  )
+}
+
+// Forgetting the address is the separate, heavier half: the switch stops
+// future rounds, this stops the server holding it.
 export async function deleteTangoLnAddress(inkey, network) {
   return req(`${SILNT}/api/v1/tango/ln-address?network=${encodeURIComponent(network)}`, {
     method: 'DELETE',

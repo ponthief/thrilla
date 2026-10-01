@@ -16,9 +16,10 @@
  *     the coin stops being theirs, and that is the part nobody would guess.
  *     It must be in front of them before they switch it on, not discovered
  *     after a round.
- *  2. The fee and the threshold come from the server. A percentage written
- *     into a client is a number the backend can change underneath it, and the
- *     user reading the stale one is the one who gets charged the real one.
+ *  2. The minimum comes from the server, and no fee figure is written into a
+ *     client at all. A number typed into a client is one the backend can
+ *     change underneath it, and the user reading the stale one is the one it
+ *     applies to.
  *  3. Mainnet only. A Lightning address is a mainnet endpoint and signet
  *     change is worthless, so the server reports offered:false and the
  *     clients must render nothing — a field that silently cannot work is
@@ -41,7 +42,13 @@ const read = (p) => fs.readFileSync(path.join(__dirname, '..', p), 'utf8');
 
 const SHARED = read('src/services/lnAddress.ts');
 const CARD = read('src/components/TangoPayoutCard.tsx');
-const WEB = read('src/views/TangoView.vue');
+const WEB = read('src/components/TangoPayoutPanel.vue');
+// Reachability: the setting has to be findable from Settings, not only from
+// the screen you go to in order to start a round.
+const RN_SETTINGS = read('src/screens/SettingsScreen.tsx');
+const RN_SETTINGS_PAGE = read('src/screens/settings/TangoChangePage.tsx');
+const WEB_SETTINGS = read('src/views/ConfigView.vue');
+const WEB_TANGO = read('src/views/TangoView.vue');
 const RN_API = read('src/services/api.ts');
 const WEB_API = read('src/api/index.js');
 
@@ -52,11 +59,19 @@ console.log('one wording, shared by both clients');
     ok(`the phone renders ${k}`, CARD.includes(k));
     ok(`the browser renders ${k}`, WEB.includes(k));
   }
-  // The fee sentence too, so "0.5%" is not typed out twice in two places.
-  ok('the fee note is a shared function',
-    /export function payoutFeeNote/.test(SHARED));
+  // The minimum sentence too, so the threshold is not phrased twice.
+  ok('the minimum note is a shared function',
+    /export function payoutMinimumNote/.test(SHARED));
   for (const [label, src] of [['phone', CARD], ['browser', WEB]]) {
-    ok(`the ${label} calls payoutFeeNote`, src.includes('payoutFeeNote('));
+    ok(`the ${label} calls payoutMinimumNote`, src.includes('payoutMinimumNote('));
+  }
+  // And the example address, which is a placeholder rather than somebody's
+  // real account at a real provider — an empty field invites pasting it.
+  ok('the example address is shared',
+    /export const LN_ADDRESS_EXAMPLE = 'username@domain\.com'/.test(SHARED));
+  for (const [label, src] of [['phone', CARD], ['browser', WEB]]) {
+    ok(`the ${label} uses it as the placeholder`, src.includes('LN_ADDRESS_EXAMPLE'));
+    ok(`the ${label} names no real provider`, !/coinos|satoshi@/i.test(src));
   }
 }
 
@@ -72,29 +87,77 @@ console.log('\nit says the coin stops being theirs, before it is switched on');
   // and find.
   for (const [label, src] of [['phone', CARD], ['browser', WEB]]) {
     ok(`the ${label} shows it beside the field`,
-      src.indexOf('PAYOUT_CONSENT') < src.indexOf('satoshi@coinos.io'),
+      src.indexOf('PAYOUT_CONSENT') < src.lastIndexOf('LN_ADDRESS_EXAMPLE'),
       'the consent line must come before the input, not after it');
   }
 }
 
-console.log('\nthe fee and the threshold come from the server');
+console.log('\nthe minimum comes from the server, and no number is typed in');
 {
-  // A percentage or a floor written into a client is a number the backend can
-  // change underneath it.
+  // The fee prose is gone from both clients on purpose — it read as a
+  // paragraph of arithmetic in front of a one-line decision. What is left is
+  // the threshold, and it is the server's number: one written into a client is
+  // one the backend can change underneath it.
   for (const [label, src] of [['phone', CARD], ['browser', WEB], ['shared', SHARED]]) {
     const prose = src.replace(/\s+/g, ' ');
     ok(`${label} hardcodes no percentage`, !/0\.5\s*%|0\.005/.test(prose),
-      'read fee_pct from the GET instead');
+      'the fee is the server\'s number, not the client\'s');
     ok(`${label} hardcodes no floor`, !/\b100 sats\b/.test(prose),
-      'read fee_floor_sats from the GET instead');
+      'the fee floor is the server\'s number, not the client\'s');
     ok(`${label} hardcodes no minimum change`, !/\b646\b/.test(prose),
       'read min_change_sats from the GET instead');
   }
   for (const [label, src] of [['phone', CARD], ['browser', WEB]]) {
-    for (const field of ['fee_pct', 'fee_floor_sats', 'min_change_sats']) {
-      ok(`the ${label} reads ${field}`, src.includes(field));
-    }
+    ok(`the ${label} reads min_change_sats`, src.includes('min_change_sats'));
   }
+}
+
+console.log('\noff keeps the address, so it can be turned back on');
+{
+  // The bug this replaced: "Turn off" DELETED the address, so the only route
+  // back on was remembering what had been typed, in front of an empty field
+  // that did not say whether anything had ever been saved.
+  ok('the shared type has a switch', /enabled: boolean/.test(RN_API),
+    'the GET must report saved-and-off as its own state');
+  for (const [label, src] of [['phone', RN_API], ['browser', WEB_API]]) {
+    ok(`the ${label} API can switch it`, /setTangoPayoutEnabled/.test(src));
+    ok(`the ${label} API switch is not a DELETE`,
+      /ln-address\/enabled/.test(src),
+      'turning it off must not be the delete endpoint');
+  }
+  for (const [label, src] of [['phone', CARD], ['browser', WEB]]) {
+    ok(`the ${label} reads .enabled`, /\.enabled/.test(src));
+    ok(`the ${label} offers a way back on`, /Turn on/.test(src));
+    ok(`the ${label} turns off without deleting`,
+      src.includes('setTangoPayoutEnabled('),
+      'Turn off must flip the switch, not delete the address');
+    // Forgetting it is still possible, and still says what it is.
+    ok(`the ${label} can still forget it`,
+      src.includes('deleteTangoLnAddress(') && /Forget/.test(src));
+    ok(`the ${label} says when it is off`, /your change stays in your wallet/i.test(src));
+  }
+}
+
+console.log('\nreachable from Settings, not only from the Tango screen');
+{
+  // Where it was looked for when it had been switched off.
+  ok('the phone has a Settings page for it',
+    /TangoPayoutCard/.test(RN_SETTINGS_PAGE));
+  ok('the phone lists it in Settings',
+    /TangoChangePage/.test(RN_SETTINGS) && /setPage\('tangochange'\)/.test(RN_SETTINGS));
+  ok('the phone hides the row when not offered',
+    /payout\?\.offered/.test(RN_SETTINGS),
+    'a row leading to a page that renders nothing is worse than no row');
+  ok('the phone says On, Off or Not set',
+    /'Off'/.test(RN_SETTINGS) && /'Not set'/.test(RN_SETTINGS),
+    'saved-and-off is the state somebody comes to Settings to change');
+  ok('the browser has it in Settings', /TangoPayoutPanel/.test(WEB_SETTINGS));
+  // One component in both places, so the two cannot drift.
+  ok('the browser Tango screen uses the same component',
+    /TangoPayoutPanel/.test(WEB_TANGO));
+  ok('the browser Tango screen keeps no copy of the form',
+    !/PAYOUT_CONSENT/.test(WEB_TANGO),
+    'the panel is the control; a second copy would drift');
 }
 
 console.log('\nmainnet only, decided by the server');
@@ -128,14 +191,14 @@ console.log('\nthe address is checked locally, then properly by the server');
 console.log('\nevery call is scoped to a network');
 {
   for (const [label, src] of [['phone', RN_API], ['browser', WEB_API]]) {
-    const calls = src.match(/ln-address\?network=[^`]*/g) || [];
-    ok(`the ${label} API has all three calls`, calls.length === 3,
+    const calls = src.match(/ln-address(\/enabled)?\?network=[^`]*/g) || [];
+    ok(`the ${label} API has all four calls`, calls.length === 4,
       `${calls.length} found`);
     ok(`the ${label} encodes the network`,
       calls.every((c) => c.includes('encodeURIComponent(network)')));
   }
-  ok('the phone can turn it off', /deleteTangoLnAddress/.test(RN_API));
-  ok('the browser can turn it off', /deleteTangoLnAddress/.test(WEB_API));
+  ok('the phone can forget it', /deleteTangoLnAddress/.test(RN_API));
+  ok('the browser can forget it', /deleteTangoLnAddress/.test(WEB_API));
 }
 
 console.log('');
@@ -143,4 +206,4 @@ if (failures) {
   console.log(`${failures} check(s) failed`);
   process.exit(1);
 }
-console.log('all checks passed — the change payout says what it costs and what it takes');
+console.log('all checks passed — the change payout says what it takes, and off is not a one-way door');

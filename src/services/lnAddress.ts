@@ -10,11 +10,16 @@
 // remaining linkability problem in the protocol — its value is fixed by the
 // round's arithmetic, so spending it later identifies which of the two
 // identical shares were yours — and a user may have that value sent to a
-// Lightning address instead, minus a service fee. The output itself goes to
-// the instance's Silent Payments address. The money leaves over somebody
-// else's network, to an account this app never touches.
+// Lightning address they control instead, minus a service fee. The output
+// itself goes to the instance's Silent Payments address. The money leaves
+// over somebody else's network, to an account this app never touches.
 //
 // NO IMPORTS, so both bundles can have it for what it weighs.
+
+/** The example in both clients' input, and in the shape error below. Not a
+ *  real address at a real provider: an empty field is an invitation to paste
+ *  whatever is in the placeholder. */
+export const LN_ADDRESS_EXAMPLE = 'username@domain.com';
 
 /** Mirrors the Python's two regexes. Stricter than an email on purpose: the
  *  domain becomes a hostname in a URL. */
@@ -33,7 +38,7 @@ export function lnAddressProblem(address: string): string | null {
   const text = (address || '').trim().toLowerCase();
   if (!text) return 'Enter a Lightning address.';
   if ((text.match(/@/g) || []).length !== 1) {
-    return 'A Lightning address looks like name@domain, for example satoshi@coinos.io.';
+    return `A Lightning address looks like ${LN_ADDRESS_EXAMPLE}.`;
   }
   const [local, domain] = text.split('@');
   if (!LOCAL_RE.test(local)) {
@@ -48,31 +53,36 @@ function grouped(n: number): string {
   return Math.floor(n).toString().replace(/\B(?=(\d{3})+(?!\d))/g, ',');
 }
 
-/** What the fee is, in the terms a person can check against their own round. */
-export function payoutFeeNote(
-  feePct: number,
-  feeFloorSats: number,
-  minChangeSats: number | null,
-): string {
-  const pct = (feePct * 100).toFixed(2).replace(/\.?0+$/, '');
+/**
+ * The smallest change worth sending, FROM THE SERVER.
+ *
+ * The number is the backend's: it follows from the fee it charges, and a
+ * figure written into a client is one the backend can change underneath it.
+ * Below it the change stays in the wallet, which is the thing a person needs
+ * to know before they wonder why a small round was not paid out.
+ */
+export function payoutMinimumNote(minChangeSats: number | null): string {
+  if (!minChangeSats) {
+    return 'Change too small to send over Lightning stays in your wallet.';
+  }
   return (
-    `The service fee is ${pct}% of the change or ${grouped(feeFloorSats)} sats, `
-    + 'whichever is more.'
-    + (minChangeSats
-      ? ` Change under ${grouped(minChangeSats)} sats is left in your wallet instead.`
-      : '')
+    `Change under ${grouped(minChangeSats)} sats stays in your wallet — `
+    + 'it is too small to send over Lightning.'
   );
 }
 
 /** The one sentence that has to be read before it is switched on, because it
  *  is the part a person would not guess: the coin stops being theirs. */
 export const PAYOUT_CONSENT =
-  'Your change leaves your wallet: the output pays this service, and the '
-  + 'value is sent to your Lightning address after the round confirms.';
+  'Your change leaves your wallet: the output pays this service, and we send '
+  + 'the value on to your Lightning address after the round confirms.';
 
-/** What it buys, in one line, next to the warning that prompted it. */
+/** Why anyone would want this, in one line. The risk is the point: a change
+ *  coin is the part of a round that can still be traced back, so the safest
+ *  place for it is not this wallet. */
 export const PAYOUT_WHY =
-  'A change coin identifies which outputs were yours whenever you spend it. '
-  + 'Sending it away is the only way to be rid of it.';
+  'Change left here is the one coin that can still link a round back to you. '
+  + 'It is safer sent out than kept, so send it to a Lightning address you '
+  + 'control.';
 
 export const PAYOUT_TITLE = 'Send my change over Lightning';

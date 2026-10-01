@@ -29,14 +29,10 @@ import * as api from '@/api'
 import { pushToast } from '@/stores/toasts'
 import * as tango from '@/services/tango'
 import { parseSpAddress, fromHex, toHex } from '@/services/spSign'
-// Shared with the phone, so the two cannot describe this setting differently.
-import {
-  PAYOUT_CONSENT,
-  PAYOUT_TITLE,
-  PAYOUT_WHY,
-  lnAddressProblem,
-  payoutFeeNote,
-} from '@/services/lnAddress'
+// The change-payout setting, shared with Settings so the two are one control
+// rather than two copies — and with the phone's card through the wording in
+// services/lnAddress.
+import TangoPayoutPanel from '@/components/TangoPayoutPanel.vue'
 import { tangoRounds as rounds, refreshTangoWatch } from '@/stores/tangowatch'
 import {
   recordTangoCommit,
@@ -104,66 +100,9 @@ async function loadWalletAndCoins() {
 // WhiSPa holds no Lightning balance. A round's change output is the strongest
 // remaining linkability problem in Tango — its value is fixed by the round's
 // arithmetic, so spending it later identifies which of the two identical
-// shares were yours — and this is the option to have its value sent to a
-// Lightning address instead of keeping the coin.
-const payout = ref(null)
-const payoutDraft = ref('')
-const payoutEditing = ref(false)
-const payoutBusy = ref(false)
-const payoutError = ref('')
-const payoutNote = ref('')
-
-async function loadPayout() {
-  const net = wallet.value?.network
-  if (!net) return
-  try {
-    payout.value = await api.getTangoPayoutSetting(auth.inkey, net)
-    payoutDraft.value = payout.value?.address || ''
-  } catch {
-    // A setting that cannot be read is not worth an error on a screen about
-    // something else. It renders nothing, and the round is unaffected.
-    payout.value = null
-  }
-}
-
-async function savePayout() {
-  payoutError.value = ''
-  payoutNote.value = ''
-  const value = payoutDraft.value.trim().toLowerCase()
-  // The shape, locally, so an obvious typo costs no round trip. Whether
-  // anyone answers there is the server's to find out.
-  const problem = lnAddressProblem(value)
-  if (problem) { payoutError.value = problem; return }
-  payoutBusy.value = true
-  try {
-    await api.setTangoLnAddress(auth.inkey, wallet.value.network, value)
-    payoutEditing.value = false
-    payoutNote.value = 'Saved. Your change will be sent here after a round confirms.'
-    await loadPayout()
-  } catch (e) {
-    // Worth showing as the server put it: it resolved the address and is
-    // saying what it found — unreachable, or a minimum above a change payout.
-    payoutError.value = e.detail || e.message || 'Could not save that address.'
-  } finally {
-    payoutBusy.value = false
-  }
-}
-
-async function removePayout() {
-  payoutBusy.value = true
-  payoutError.value = ''
-  try {
-    await api.deleteTangoLnAddress(auth.inkey, wallet.value.network)
-    payoutNote.value = 'Turned off. Your change will stay in your wallet.'
-    payoutDraft.value = ''
-    payoutEditing.value = false
-    await loadPayout()
-  } catch (e) {
-    payoutError.value = e.detail || e.message || 'Could not turn that off.'
-  } finally {
-    payoutBusy.value = false
-  }
-}
+// shares were yours — and TangoPayoutPanel is the option to have its value
+// sent to a Lightning address instead of keeping the coin. It loads and saves
+// its own setting; this screen only tells it which network it is on.
 
 // ── connections ─────────────────────────────────────────────────────────────
 // The connection graph is shared with PayJoin — one accepted-contacts list,
@@ -386,11 +325,6 @@ async function load() {
   error.value = ''
   try {
     await loadWalletAndCoins()
-    // Not awaited, and deliberately not inside the try's failure path: the
-    // payout setting is beside the round form, not part of it, and a server
-    // that cannot answer about it must not leave this page saying Tango
-    // failed to load.
-    loadPayout()
     // Not awaited: a poll that fails is the watcher's problem to retry on its
     // next tick, and it must not leave this page saying it could not load when
     // the coins arrived perfectly well.
@@ -894,45 +828,11 @@ function expiresIn(r) {
       </div>
 
       <!-- Where the change goes, offered beside the warning that a round
-           leaves some. Renders nothing off mainnet: a Lightning address is a
-           mainnet endpoint and signet change is worthless, so the server
-           reports offered:false rather than this showing a field that cannot
-           work. -->
-      <div v-if="payout && payout.offered" class="card" style="margin-top:1rem;">
-        <div class="card-body">
-          <strong>{{ PAYOUT_TITLE }}</strong>
-          <p v-if="!payout.ready" class="text-dim text-xs" style="margin-top:0.4rem;">
-            Not available on this server yet. Your change stays in your wallet.
-          </p>
-          <template v-else>
-            <p class="text-dim text-sm" style="margin-top:0.4rem;">{{ PAYOUT_WHY }}</p>
-            <p class="text-amber text-sm" style="margin-top:0.5rem;">{{ PAYOUT_CONSENT }}</p>
-            <p class="text-dim text-xs" style="margin-top:0.5rem;">
-              {{ payoutFeeNote(payout.fee_pct, payout.fee_floor_sats, payout.min_change_sats) }}
-            </p>
-
-            <div v-if="payout.address && !payoutEditing" class="flex gap-2 items-center" style="margin-top:0.75rem; flex-wrap:wrap;">
-              <span class="mono text-sm" style="flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis;">
-                {{ payout.address }}
-              </span>
-              <button class="btn btn-ghost btn-sm" @click="payoutEditing = true; payoutError = ''; payoutNote = ''">Change</button>
-              <button class="btn btn-ghost btn-sm" :disabled="payoutBusy" @click="removePayout">Turn off</button>
-            </div>
-            <div v-else class="flex gap-2 items-center" style="margin-top:0.75rem; flex-wrap:wrap;">
-              <input class="input" style="flex:1; min-width:14rem;" v-model="payoutDraft"
-                     placeholder="satoshi@coinos.io" autocapitalize="off" autocomplete="off" />
-              <button class="btn btn-primary btn-sm" :disabled="payoutBusy || !payoutDraft.trim()" @click="savePayout">
-                {{ payoutBusy ? 'Saving…' : 'Save' }}
-              </button>
-              <button v-if="payout.address" class="btn btn-ghost btn-sm"
-                      @click="payoutEditing = false; payoutDraft = payout.address; payoutError = ''">Cancel</button>
-            </div>
-
-            <p v-if="payoutError" class="text-xs" style="color:var(--red,#ff5f56); margin-top:0.5rem;">{{ payoutError }}</p>
-            <p v-if="payoutNote" class="text-xs text-green" style="margin-top:0.5rem;">{{ payoutNote }}</p>
-          </template>
-        </div>
-      </div>
+           leaves some. The panel loads its own setting and renders nothing
+           off mainnet — a Lightning address is a mainnet endpoint and signet
+           change is worthless, so the server reports offered:false rather
+           than a field that cannot work. Also in Settings, same component. -->
+      <TangoPayoutPanel :network="wallet?.network || ''" />
     </template>
 
     <!-- CONNECTIONS -->

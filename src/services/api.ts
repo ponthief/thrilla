@@ -1513,6 +1513,9 @@ export interface TangoPayoutSetting {
   // the chain allows it, not that this instance has switched it on.
   ready: boolean;
   address: string;
+  // Saved AND switched on. An address with this false is kept but not
+  // routing — turning it off no longer forgets what was typed.
+  enabled: boolean;
   min_sendable?: number | null;   // msat, as the provider reported on save
   max_sendable?: number | null;
   fee_pct: number;
@@ -1549,8 +1552,27 @@ export async function setTangoLnAddress(
   );
 }
 
-// Stop routing: the change goes back to landing in the user's own wallet,
-// which is what every round did before this existed.
+// Switch an already-saved address off or back on, KEEPING it. Turning it off
+// used to delete the row, which made the only way back on retyping an address
+// from memory. Rounds read the switch; a payout already owed by a round that
+// routed does not.
+export async function setTangoPayoutEnabled(
+  inkey: string,
+  network: string,
+  enabled: boolean,
+): Promise<{ ok: boolean; enabled: boolean }> {
+  return req(
+    `${SILNT}/api/v1/tango/ln-address/enabled?network=${encodeURIComponent(network)}`,
+    {
+      method: 'PUT',
+      headers: apiKey(inkey),
+      body: JSON.stringify({ enabled }),
+    },
+  );
+}
+
+// Forget the address outright — the separate, heavier half of turning it off:
+// the switch stops future rounds, this stops the server holding it.
 export async function deleteTangoLnAddress(
   inkey: string,
   network: string,

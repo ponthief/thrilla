@@ -101,16 +101,36 @@ over somebody else's network to an account this app never touches.
 So: `helpers/tangopayout.py`, `helpers/lnaddress.py` and the Tango payout path
 are Lightning. Anything that would give a user a balance here is not.
 
-`check:payout` holds that one setting to three things, each of which has a way
+`check:payout` holds that one setting to five things, each of which has a way
 of going wrong quietly. The **consent line** — "send my change over Lightning"
 does not tell anyone the coin stops being theirs, which is the part nobody
-would guess — must be rendered before the input, not after it. The **fee and
-the threshold come from the server**, because a percentage written into a
-client is a number the backend can change underneath it, and the user reading
-the stale one is the one charged the real one. And it is **mainnet only, by the
-server's say-so** (`offered`), not a client-side network check: a Lightning
-address is a mainnet endpoint and signet change is worthless, so routing it
-would have the instance paying real sats for faucet coins.
+would guess — must be rendered before the input, not after it. The
+**threshold comes from the server**, because a number written into a client is
+one the backend can change underneath it, and the user reading the stale one
+is the one it applies to; no fee figure appears in either client at all (the
+fee paragraph was dropped on 2026-10-01 — it was arithmetic in front of a
+one-line decision). It is **mainnet only, by the server's say-so**
+(`offered`), not a client-side network check: a Lightning address is a mainnet
+endpoint and signet change is worthless, so routing it would have the instance
+paying real sats for faucet coins.
+
+The last two are the same bug from both ends. **Turning it off keeps the
+address** — it used to `DELETE` the row, which made the setting a one-way
+door: the only way back on was remembering what had been typed, in front of an
+empty field that did not say whether anything had ever been saved. `enabled`
+is now what a round reads, the address outlives the decision, and forgetting
+it is a separate button. The other end matters more: **a payout already owed
+must ignore the switch.** By the time `enqueue_tango_payouts` runs the round
+has routed, the change output has paid this instance and the value is owed;
+reading `enabled` there would strand somebody's money because they turned a
+future-rounds setting off. Two tests assert that direction, by lines of code
+rather than by prose, because the comments at both sites mention `enabled` to
+say exactly this.
+
+And it must be **reachable from Settings**, not only from the Tango screen —
+that is where somebody who switched it off goes to switch it back on. One
+component in both places on each client (`TangoPayoutCard` on the phone,
+`TangoPayoutPanel.vue` in the browser), so the two cannot drift.
 
 Swaps are unaffected — Boltz creates its invoice against an LNbits wallet the
 account already has, through `getLnbitsWallets`, and never used the payment

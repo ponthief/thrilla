@@ -8,13 +8,19 @@
 // cannot stop the coin from eventually being spent. Getting it out of the
 // wallet is the only clean fix.
 //
-// So: give a Lightning address, and the change output pays the service
-// instead, with its value sent on minus a fee. WhiSPa holds no Lightning
-// balance — this money goes to an account the app never touches.
+// So: give a Lightning address you control, and the change output pays the
+// service instead, with its value sent on. WhiSPa holds no Lightning balance
+// — this money goes to an account the app never touches.
 //
 // IT SAYS THE COIN STOPS BEING YOURS, in those words, before it is switched
 // on. That is the part nobody would guess from "send my change over
 // Lightning", and it is not something to discover after a round.
+//
+// THREE STATES, and the middle one is why this was rewritten. Turning the
+// setting off used to delete the address, so coming back meant an empty field
+// and no way to tell whether anything had been saved — the only route back on
+// was remembering what had been typed. Off now keeps the address and shows it,
+// greyed, with a way back on; forgetting it is a separate button that says so.
 //
 // Not shown off mainnet. A Lightning address is a mainnet endpoint and signet
 // change is worthless, so the server reports `offered: false` and this renders
@@ -32,11 +38,12 @@ import {
 } from 'react-native';
 import * as api from '@services/api';
 import {
+  LN_ADDRESS_EXAMPLE,
   PAYOUT_CONSENT,
   PAYOUT_TITLE,
   PAYOUT_WHY,
   lnAddressProblem,
-  payoutFeeNote,
+  payoutMinimumNote,
 } from '@services/lnAddress';
 import { colors } from '@/theme';
 
@@ -101,18 +108,46 @@ export default function TangoPayoutCard({
     }
   }, [draft, inkey, network, load]);
 
-  const remove = useCallback(async () => {
+  // Off, but remembered. The address stays saved and shown, so turning it
+  // back on is a tap — which is the whole reason this is not a delete.
+  const setEnabled = useCallback(
+    async (on: boolean) => {
+      if (!inkey) return;
+      setBusy(true);
+      setError(null);
+      setNote(null);
+      try {
+        await api.setTangoPayoutEnabled(inkey, network, on);
+        setNote(
+          on
+            ? 'Back on. Your change will be sent to this address.'
+            : 'Turned off. Your change stays in your wallet, and this address '
+              + 'is kept so you can turn it back on.',
+        );
+        setEditing(false);
+        await load();
+      } catch (e: any) {
+        setError(e?.message || 'Could not change that.');
+      } finally {
+        setBusy(false);
+      }
+    },
+    [inkey, network, load],
+  );
+
+  // The heavier half: stop holding the address at all.
+  const forget = useCallback(async () => {
     if (!inkey) return;
     setBusy(true);
     setError(null);
     try {
       await api.deleteTangoLnAddress(inkey, network);
-      setNote('Turned off. Your change will stay in your wallet.');
+      setNote('Forgotten. Your change will stay in your wallet.');
       setDraft('');
       setEditing(false);
       await load();
     } catch (e: any) {
-      setError(e?.message || 'Could not turn that off.');
+      setError(e?.message || 'Could not forget that address.');
     } finally {
       setBusy(false);
     }
@@ -123,6 +158,9 @@ export default function TangoPayoutCard({
   if (!setting || !setting.offered) return null;
 
   const saved = !!setting.address;
+  // Saved and switched on. Off keeps the address, so these are not the
+  // same question.
+  const on = saved && setting.enabled;
 
   return (
     <View style={styles.card}>
@@ -138,30 +176,52 @@ export default function TangoPayoutCard({
           <Text style={styles.body}>{PAYOUT_WHY}</Text>
           <Text style={styles.consent}>{PAYOUT_CONSENT}</Text>
           <Text style={styles.muted}>
-            {payoutFeeNote(
-              setting.fee_pct,
-              setting.fee_floor_sats,
-              setting.min_change_sats,
-            )}
+            {payoutMinimumNote(setting.min_change_sats)}
           </Text>
 
           {saved && !editing ? (
-            <View style={styles.savedRow}>
-              <Text style={styles.savedAddr} numberOfLines={1}>
-                {setting.address}
-              </Text>
-              <TouchableOpacity
-                onPress={() => {
-                  setNote(null);
-                  setError(null);
-                  setEditing(true);
-                }}>
-                <Text style={styles.link}>Change</Text>
-              </TouchableOpacity>
-              <TouchableOpacity onPress={remove} disabled={busy}>
-                <Text style={styles.removeLink}>Turn off</Text>
-              </TouchableOpacity>
-            </View>
+            <>
+              {/* Saved but off: say so, because an address sitting there
+                  looks like it is in use. */}
+              {!on ? (
+                <Text style={styles.offLabel}>
+                  Off — your change stays in your wallet.
+                </Text>
+              ) : null}
+              <View style={styles.savedRow}>
+                <Text
+                  style={[styles.savedAddr, !on && styles.savedAddrOff]}
+                  numberOfLines={1}>
+                  {setting.address}
+                </Text>
+                {on ? (
+                  <TouchableOpacity
+                    onPress={() => setEnabled(false)}
+                    disabled={busy}>
+                    <Text style={styles.removeLink}>Turn off</Text>
+                  </TouchableOpacity>
+                ) : (
+                  <TouchableOpacity
+                    onPress={() => setEnabled(true)}
+                    disabled={busy}>
+                    <Text style={styles.link}>Turn on</Text>
+                  </TouchableOpacity>
+                )}
+              </View>
+              <View style={styles.actions}>
+                <TouchableOpacity
+                  onPress={() => {
+                    setNote(null);
+                    setError(null);
+                    setEditing(true);
+                  }}>
+                  <Text style={styles.link}>Change address</Text>
+                </TouchableOpacity>
+                <TouchableOpacity onPress={forget} disabled={busy}>
+                  <Text style={styles.forgetLink}>Forget it</Text>
+                </TouchableOpacity>
+              </View>
+            </>
           ) : (
             <View>
               <TextInput
@@ -172,7 +232,7 @@ export default function TangoPayoutCard({
                   setError(null);
                   setNote(null);
                 }}
-                placeholder="satoshi@coinos.io"
+                placeholder={LN_ADDRESS_EXAMPLE}
                 placeholderTextColor={colors.faint}
                 autoCapitalize="none"
                 autoCorrect={false}
@@ -259,8 +319,11 @@ const styles = StyleSheet.create({
     color: colors.text,
     fontFamily: 'monospace',
   },
+  savedAddrOff: { color: colors.faint },
   link: { fontSize: 13, fontWeight: '600', color: PRIMARY },
-  removeLink: { fontSize: 13, fontWeight: '600', color: colors.danger },
+  removeLink: { fontSize: 13, fontWeight: '600', color: colors.warn },
+  forgetLink: { fontSize: 13, fontWeight: '600', color: colors.danger },
+  offLabel: { fontSize: 12, color: colors.faint, marginTop: 12 },
   error: { fontSize: 12, color: colors.danger, lineHeight: 17, marginTop: 10 },
   note: { fontSize: 12, color: colors.green, lineHeight: 17, marginTop: 10 },
 });
