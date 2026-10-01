@@ -28,7 +28,13 @@ import Config from 'react-native-config';
 import { APP_VERSION, compareVersions } from '@/version';
 
 const OWNER = 'ponthief';
-const REPO = 'thrilla';
+// Renamed from 'thrilla' on 2026-10-01. GitHub redirects the old path
+// indefinitely, which is what keeps every APK built before the rename able to
+// find its update — they have the old name compiled in and nothing can change
+// that. The redirect survives for as long as no repository called 'thrilla'
+// exists under this owner: creating one would silently take over the old path
+// and break the update check on every installed build.
+const REPO = 'whispa';
 
 // `releases/latest` excludes prereleases, which is what keeps the rolling CI
 // builds (ci-signet-release, ci-mainnet-release) out of this. Those are

@@ -9,7 +9,7 @@
 # and the app's applicationId is still com.thrilla_btc.thrilla, because changing
 # it would ship a second app that cannot update over the first. Only what the
 # user sees is WhiSPa.
-repository: https://github.com/ponthief/thrilla
+repository: https://github.com/ponthief/whispa
 name: WhiSPa
 summary: Bitcoin Silent Payments wallet
 description: |
@@ -33,7 +33,7 @@ images:
 # same URL the download page on the website points at. Naming the asset matters:
 # every release carries the mainnet and Signet APKs side by side, so without it
 # there is nothing to say which one this is.
-release_source: https://github.com/ponthief/thrilla/releases/latest/download/whispa-mainnet.apk
+release_source: https://github.com/ponthief/whispa/releases/latest/download/whispa-mainnet.apk
 metadata_sources:
     - github
 pubkey: npub1cfm900wdm4p0sky6tz3uhjdcdxsca3l94q5rclzxtxqke7gzenssthhk2w

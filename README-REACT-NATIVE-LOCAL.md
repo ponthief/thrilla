@@ -188,4 +188,4 @@ pod repo update
 For issues or questions, check:
 - [React Native Docs](https://reactnative.dev)
 - [React Navigation Docs](https://reactnavigation.org)
-- [GitHub Issues](https://github.com/ponthief/thrilla/issues)
+- [GitHub Issues](https://github.com/ponthief/whispa/issues)

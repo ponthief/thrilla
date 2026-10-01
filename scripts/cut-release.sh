@@ -239,10 +239,10 @@ gh release create "$tag" \
 # release. The rolling ci-* builds are prereleases and are therefore invisible
 # to those links.
 step "Done"
-note "https://github.com/ponthief/thrilla/releases/tag/$tag"
+note "https://github.com/ponthief/whispa/releases/tag/$tag"
 note "The download page picks this up automatically:"
-note "  https://github.com/ponthief/thrilla/releases/latest/download/whispa-mainnet.apk"
-note "  https://github.com/ponthief/thrilla/releases/latest/download/whispa-signet.apk"
+note "  https://github.com/ponthief/whispa/releases/latest/download/whispa-mainnet.apk"
+note "  https://github.com/ponthief/whispa/releases/latest/download/whispa-signet.apk"
 note ""
 note "Check the fingerprint above still matches whispawallet.com/download.html, and"
 note "that it is also stated somewhere other than that page."

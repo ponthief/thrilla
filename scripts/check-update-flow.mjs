@@ -39,7 +39,7 @@ const MAINNET_SHA =
   '1db73760d92035b667d978d6f318dfb74362dab0ad19b90f792b20fd54b97f31';
 const SIGNET_SHA =
   'c199a8ef41f8f08eb3485cf9576b3899b20606e799325f6072c42a0ed7538b39';
-const DL = 'https://github.com/ponthief/thrilla/releases/download/v0.1.4';
+const DL = 'https://github.com/ponthief/whispa/releases/download/v0.1.4';
 
 const RELEASE = {
   tag_name: 'v0.1.4',
@@ -47,7 +47,7 @@ const RELEASE = {
   draft: false,
   prerelease: false,
   published_at: '2026-09-19T22:18:47Z',
-  html_url: 'https://github.com/ponthief/thrilla/releases/tag/v0.1.4',
+  html_url: 'https://github.com/ponthief/whispa/releases/tag/v0.1.4',
   assets: [
     { name: 'SHA256SUMS', size: 169, browser_download_url: `${DL}/SHA256SUMS` },
     { name: 'SHA256SUMS.asc', size: 228, browser_download_url: `${DL}/SHA256SUMS.asc` },
@@ -226,7 +226,7 @@ console.log('\nrefusals from a malformed answer');
   const s = parseRelease({ tag_name: 'v9.9.9' }, 'whispa-mainnet.apk', '0.1.3');
   ok('no assets array is survivable', s.latest.apkUrl === null);
   ok('page url falls back to the tag',
-     s.latest.pageUrl === 'https://github.com/ponthief/thrilla/releases/tag/v9.9.9');
+     s.latest.pageUrl === 'https://github.com/ponthief/whispa/releases/tag/v9.9.9');
   ok('no digest reads as none', s.latest.apiSha256 === null);
 }
 

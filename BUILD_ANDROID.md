@@ -236,7 +236,7 @@ It also publishes the raw `.apk` as a rolling **prerelease** per flavour, so
 there is a fixed URL you can open on the phone itself:
 
 ```
-https://github.com/ponthief/thrilla/releases/download/ci-signet-release/thrilla-signet-release.apk
+https://github.com/ponthief/whispa/releases/download/ci-signet-release/whispa-signet-release.apk
 ```
 
 > The prerelease step needs **Settings → Actions → General → Workflow

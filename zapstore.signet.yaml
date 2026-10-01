@@ -8,7 +8,7 @@
 # Signet is a separate package (com.thrilla_btc.thrilla.signet), so it lists as
 # its own app alongside the mainnet build. The first publish links the release
 # signing certificate to your pubkey via your .jks.
-repository: https://github.com/ponthief/thrilla
+repository: https://github.com/ponthief/whispa
 name: WhiSPa (Signet)
 summary: Bitcoin Silent Payments wallet — Signet test build
 description: |
@@ -36,7 +36,7 @@ images:
 #
 # Naming the asset matters: every release carries both APKs, and picking up
 # whispa-mainnet.apk here would list the mainnet build under the Signet package.
-release_source: https://github.com/ponthief/thrilla/releases/latest/download/whispa-signet.apk
+release_source: https://github.com/ponthief/whispa/releases/latest/download/whispa-signet.apk
 metadata_sources:
     - github
 pubkey: npub1cfm900wdm4p0sky6tz3uhjdcdxsca3l94q5rclzxtxqke7gzenssthhk2w

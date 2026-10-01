@@ -15,7 +15,7 @@ Cross-platform wallet application for Silent Payments using React Native and Exp
 1. **Clone and install dependencies**
 
 ```bash
-git clone https://github.com/ponthief/thrilla.git
+git clone https://github.com/ponthief/whispa.git
 cd thrilla
 git checkout react-native-expo-migration
 npm install
@@ -177,4 +177,4 @@ eas build --platform ios
 For issues or questions, check:
 - [Expo Docs](https://docs.expo.dev)
 - [React Native Docs](https://reactnative.dev)
-- [GitHub Issues](https://github.com/ponthief/thrilla/issues)
+- [GitHub Issues](https://github.com/ponthief/whispa/issues)

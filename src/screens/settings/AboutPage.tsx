@@ -22,7 +22,7 @@ import {
   openInstallSettings,
 } from '@services/apkInstaller';
 
-const REPO = 'https://github.com/ponthief/thrilla';
+const REPO = 'https://github.com/ponthief/whispa';
 
 type Stage =
   | { kind: 'idle' }
@@ -239,7 +239,7 @@ export default function AboutPage({ onBack }: { onBack: () => void }) {
         <NavRow
           first
           title="Source code"
-          help="github.com/ponthief/thrilla"
+          help="github.com/ponthief/whispa"
           onPress={() => open(REPO)}
         />
       </Group>
