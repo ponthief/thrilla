@@ -16,6 +16,10 @@
 // on. That is the part nobody would guess from "send my change over
 // Lightning", and it is not something to discover after a round.
 //
+// ONE PLACE: the Tango screen. It was briefly in Settings as well, which made
+// the same switch answerable from two screens with no way to tell which one
+// you had last used.
+//
 // THREE STATES, and the middle one is why this was rewritten. Turning the
 // setting off used to delete the address, so coming back meant an empty field
 // and no way to tell whether anything had been saved — the only route back on
@@ -40,6 +44,7 @@ import * as api from '@services/api';
 import {
   LN_ADDRESS_EXAMPLE,
   PAYOUT_CONSENT,
+  PAYOUT_PROMPT,
   PAYOUT_TITLE,
   PAYOUT_WHY,
   lnAddressProblem,
@@ -224,6 +229,7 @@ export default function TangoPayoutCard({
             </>
           ) : (
             <View>
+              <Text style={styles.prompt}>{PAYOUT_PROMPT}</Text>
               <TextInput
                 style={styles.input}
                 value={draft}
@@ -324,6 +330,7 @@ const styles = StyleSheet.create({
   removeLink: { fontSize: 13, fontWeight: '600', color: colors.warn },
   forgetLink: { fontSize: 13, fontWeight: '600', color: colors.danger },
   offLabel: { fontSize: 12, color: colors.faint, marginTop: 12 },
+  prompt: { fontSize: 13, color: colors.text, marginTop: 12 },
   error: { fontSize: 12, color: colors.danger, lineHeight: 17, marginTop: 10 },
   note: { fontSize: 12, color: colors.green, lineHeight: 17, marginTop: 10 },
 });

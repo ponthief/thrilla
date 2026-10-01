@@ -127,10 +127,21 @@ future-rounds setting off. Two tests assert that direction, by lines of code
 rather than by prose, because the comments at both sites mention `enabled` to
 say exactly this.
 
-And it must be **reachable from Settings**, not only from the Tango screen —
-that is where somebody who switched it off goes to switch it back on. One
-component in both places on each client (`TangoPayoutCard` on the phone,
-`TangoPayoutPanel.vue` in the browser), so the two cannot drift.
+And it lives on the **Tango screen, and only there**. It was in Settings as
+well for one commit, on the reasoning that an account setting belongs with the
+account settings; two screens answering the same question, with nothing to say
+which one you had last used, was worse than one screen you have to go to. The
+card (`TangoPayoutCard`) and the panel (`TangoPayoutPanel.vue`) stay as
+components anyway, because that experiment is what a second copy of the markup
+turns into.
+
+The copy is short on purpose and the order is load-bearing: why (the change is
+the linkable part, send it to yourself over Lightning), then the one consent
+sentence, then the minimum, then "Save your Lightning address below" directly
+above the field. The consent line is held to a single sentence by a test —
+"send it to yourself via Lightning" is true about where the value ends up and
+says nothing about the coin itself changing hands, which is the part nobody
+would guess.
 
 Swaps are unaffected — Boltz creates its invoice against an LNbits wallet the
 account already has, through `getLnbitsWallets`, and never used the payment

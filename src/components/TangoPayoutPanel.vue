@@ -23,6 +23,7 @@ import * as api from '@/api'
 import {
   LN_ADDRESS_EXAMPLE,
   PAYOUT_CONSENT,
+  PAYOUT_PROMPT,
   PAYOUT_TITLE,
   PAYOUT_WHY,
   lnAddressProblem,
@@ -156,7 +157,9 @@ async function forget() {
             <button class="btn btn-ghost btn-sm" :disabled="busy" @click="forget">Forget it</button>
           </div>
         </template>
-        <div v-else class="flex gap-2 items-center" style="margin-top:0.75rem; flex-wrap:wrap;">
+        <template v-else>
+          <p class="text-sm" style="margin-top:0.75rem;">{{ PAYOUT_PROMPT }}</p>
+          <div class="flex gap-2 items-center" style="margin-top:0.5rem; flex-wrap:wrap;">
           <input class="input" style="flex:1; min-width:14rem;" v-model="draft"
                  :placeholder="LN_ADDRESS_EXAMPLE" autocapitalize="off" autocomplete="off" />
           <button class="btn btn-primary btn-sm" :disabled="busy || !draft.trim()" @click="save">
@@ -164,7 +167,8 @@ async function forget() {
           </button>
           <button v-if="payout.address" class="btn btn-ghost btn-sm"
                   @click="editing = false; draft = payout.address; error = ''">Cancel</button>
-        </div>
+          </div>
+        </template>
 
         <p v-if="error" class="text-xs" style="color:var(--red,#ff5f56); margin-top:0.5rem;">{{ error }}</p>
         <p v-if="note" class="text-xs text-green" style="margin-top:0.5rem;">{{ note }}</p>

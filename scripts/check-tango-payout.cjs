@@ -43,18 +43,17 @@ const read = (p) => fs.readFileSync(path.join(__dirname, '..', p), 'utf8');
 const SHARED = read('src/services/lnAddress.ts');
 const CARD = read('src/components/TangoPayoutCard.tsx');
 const WEB = read('src/components/TangoPayoutPanel.vue');
-// Reachability: the setting has to be findable from Settings, not only from
-// the screen you go to in order to start a round.
+// One place only. Settings must not grow a second copy of the switch.
 const RN_SETTINGS = read('src/screens/SettingsScreen.tsx');
-const RN_SETTINGS_PAGE = read('src/screens/settings/TangoChangePage.tsx');
 const WEB_SETTINGS = read('src/views/ConfigView.vue');
+const RN_TANGO = read('src/screens/TangoScreen.tsx');
 const WEB_TANGO = read('src/views/TangoView.vue');
 const RN_API = read('src/services/api.ts');
 const WEB_API = read('src/api/index.js');
 
 console.log('one wording, shared by both clients');
 {
-  for (const k of ['PAYOUT_TITLE', 'PAYOUT_WHY', 'PAYOUT_CONSENT']) {
+  for (const k of ['PAYOUT_TITLE', 'PAYOUT_WHY', 'PAYOUT_CONSENT', 'PAYOUT_PROMPT']) {
     ok(`${k} is defined once`, new RegExp(`export const ${k}`).test(SHARED));
     ok(`the phone renders ${k}`, CARD.includes(k));
     ok(`the browser renders ${k}`, WEB.includes(k));
@@ -80,6 +79,10 @@ console.log('\nit says the coin stops being theirs, before it is switched on');
   const consent = (SHARED.match(/PAYOUT_CONSENT\s*=\s*([\s\S]*?);/) || [])[1] || '';
   const text = consent.replace(/['+\n]/g, ' ').replace(/\s+/g, ' ').trim();
   ok('the consent line exists', text.length > 20, text);
+  // Short on purpose, and still the one thing nobody would guess. "Send it to
+  // yourself via Lightning" says where the value ends up and nothing about
+  // the coin itself changing hands.
+  ok('and is one sentence', (text.match(/\./g) || []).length === 1, text);
   ok('it says the change leaves their wallet', /leaves your wallet/i.test(text), text);
   ok('it says what pays for it', /pays this service/i.test(text), text);
   ok('it says when', /after the round confirms/i.test(text), text);
@@ -138,26 +141,25 @@ console.log('\noff keeps the address, so it can be turned back on');
   }
 }
 
-console.log('\nreachable from Settings, not only from the Tango screen');
+console.log('\nthe switch lives on the Tango screen, and only there');
 {
-  // Where it was looked for when it had been switched off.
-  ok('the phone has a Settings page for it',
-    /TangoPayoutCard/.test(RN_SETTINGS_PAGE));
-  ok('the phone lists it in Settings',
-    /TangoChangePage/.test(RN_SETTINGS) && /setPage\('tangochange'\)/.test(RN_SETTINGS));
-  ok('the phone hides the row when not offered',
-    /payout\?\.offered/.test(RN_SETTINGS),
-    'a row leading to a page that renders nothing is worse than no row');
-  ok('the phone says On, Off or Not set',
-    /'Off'/.test(RN_SETTINGS) && /'Not set'/.test(RN_SETTINGS),
-    'saved-and-off is the state somebody comes to Settings to change');
-  ok('the browser has it in Settings', /TangoPayoutPanel/.test(WEB_SETTINGS));
-  // One component in both places, so the two cannot drift.
-  ok('the browser Tango screen uses the same component',
+  // It was in Settings as well for one commit. Two screens answering the same
+  // question, with nothing to say which one you had last used, is worse than
+  // one screen you have to go to.
+  ok('the phone renders it on the Tango screen', /TangoPayoutCard/.test(RN_TANGO));
+  ok('the browser renders it on the Tango screen',
     /TangoPayoutPanel/.test(WEB_TANGO));
-  ok('the browser Tango screen keeps no copy of the form',
-    !/PAYOUT_CONSENT/.test(WEB_TANGO),
-    'the panel is the control; a second copy would drift');
+  for (const [label, src] of [['phone', RN_SETTINGS], ['browser', WEB_SETTINGS]]) {
+    ok(`${label} Settings has no second copy`,
+      !/TangoPayout|TangoChange|getTangoPayoutSetting/.test(src),
+      'one switch, one screen');
+  }
+  // And the Tango screen holds no copy of the form itself — the card and the
+  // panel are the control, so a second set of markup would drift.
+  for (const [label, src] of [['phone', RN_TANGO], ['browser', WEB_TANGO]]) {
+    ok(`the ${label} screen keeps no copy of the form`,
+      !/PAYOUT_CONSENT/.test(src));
+  }
 }
 
 console.log('\nmainnet only, decided by the server');

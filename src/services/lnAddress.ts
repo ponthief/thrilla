@@ -72,17 +72,20 @@ export function payoutMinimumNote(minChangeSats: number | null): string {
 }
 
 /** The one sentence that has to be read before it is switched on, because it
- *  is the part a person would not guess: the coin stops being theirs. */
+ *  is the part a person would not guess: the coin stops being theirs. Kept to
+ *  a single line — "send it to yourself via Lightning" is true about where the
+ *  value ends up and says nothing about the coin itself changing hands. */
 export const PAYOUT_CONSENT =
-  'Your change leaves your wallet: the output pays this service, and we send '
-  + 'the value on to your Lightning address after the round confirms.';
+  'Your change leaves your wallet: the output pays this service, which sends '
+  + 'the value on after the round confirms.';
 
-/** Why anyone would want this, in one line. The risk is the point: a change
- *  coin is the part of a round that can still be traced back, so the safest
- *  place for it is not this wallet. */
+/** Why anyone would want this. The risk is the whole pitch, so it leads. */
 export const PAYOUT_WHY =
-  'Change left here is the one coin that can still link a round back to you. '
-  + 'It is safer sent out than kept, so send it to a Lightning address you '
-  + 'control.';
+  'Make your Tango mini coinjoin change not linkable on-chain. Send it to '
+  + 'yourself via Lightning.';
+
+/** Above the input, so the next action is named rather than inferred from a
+ *  field appearing. */
+export const PAYOUT_PROMPT = 'Save your Lightning address below.';
 
 export const PAYOUT_TITLE = 'Send my change over Lightning';
