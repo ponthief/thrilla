@@ -332,6 +332,31 @@ export async function generateTangoChangeAddress(adminkey, network = undefined) 
   })
 }
 
+// Every Tango change payout and where it got to, plus the totals. Admin only.
+// Includes the Lightning address each one was sent TO, which is the whole
+// reason it is stored on the payout rather than read from the user's setting:
+// "I never received it" is answered by what the row says, not by what their
+// setting says today.
+export async function getTangoPayouts(adminkey, { network, status, limit = 100, offset = 0 } = {}) {
+  const qs = new URLSearchParams()
+  if (network) qs.set('network', network)
+  if (status) qs.set('status', status)
+  qs.set('limit', String(limit))
+  qs.set('offset', String(offset))
+  return req(`${SILNT}/api/v1/admin/tango/payouts?${qs}`, {
+    headers: keyHeaders(adminkey),
+  })
+}
+
+// Put a stopped payout back in the queue. Re-reads the user's address first,
+// since the usual reason one is retried is that they just fixed it.
+export async function retryTangoPayout(adminkey, txid, vout) {
+  return req(
+    `${SILNT}/api/v1/admin/tango/payouts/${encodeURIComponent(txid)}/${vout}/retry`,
+    { method: 'POST', headers: keyHeaders(adminkey) },
+  )
+}
+
 // Client app config is per-network; the backend now requires an explicit
 // `network` (no silent signet fallback), so scope by the build's NETWORK_LOCK.
 export async function getAppConfig(inkey, network = undefined) {

@@ -77,7 +77,8 @@ npm run check:signing       # both on-device signers vs the Python
 npm run check:update        # what the update path offers, vs a real release
 npm run check:contacts      # a stale saved address is visible and fixable
 npm run check:payout        # the Tango change payout says what it takes
-npm run check:vue           # a .vue file importing what it calls
+npm run check:vue           # a .vue file importing what it calls, and its CSS classes existing
+npm run check:admin         # the payout ledger reports earnings and debts apart
 cd ../siLNt && python3 -m pytest tests/ -q
 ```
 
@@ -125,6 +126,23 @@ page on 2026-10-01: the build passed and the page was dead on arrival.
 'vue' and checks a file calling one imports it. Not a general
 undefined-variable check, which would need real scope analysis to avoid
 crying wolf.
+
+It also checks that every `text-`, `badge-`, `alert-` and `btn-` class a
+`.vue` file uses is defined in `src/style.css`, for the same reason: nothing
+else did. `text-amber` was used ten times across four views and never
+defined, so every one of those warnings rendered in the body colour —
+alongside `text-center`, `text-error`, `text-yellow` and `btn-warn`. An
+undefined class name is not a build error, not a lint error, and not visibly
+wrong unless you know what it was meant to look like. All five are defined
+now.
+
+`check:admin` covers the Tango payout ledger, which is an earnings report and
+a liability report in one page. It refuses three ways that could mislead:
+counting fees on payouts that never went out (the instance is holding the
+whole change, not earning part of it); showing what is owed as if it were a
+balance; and showing the user's *current* Lightning address rather than the
+one the payout was actually sent to, which is the entire reason the address is
+stored on the payout row.
 
 `lint` is two rules, not a style pass: `react-hooks/exhaustive-deps` and
 `rules-of-hooks`. It had no config at all until 2026-09-24 and so had never

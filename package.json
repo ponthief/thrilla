@@ -39,7 +39,8 @@
     "check:signing:change": "node --experimental-strip-types scripts/check-tango-change.mjs",
     "check:contacts": "node scripts/check-contact-staleness.cjs",
     "check:payout": "node scripts/check-tango-payout.cjs",
-    "check:vue": "node scripts/check-vue-imports.cjs"
+    "check:vue": "node scripts/check-vue-imports.cjs",
+    "check:admin": "node scripts/check-admin-payouts.cjs"
   },
   "dependencies": {
     "@capacitor-mlkit/barcode-scanning": "^6.0.0",

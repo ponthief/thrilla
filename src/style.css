@@ -119,6 +119,10 @@ code, .mono { font-family: var(--font-mono); }
 .btn-ghost:hover:not(:disabled) { border-color: var(--border-hi); color: var(--text); opacity: 1; }
 .btn-danger   { background: var(--red-bg); color: var(--red); border: 1px solid rgba(239,68,68,.2); }
 .btn-success  { background: var(--green-bg); color: var(--green); border: 1px solid rgba(34,197,94,.2); }
+/* Used by DevicesView before it existed, so those buttons rendered as a bare
+   .btn. Between ghost and danger: an action that is not destructive but is
+   not routine either. */
+.btn-warn     { background: var(--yellow-bg); color: var(--yellow); border: 1px solid rgba(234,179,8,.25); }
 .btn-sm { padding: 4px 8px; font-size: 10.5px; min-height: 26px; }
 .btn-icon { padding: 5px; min-width: 28px; min-height: 28px; }
 
@@ -257,6 +261,16 @@ tbody tr:hover td { background: var(--surface-2); }
 .text-green  { color: var(--green); }
 .text-red    { color: var(--red); }
 .text-dim    { color: var(--text-dim); }
+/* Used in 10 places across four views before it was ever defined, so every
+   one of those warnings rendered in the body colour. The token is --yellow;
+   "amber" is what the markup has always called it. */
+.text-amber  { color: var(--yellow); }
+/* The same story as .text-amber: all three were in the markup and none were
+   here, so every use rendered as ordinary body text. Found by
+   scripts/check-vue-imports.cjs, which now refuses an undefined one. */
+.text-yellow { color: var(--yellow); }
+.text-error  { color: var(--red); }
+.text-center { text-align: center; }
 .text-mono   { font-family: var(--font-mono); }
 .text-sm     { font-size: 12px; }
 .text-xs     { font-size: 11px; }

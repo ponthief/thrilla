@@ -18,6 +18,12 @@
  * scope analysis to avoid false positives on locals, props and template refs,
  * and a check that cries wolf is a check that gets switched off.
  *
+ * IT ALSO CHECKS UTILITY CLASSES, for the same reason: nothing else does.
+ * `text-amber` was used ten times across four views and never defined in
+ * style.css, so every one of those warnings rendered in the body colour. A
+ * class name that does not exist is not a build error, not a lint error and
+ * not visibly wrong unless you know what colour it was supposed to be.
+ *
  * Run: node scripts/check-vue-imports.cjs
  */
 const fs = require('fs');
@@ -134,6 +140,47 @@ onMounted(() => {})
   );
   ok('it flags the real case', missing.includes('computed'), missing.join(', '));
   ok('and nothing else in it', missing.length === 1, missing.join(', '));
+}
+
+console.log('\nutility classes a .vue file uses are defined in style.css');
+{
+  // Only the families that are purely cosmetic utilities, where a typo is
+  // invisible rather than broken: text-*, badge-*, alert-*, btn-*. Component
+  // and layout classes are scoped, generated or defined per-view, and
+  // checking those would need real CSS resolution.
+  const FAMILIES = /^(text|badge|alert|btn)-/;
+  const css = fs.readFileSync(path.join(ROOT, 'src/style.css'), 'utf8');
+  const defined = new Set(
+    [...css.matchAll(/\.([a-zA-Z][\w-]*)/g)].map((m) => m[1]),
+  );
+
+  const missing = new Map();
+  for (const file of files) {
+    const raw = fs.readFileSync(file, 'utf8');
+    // Static class attributes and the string literals inside :class bindings.
+    const names = new Set();
+    for (const m of raw.matchAll(/\bclass="([^"]*)"/g)) {
+      for (const n of m[1].split(/\s+/)) if (n && !n.includes('{')) names.add(n);
+    }
+    for (const m of raw.matchAll(/'([a-zA-Z][\w-]*)'\s*:/g)) names.add(m[1]);
+    // A scoped <style> block in the file defines its own.
+    const own = new Set(
+      [...raw.matchAll(/<style[^>]*>([\s\S]*?)<\/style>/g)]
+        .flatMap((m) => [...m[1].matchAll(/\.([a-zA-Z][\w-]*)/g)])
+        .map((m) => m[1]),
+    );
+    for (const n of names) {
+      if (!FAMILIES.test(n) || defined.has(n) || own.has(n)) continue;
+      if (!missing.has(n)) missing.set(n, []);
+      missing.get(n).push(path.relative(ROOT, file));
+    }
+  }
+
+  const report = [...missing.entries()].map(
+    ([name, where]) => `${name} (${where.length}×, e.g. ${where[0]})`,
+  );
+  ok('every text-/badge-/alert-/btn- class is defined', report.length === 0,
+    report.join('\n         '));
 }
 
 console.log('');

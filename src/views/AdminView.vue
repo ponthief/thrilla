@@ -54,6 +54,56 @@ async function generateChangeAddress() {
   }
 }
 
+// ── Tango change payouts ───────────────────────────────────────────────────
+// Every routed change output and whether its value reached the user. The
+// money is the instance's from the moment the round confirms, so an
+// undelivered payout is a debt and is shown as one.
+const payouts       = ref([])
+const payoutTotals  = ref(null)
+const payoutFilter  = ref('')          // '' = all statuses
+const payoutsLoading = ref(false)
+const payoutsError  = ref('')
+const retrying      = ref('')          // "txid:vout" currently being retried
+
+async function loadPayouts() {
+  payoutsLoading.value = true; payoutsError.value = ''
+  try {
+    const res = await api.getTangoPayouts(auth.adminkey, {
+      status: payoutFilter.value || undefined,
+    })
+    payouts.value = res.payouts || []
+    payoutTotals.value = res.totals || null
+  } catch (e) {
+    payoutsError.value = e.detail || e.message || 'Could not load payouts.'
+  } finally {
+    payoutsLoading.value = false
+  }
+}
+
+async function retryPayout(row) {
+  const key = `${row.txid}:${row.vout}`
+  retrying.value = key; payoutsError.value = ''
+  try {
+    await api.retryTangoPayout(auth.adminkey, row.txid, row.vout)
+    await loadPayouts()
+  } catch (e) {
+    payoutsError.value = e.detail || e.message || 'Could not retry that payout.'
+  } finally {
+    retrying.value = ''
+  }
+}
+
+const fmtSats = (n) => (Number(n) || 0).toLocaleString()
+
+// When it was last tried, or when it went out. A row that has been pending
+// for two days with five attempts is a different problem from one created a
+// minute ago, and the count is what says which.
+function payoutWhen(row) {
+  if (row.paid_at) return new Date(row.paid_at * 1000).toLocaleString()
+  if (row.created_at) return new Date(row.created_at).toLocaleString()
+  return '—'
+}
+
 // Shown as a percentage because that is how it was specified and how an
 // operator thinks about it; stored as a fraction because that is what the fee
 // arithmetic multiplies by. One conversion, in one place.
@@ -201,6 +251,9 @@ async function loadConfig() {
     try {
       payoutWallets.value = (await api.getLnbitsWallets(auth.token)) || []
     } catch { payoutWallets.value = [] }
+    // Best-effort, and not awaited into the config load's failure path: a
+    // payout list that cannot load must not stop the settings being edited.
+    loadPayouts()
     ntfyTopicsText.value = (ntfy.value.topics || []).join('\n')
   } catch (e) { error.value = e.message }
   finally { loading.value = false }
@@ -598,6 +651,127 @@ onBeforeUnmount(() => {
           </div>
         </div>
 
+        <!-- ── Tango change payouts ────────────────────────────────────────
+             Every routed change output and whether its value reached the
+             user. The money is this server's from the moment the round
+             confirms, so anything undelivered is a debt and is shown as
+             one. -->
+        <div class="card" style="margin-top:20px">
+          <div class="card-header">
+            <h2>Tango change payouts</h2>
+            <button class="btn btn-ghost btn-sm" :disabled="payoutsLoading" @click="loadPayouts">
+              {{ payoutsLoading ? 'Loading…' : '↻ Refresh' }}
+            </button>
+          </div>
+          <div class="card-body">
+            <div v-if="payoutTotals" class="payout-totals">
+              <div class="payout-stat">
+                <span class="payout-stat-label">Service fees earned</span>
+                <span class="payout-stat-value text-green">
+                  {{ fmtSats(payoutTotals.fees_earned_sats) }} sats
+                </span>
+                <span class="text-dim text-xs">
+                  On the {{ payoutTotals.paid_count }} payout(s) actually
+                  delivered. A fee on something not yet sent is not revenue —
+                  the server is holding the whole change, not earning part of
+                  it.
+                </span>
+              </div>
+              <div class="payout-stat">
+                <span class="payout-stat-label">Change collected</span>
+                <span class="payout-stat-value">
+                  {{ fmtSats(payoutTotals.collected_sats) }} sats
+                </span>
+                <span class="text-dim text-xs">
+                  Gross, across every payout in any state.
+                </span>
+              </div>
+              <div class="payout-stat">
+                <span class="payout-stat-label">Sent to users</span>
+                <span class="payout-stat-value">
+                  {{ fmtSats(payoutTotals.paid_net_sats) }} sats
+                </span>
+                <span class="text-dim text-xs">Net, over Lightning.</span>
+              </div>
+              <div class="payout-stat">
+                <span class="payout-stat-label">Still owed</span>
+                <span class="payout-stat-value"
+                      :class="payoutTotals.owed_sats > 0 ? 'text-amber' : ''">
+                  {{ fmtSats(payoutTotals.owed_sats) }} sats
+                </span>
+                <span class="text-dim text-xs">
+                  {{ payoutTotals.undelivered_count }} payout(s) held but not
+                  delivered. This is a liability, not a balance.
+                </span>
+              </div>
+            </div>
+
+            <div class="field" style="margin-top:14px">
+              <label>Show</label>
+              <select class="input" style="max-width:220px"
+                      v-model="payoutFilter" @change="loadPayouts">
+                <option value="">All</option>
+                <option value="pending">Pending (being retried)</option>
+                <option value="paid">Paid</option>
+                <option value="failed">Failed — our side</option>
+                <option value="unpayable">Unpayable — their address</option>
+              </select>
+              <span class="text-dim text-xs">
+                <strong>Unpayable</strong> is waiting on the user: a bad
+                address, or a provider that will not accept the amount. They
+                have been notified and can change it.
+                <strong>Failed</strong> is waiting on us: no route, no
+                liquidity, a node that would not answer.
+              </span>
+            </div>
+
+            <div v-if="payoutsError" class="alert alert-error">⚠ {{ payoutsError }}</div>
+
+            <div v-if="!payouts.length && !payoutsLoading" class="text-dim text-sm">
+              No payouts yet.
+            </div>
+            <div v-else class="payout-rows">
+              <div v-for="row in payouts" :key="row.txid + ':' + row.vout" class="payout-row">
+                <div style="min-width:0;flex:1">
+                  <div>
+                    <span class="badge" :class="{
+                      'badge-green': row.status === 'paid',
+                      'badge-yellow': row.status === 'pending',
+                      'badge-red': row.status === 'failed' || row.status === 'unpayable',
+                    }">{{ row.status }}</span>
+                    <span class="mono text-xs text-dim" style="margin-left:8px">
+                      {{ row.txid.slice(0, 12) }}…:{{ row.vout }}
+                    </span>
+                    <span class="text-xs text-dim" style="margin-left:8px">
+                      {{ payoutWhen(row) }}
+                    </span>
+                  </div>
+                  <!-- The address it was sent TO, which is what a dispute
+                       asks about. Not the user's current setting. -->
+                  <div class="mono text-xs" style="margin-top:3px;overflow-wrap:anywhere">
+                    {{ row.ln_address || '— no address on record —' }}
+                  </div>
+                  <div class="text-xs text-dim" style="margin-top:3px">
+                    {{ fmtSats(row.gross_sats) }} gross −
+                    {{ fmtSats(row.fee_sats) }} fee =
+                    <strong>{{ fmtSats(row.net_sats) }} sats</strong>
+                    · {{ row.attempts }} attempt(s)
+                    · round {{ row.round_id }} ({{ row.role }})
+                  </div>
+                  <div v-if="row.last_error" class="text-xs text-amber" style="margin-top:3px">
+                    {{ row.last_error }}
+                  </div>
+                </div>
+                <button v-if="row.status !== 'paid'" class="btn btn-ghost btn-sm"
+                        :disabled="retrying === row.txid + ':' + row.vout"
+                        @click="retryPayout(row)">
+                  {{ retrying === row.txid + ':' + row.vout ? 'Retrying…' : 'Retry now' }}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+
         <!-- Cloudflare — BitMail setup -->
         <div v-if="BITMAIL_ENABLED" class="card" style="margin-top:20px">
           <div class="card-header"><h2>BitMail — DNS Setup (Cloudflare)</h2></div>
@@ -714,3 +888,31 @@ onBeforeUnmount(() => {
     </div>
   </div>
 </template>
+
+<style scoped>
+.payout-totals {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: 14px;
+}
+.payout-stat {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 12px;
+  background: var(--bg);
+}
+.payout-stat-label { font-size: 12px; color: var(--text-dim); }
+.payout-stat-value { font-size: 20px; font-weight: 600; }
+.payout-rows { display: flex; flex-direction: column; gap: 10px; margin-top: 12px; }
+.payout-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 10px 12px;
+}
+</style>
