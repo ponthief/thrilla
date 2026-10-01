@@ -1493,3 +1493,70 @@ export async function cancelTango(adminkey: string, rid: string): Promise<TangoR
     headers: apiKey(adminkey),
   });
 }
+
+// ── Tango change: the Lightning address it is paid out to ───────────────────
+//
+// WhiSPa holds no Lightning balance — see CLAUDE.md. This is the one place
+// Lightning appears: a round's change output is the strongest remaining
+// linkability problem in Tango, and a user may have its value sent to a
+// Lightning address instead of keeping the coin.
+//
+// Optional, per user, per network, and mainnet only: a Lightning address is a
+// mainnet endpoint and signet change is worthless, so `offered` comes back
+// false elsewhere and the setting is not shown. The fee, the floor and the
+// smallest change worth routing come back with it so neither client hardcodes
+// a number the backend can change under it.
+
+export interface TangoPayoutSetting {
+  offered: boolean;
+  // Configured AND enabled AND on a network that can: `offered` alone means
+  // the chain allows it, not that this instance has switched it on.
+  ready: boolean;
+  address: string;
+  min_sendable?: number | null;   // msat, as the provider reported on save
+  max_sendable?: number | null;
+  fee_pct: number;
+  fee_floor_sats: number;
+  min_change_sats: number | null;
+}
+
+export async function getTangoPayoutSetting(
+  inkey: string,
+  network: string,
+): Promise<TangoPayoutSetting> {
+  return req(
+    `${SILNT}/api/v1/tango/ln-address?network=${encodeURIComponent(network)}`,
+    { headers: apiKey(inkey) },
+  );
+}
+
+// Saving RESOLVES the address server-side (LUD-16) and refuses a provider that
+// cannot accept the smallest payout this instance would send. That is why this
+// can fail with a message worth showing verbatim: by payout time the coin has
+// already left the wallet, so it has to be proved payable now.
+export async function setTangoLnAddress(
+  inkey: string,
+  network: string,
+  address: string,
+): Promise<{ ok: boolean }> {
+  return req(
+    `${SILNT}/api/v1/tango/ln-address?network=${encodeURIComponent(network)}`,
+    {
+      method: 'PUT',
+      headers: apiKey(inkey),
+      body: JSON.stringify({ address }),
+    },
+  );
+}
+
+// Stop routing: the change goes back to landing in the user's own wallet,
+// which is what every round did before this existed.
+export async function deleteTangoLnAddress(
+  inkey: string,
+  network: string,
+): Promise<{ ok: boolean }> {
+  return req(
+    `${SILNT}/api/v1/tango/ln-address?network=${encodeURIComponent(network)}`,
+    { method: 'DELETE', headers: apiKey(inkey) },
+  );
+}

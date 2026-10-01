@@ -1086,3 +1086,33 @@ export async function tangoCancel(adminkey, rid) {
     headers: keyHeaders(adminkey),
   })
 }
+
+// ── Tango change: the Lightning address it is paid out to ─────────────────────
+// WhiSPa holds no Lightning balance (see CLAUDE.md). This is the one place
+// Lightning appears: a round's change output is the strongest remaining
+// linkability problem in Tango, and a user may have its value sent to a
+// Lightning address instead of keeping the coin. Optional, per user, per
+// network, mainnet only — `offered` comes back false elsewhere.
+export async function getTangoPayoutSetting(inkey, network) {
+  return req(`${SILNT}/api/v1/tango/ln-address?network=${encodeURIComponent(network)}`, {
+    headers: keyHeaders(inkey),
+  })
+}
+
+// Saving resolves the address server-side (LUD-16) and refuses a provider that
+// cannot accept the smallest payout this instance would send — by payout time
+// the coin has already left the wallet, so it is proved payable now.
+export async function setTangoLnAddress(inkey, network, address) {
+  return req(`${SILNT}/api/v1/tango/ln-address?network=${encodeURIComponent(network)}`, {
+    method: 'PUT',
+    headers: keyHeaders(inkey),
+    body: JSON.stringify({ address }),
+  })
+}
+
+export async function deleteTangoLnAddress(inkey, network) {
+  return req(`${SILNT}/api/v1/tango/ln-address?network=${encodeURIComponent(network)}`, {
+    method: 'DELETE',
+    headers: keyHeaders(inkey),
+  })
+}

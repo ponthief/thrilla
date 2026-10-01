@@ -16,6 +16,7 @@ import { useBalancesHidden, MASK } from '@stores/balancePrivacy';
 import * as tango from '@services/tango';
 import * as commits from '@services/tangoCommit';
 import { parseSpAddress, fromHex, toHex } from '@services/spSign';
+import TangoPayoutCard from '../components/TangoPayoutCard';
 import { colors, space, type as type_ } from '@/theme';
 import { Block, Button, Chips, Field, Group, Note, Page } from './settings/ui';
 
@@ -1039,6 +1040,9 @@ export default function TangoScreen() {
             </Block>
           </Group>
 
+          {/* Where the change goes, offered beside the warning that a round
+              leaves some. Renders nothing off mainnet. */}
+          <TangoPayoutCard inkey={inkey} network={network} />
         </>
       ) : null}
 

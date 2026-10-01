@@ -76,6 +76,7 @@ npm run build:signet        # web app
 npm run check:signing       # both on-device signers vs the Python
 npm run check:update        # what the update path offers, vs a real release
 npm run check:contacts      # a stale saved address is visible and fixable
+npm run check:payout        # the Tango change payout says what it takes
 cd ../siLNt && python3 -m pytest tests/ -q
 ```
 
@@ -95,8 +96,19 @@ a **Lightning address** for that change to be sent to instead, minus a service
 fee; the output itself goes to the instance's SP address. Their money leaves
 over somebody else's network to an account this app never touches.
 
-So: `helpers/tangopayout.py` and the Tango payout path are Lightning. Anything
-that would give a user a balance here is not.
+So: `helpers/tangopayout.py`, `helpers/lnaddress.py` and the Tango payout path
+are Lightning. Anything that would give a user a balance here is not.
+
+`check:payout` holds that one setting to three things, each of which has a way
+of going wrong quietly. The **consent line** — "send my change over Lightning"
+does not tell anyone the coin stops being theirs, which is the part nobody
+would guess — must be rendered before the input, not after it. The **fee and
+the threshold come from the server**, because a percentage written into a
+client is a number the backend can change underneath it, and the user reading
+the stale one is the one charged the real one. And it is **mainnet only, by the
+server's say-so** (`offered`), not a client-side network check: a Lightning
+address is a mainnet endpoint and signet change is worthless, so routing it
+would have the instance paying real sats for faucet coins.
 
 Swaps are unaffected — Boltz creates its invoice against an LNbits wallet the
 account already has, through `getLnbitsWallets`, and never used the payment
