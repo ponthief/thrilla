@@ -38,6 +38,21 @@ const LS_KEY = 'thrilla_tango_commit_v1'
 const keyFor = (roundId, walletId) => `${roundId}:${walletId || ''}`
 const roundOf = (key) => String(key).split(':')[0]
 
+const _saneCoins = (v) =>
+  Array.isArray(v) &&
+  v.every(
+    (c) =>
+      c && typeof c.txid === 'string' &&
+      Number.isInteger(c.vout) && Number.isFinite(c.amount),
+  )
+
+// Either a bare coin array — a record written before routing existed, which
+// reads as coins with no intent — or { coins, payout }.
+const _sane = (v) =>
+  _saneCoins(v) ||
+  (!!v && typeof v === 'object' && !Array.isArray(v) &&
+    typeof v.payout === 'boolean' && _saneCoins(v.coins))
+
 function _load() {
   try {
     const raw = JSON.parse(localStorage.getItem(LS_KEY) || '{}')
@@ -45,15 +60,8 @@ function _load() {
     // A malformed entry is dropped rather than allowed to fail a real check
     // later, where it would read as "the server changed your coins".
     const out = {}
-    for (const [id, coins] of Object.entries(raw)) {
-      if (
-        Array.isArray(coins) &&
-        coins.every(
-          (c) =>
-            c && typeof c.txid === 'string' &&
-            Number.isInteger(c.vout) && Number.isFinite(c.amount),
-        )
-      ) out[id] = coins
+    for (const [id, rec] of Object.entries(raw)) {
+      if (_sane(rec)) out[id] = rec
     }
     return out
   } catch { return {} }
@@ -63,13 +71,25 @@ function _save(map) {
   try { localStorage.setItem(LS_KEY, JSON.stringify(map)) } catch { /* ignore */ }
 }
 
-/** Remember the coins this browser committed to a round, as this wallet. */
-export function recordTangoCommit(roundId, walletId, coins) {
+/**
+ * Remember what this browser committed to a round, as this wallet.
+ *
+ * `payout` is the other thing that cannot come back from the server: whether
+ * this browser agreed to have its change routed to the instance over
+ * Lightning. services/tango.ts refuses to sign a round whose routing
+ * disagrees with this, and checking the server's own a_payout/b_payout flag
+ * would be no check at all — a coordinator that turned routing on would take
+ * a change coin the user never offered.
+ */
+export function recordTangoCommit(roundId, walletId, coins, payout) {
   if (!roundId || !walletId) return
   const map = _load()
-  map[keyFor(roundId, walletId)] = (coins || []).map((c) => ({
-    txid: c.txid, vout: c.vout, amount: c.amount,
-  }))
+  map[keyFor(roundId, walletId)] = {
+    coins: (coins || []).map((c) => ({
+      txid: c.txid, vout: c.vout, amount: c.amount,
+    })),
+    payout: !!payout,
+  }
   _save(map)
 }
 
@@ -82,7 +102,26 @@ export function recordTangoCommit(roundId, walletId, coins) {
  */
 export function getTangoCommit(roundId, walletId) {
   if (!roundId || !walletId) return null
-  return _load()[keyFor(roundId, walletId)] || null
+  const rec = _load()[keyFor(roundId, walletId)]
+  if (!rec) return null
+  return Array.isArray(rec) ? rec : rec.coins
+}
+
+/**
+ * Whether THIS BROWSER agreed to route its change, or null when it has no
+ * record either way.
+ *
+ * NULL IS NOT FALSE, and the difference decides whether a round can be signed.
+ * A round started on a phone, or before site data was cleared, has no record
+ * here; services/tango.ts then refuses to sign it if the server says it
+ * routes, because the only evidence the user asked for it would be the
+ * server's own claim. A round that routes nothing signs as it always did.
+ */
+export function getTangoPayoutIntent(roundId, walletId) {
+  if (!roundId || !walletId) return null
+  const rec = _load()[keyFor(roundId, walletId)]
+  if (!rec || Array.isArray(rec)) return null
+  return !!rec.payout
 }
 
 /**

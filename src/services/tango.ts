@@ -369,13 +369,19 @@ export interface CheckOpts {
   myPayoutTweak?: Uint8Array | null;
   /**
    * Whether THIS DEVICE agreed to route its change, from its own record of the
-   * round it proposed or accepted.
+   * round it proposed or accepted. NULL when it has no record either way.
    *
    * Not read from the server's copy, and that is the whole reason it is here:
    * a coordinator that flipped the flag on would take a change coin the user
    * never offered, and a check against the server's own claim would not notice.
+   *
+   * NULL IS NOT FALSE. No record means the round was joined somewhere else —
+   * the web app, or a phone since reinstalled — and a round that routes cannot
+   * then be signed: the only evidence the user asked for it would be the
+   * server's own flag. A round that routes nothing is unaffected, which is
+   * every round before this setting existed.
    */
-  myPayoutIntended?: boolean;
+  myPayoutIntended?: boolean | null;
 }
 
 /**
@@ -464,7 +470,17 @@ export function checkBeforeSigning(opts: CheckOpts): Assembled {
   // server's flag against itself would not notice — the same shape of mistake
   // that let every PayJoin substitution through.
   const routed = !!opts.myPayoutTweak;
-  if (routed !== !!opts.myPayoutIntended) {
+  const intended = opts.myPayoutIntended;
+  if (routed && intended == null) {
+    // Not "you did not ask for this" — nobody can tell from here. Said as
+    // what it is, because the fix is to approve it where it was started.
+    throw new Error(
+      'This Tango sends your change to the service, and this device has no '
+        + 'record of you asking for that. Approve it on the device you '
+        + 'started it from, or cancel it.',
+    );
+  }
+  if (routed !== !!intended) {
     throw new Error(
       routed
         ? 'This Tango sends your change to the service, which you did not '

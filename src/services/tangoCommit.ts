@@ -47,10 +47,26 @@ export interface CommittedCoin {
   amount: number;
 }
 
-/** "roundId:walletId" → the outpoints this device committed to it. */
-export type TangoCommitMap = Record<string, CommittedCoin[]>;
+/**
+ * What this device committed to a round.
+ *
+ * `payout` is the OTHER thing that cannot come back from the server: whether
+ * this device agreed to have its change routed to the instance over Lightning.
+ * tango.ts refuses to sign a round whose routing disagrees with this, and a
+ * check against the server's own a_payout/b_payout flag would be no check —
+ * a coordinator that turned routing on would take a change coin the user
+ * never offered.
+ */
+export interface TangoCommit {
+  coins: CommittedCoin[];
+  payout: boolean;
+}
 
-function sane(v: unknown): v is CommittedCoin[] {
+/** "roundId:walletId" → what this device committed. A bare array is a record
+ *  written before routing existed, and reads as coins with no intent. */
+export type TangoCommitMap = Record<string, CommittedCoin[] | TangoCommit>;
+
+function saneCoins(v: unknown): v is CommittedCoin[] {
   return (
     Array.isArray(v) &&
     v.every(
@@ -61,6 +77,17 @@ function sane(v: unknown): v is CommittedCoin[] {
         Number.isInteger((c as CommittedCoin).vout) &&
         Number.isFinite((c as CommittedCoin).amount),
     )
+  );
+}
+
+function sane(v: unknown): v is CommittedCoin[] | TangoCommit {
+  if (saneCoins(v)) return true;
+  return (
+    !!v &&
+    typeof v === 'object' &&
+    !Array.isArray(v) &&
+    typeof (v as TangoCommit).payout === 'boolean' &&
+    saneCoins((v as TangoCommit).coins)
   );
 }
 
@@ -98,13 +125,17 @@ export async function recordTangoCommit(
   roundId: string,
   walletId: string,
   coins: CommittedCoin[],
+  payout: boolean,
 ): Promise<TangoCommitMap> {
   if (!roundId || !walletId) return map;
-  const next = {
+  const next: TangoCommitMap = {
     ...map,
-    [keyFor(roundId, walletId)]: coins.map((c) => ({
-      txid: c.txid, vout: c.vout, amount: c.amount,
-    })),
+    [keyFor(roundId, walletId)]: {
+      coins: coins.map((c) => ({
+        txid: c.txid, vout: c.vout, amount: c.amount,
+      })),
+      payout: !!payout,
+    },
   };
   await persist(next);
   return next;
@@ -123,7 +154,30 @@ export function getTangoCommit(
   walletId: string | null,
 ): CommittedCoin[] | null {
   if (!roundId || !walletId) return null;
-  return map[keyFor(roundId, walletId)] || null;
+  const rec = map[keyFor(roundId, walletId)];
+  if (!rec) return null;
+  return Array.isArray(rec) ? rec : rec.coins;
+}
+
+/**
+ * Whether THIS DEVICE agreed to route its change, or null when it has no
+ * record either way.
+ *
+ * NULL IS NOT FALSE, and the difference decides whether a round can be signed.
+ * A round proposed from the web app, or from a phone since reinstalled, has no
+ * record here; tango.ts then refuses to sign it if the server says it routes,
+ * because the only evidence that the user asked for it would be the server's
+ * own claim. A round that routes nothing signs as it always did.
+ */
+export function getTangoPayoutIntent(
+  map: TangoCommitMap,
+  roundId: string,
+  walletId: string | null,
+): boolean | null {
+  if (!roundId || !walletId) return null;
+  const rec = map[keyFor(roundId, walletId)];
+  if (!rec || Array.isArray(rec)) return null;
+  return !!rec.payout;
 }
 
 /**

@@ -235,6 +235,37 @@ Whether a side routes at all is checked against **this device's own record**
 (`myPayoutIntended`), never the server's flag. A coordinator that turned
 routing on would otherwise take a change coin the user never offered.
 
+**Routing is per side.** One party giving a Lightning address has no bearing
+on the other: the partner who gave none keeps their change on chain, in their
+own wallet, exactly as every round did before the setting existed. The server
+snapshots each side's flag from that side's own setting at the moment it joins
+— A's at propose, B's at accept — and `enqueue_tango_payouts` creates a payout
+row only for a side whose flag is set. A round-wide flag would route both
+change outputs to the instance and owe nothing to the side that never asked,
+which is the expensive direction; six tests in
+`tests/test_tango_change_output.py` pin it.
+
+The clients were not wired to any of this until 2026-10-01, and the gap was
+worse than a missing feature. `checkBeforeSigning` had the whole verification
+and **no caller passed it anything**: both clients derived their own change
+script unconditionally and sent it, so a user who had saved a Lightning
+address could not accept or sign a round at all — the server refuses a script
+for an output only it can derive. Saving an address broke Tango for that
+account, silently, with a 400 at accept. Now each client reads
+`payoutIntended(setting)` (`services/lnAddress.ts`, mirroring
+`_tango_routes_change`) at the moment it joins, writes the answer into
+`tangoCommit`/`tangocommit.js` beside the coin list, withholds `change_spk`
+when routing, and reads the intent back from its own record to sign.
+
+Two consequences worth knowing. A **missing record is not "no"**: a routed
+round joined on another device cannot be signed here, because the only
+evidence the user asked for it would be the server's own flag — the round
+expires and the coins come back, which is recoverable, unlike signing one
+away. And the intent read and the server's snapshot are **two separate
+calls**, so a setting that changes in between (or liquidity dipping below the
+floor) produces a disagreement; that is caught before signing and tells the
+user to cancel, rather than being resolved in either side's favour.
+
 The last one is the address-to-chain rule, and it is pinned down to the
 sentence rather than the verdict. `helpers/chains.py` is the authority;
 `services/chains.ts` exists only so a cross-chain recipient is refused while

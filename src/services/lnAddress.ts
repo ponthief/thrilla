@@ -87,3 +87,37 @@ export const PAYOUT_WHY =
 export const PAYOUT_PROMPT = 'Save your Lightning address below.';
 
 export const PAYOUT_TITLE = 'Send my change over Lightning';
+
+/**
+ * Whether a round joined RIGHT NOW would have its change routed.
+ *
+ * Mirrors views_api._tango_routes_change, which is the authority: the server
+ * decides, and this is what a client records as its own intent at the moment
+ * it proposes or accepts. All four have to hold —
+ *
+ *   offered  the chain allows it at all (mainnet)
+ *   ready    this instance is configured for it AND can cover a payout
+ *   address  something is saved
+ *   enabled  and it is switched on
+ *
+ * — because any one of them missing is a round that takes the change coin and
+ * has no way to send the value on.
+ *
+ * Read at join time and WRITTEN DOWN, never consulted again when signing. The
+ * setting is a live value; what a signature commits to is what was true when
+ * the round was planned.
+ */
+export function payoutIntended(setting: {
+  offered?: boolean | null;
+  ready?: boolean | null;
+  address?: string | null;
+  enabled?: boolean | null;
+} | null | undefined): boolean {
+  return !!(
+    setting
+    && setting.offered
+    && setting.ready
+    && (setting.address || '').trim()
+    && setting.enabled
+  );
+}

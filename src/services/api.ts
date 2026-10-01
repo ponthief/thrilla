@@ -1408,6 +1408,23 @@ export interface TangoRoundRow {
   a_change_spk?: string | null;
   b_mix_spk?: string | null;
   b_change_spk?: string | null;
+  /**
+   * Whether EACH SIDE routed its change to the instance. Per side, not per
+   * round: one party giving a Lightning address has no bearing on the other,
+   * whose change goes on-chain to its own wallet as it always did.
+   *
+   * Snapshotted by the server when that side joined. A client checks its own
+   * against its local record (tangoCommit) and refuses a mismatch — these are
+   * for reading the round, never for deciding what this device agreed to.
+   */
+  a_payout?: boolean | null;
+  b_payout?: boolean | null;
+  /** t_k for each routed change, which is the only way a client can check a
+   *  script it cannot re-derive. See services/spSign.verifyPayoutOutput. */
+  a_payout_tweak?: string | null;
+  b_payout_tweak?: string | null;
+  /** The instance's SP address as it was when this round was planned. */
+  payout_sp_address?: string | null;
   txid?: string | null;
   reject_reason?: string | null;
   expires_at?: number | null;

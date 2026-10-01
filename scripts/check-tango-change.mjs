@@ -126,14 +126,80 @@ console.log('\nsigning refuses a routing this device did not agree to');
   ok('checkBeforeSigning takes the device\'s own intent',
     /myPayoutIntended/.test(src));
   ok('and refuses a mismatch',
-    /routed !== !!opts\.myPayoutIntended/.test(src),
+    /routed !== !!intended/.test(src),
     'comparing the server flag against itself is not a check');
+  ok('no record is not the same as "no"',
+    /routed && intended == null/.test(src),
+    'a round joined elsewhere must not be signed on the server\'s word');
   ok('a routed change is verified, not compared',
     /verifyPayoutOutput\(opts\.payoutSpAddress/.test(src));
   ok('an unrouted change is still compared to what we derived',
     /expectChangeHex !== ourChangeHex/.test(src));
   ok('routing with no address is refused',
     /does not say where/.test(src));
+}
+
+console.log('\nthe intent is read when joining, and written down');
+{
+  // THE GAP THIS CLOSED. checkBeforeSigning had all of the above and no
+  // caller passed any of it: both clients derived their own change script
+  // unconditionally and sent it, so a user who HAD saved a Lightning address
+  // could not accept or sign a round at all — the server refuses a script for
+  // an output only it can derive. The verification existed and never ran.
+  const RULE = readFileSync(
+    new URL('../src/services/lnAddress.ts', import.meta.url), 'utf8');
+  ok('one rule for whether a round would route',
+    /export function payoutIntended/.test(RULE));
+  for (const field of ['offered', 'ready', 'address', 'enabled']) {
+    ok(`it requires ${field}`, new RegExp(`setting\\.${field}|${field} \\|\\|`).test(RULE));
+  }
+  ok('it says what it mirrors',
+    /_tango_routes_change/.test(RULE),
+    'the server decides; this records what the client agreed to');
+
+  const PHONE = readFileSync(
+    new URL('../src/screens/TangoScreen.tsx', import.meta.url), 'utf8');
+  const WEB = readFileSync(
+    new URL('../src/views/TangoView.vue', import.meta.url), 'utf8');
+  for (const [label, src] of [['phone', PHONE], ['browser', WEB]]) {
+    ok(`the ${label} reads the intent when joining`,
+      /readPayoutIntent/.test(src));
+    // Twice: once at propose (A) and once at accept (B). The server
+    // snapshots each side's flag at the moment that side joins.
+    ok(`the ${label} reads it on both sides`,
+      (src.match(/await readPayoutIntent\(\)/g) || []).length === 2,
+      'A snapshots at propose, B at accept');
+    ok(`the ${label} writes it into its own record`,
+      /recordTangoCommit\([^)]*intend/s.test(src));
+    ok(`the ${label} reads it back from that record to sign`,
+      /getTangoPayoutIntent\(/.test(src));
+    ok(`the ${label} passes it to checkBeforeSigning`,
+      /myPayoutIntended: intended/.test(src));
+    // PER SIDE. The other party's setting is never consulted: a user who did
+    // not give an address keeps their change on chain whatever their partner
+    // did, which is the whole of what "optional" means here.
+    ok(`the ${label} derives no change of its own when routing`,
+      /!intend && !!amounts\.b_change/.test(src)
+      && /!intended && !!myChange/.test(src),
+      'a routed output pays the instance and only it can derive one');
+    ok(`the ${label} never reads the other side's flag`,
+      !/\ba_payout\b|\bb_payout\b/.test(src),
+      'routing is per side; the partner\'s setting is not this side\'s business');
+    ok(`the ${label} takes the tweak and the address from the round`,
+      /payout_sp_address/.test(src)
+      && /a_payout_tweak/.test(src) && /b_payout_tweak/.test(src));
+  }
+
+  // And the record keeps them apart: coins and intent are two things the
+  // server must not be the source of, stored together but read separately.
+  for (const store of ['../src/services/tangoCommit.ts', '../src/stores/tangocommit.js']) {
+    const src = readFileSync(new URL(store, import.meta.url), 'utf8');
+    ok(`${store.split('/').pop()} records the intent`,
+      /payout/.test(src) && /getTangoPayoutIntent/.test(src));
+    ok(`${store.split('/').pop()} still reads a record from before it`,
+      /Array\.isArray\(rec\)/.test(src),
+      'a bare coin array predates routing and must not be dropped');
+  }
 }
 
 console.log('');

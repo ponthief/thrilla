@@ -34,9 +34,11 @@ import { parseSpAddress, fromHex, toHex } from '@/services/spSign'
 // services/lnAddress.
 import TangoPayoutPanel from '@/components/TangoPayoutPanel.vue'
 import { tangoRounds as rounds, refreshTangoWatch } from '@/stores/tangowatch'
+import { payoutIntended } from '@/services/lnAddress'
 import {
   recordTangoCommit,
   getTangoCommit,
+  getTangoPayoutIntent,
   pruneTangoCommits,
 } from '@/stores/tangocommit'
 
@@ -367,6 +369,25 @@ function _scheduleContactPoll() {
 }
 function _stopContactPoll() { if (_contactTimer) { clearInterval(_contactTimer); _contactTimer = null } }
 
+// Does THIS BROWSER mean to route its change on the round it is about to
+// join? Read at the moment of joining and written into the local record —
+// never consulted again at signing time, because the setting is a live value
+// and a signature commits to what was true when the round was planned.
+//
+// A read that fails counts as not routing. The server decides for itself, so
+// a disagreement is caught before signing and says to cancel; treating an
+// unreachable setting as "yes" would be the one direction that could sign a
+// coin away.
+async function readPayoutIntent() {
+  const net = wallet.value?.network
+  if (!net) return false
+  try {
+    return payoutIntended(await api.getTangoPayoutSetting(auth.inkey, net))
+  } catch {
+    return false
+  }
+}
+
 // ── A: propose ──────────────────────────────────────────────────────────────
 const partnerName = ref('')
 
@@ -395,6 +416,7 @@ async function propose() {
   const d = parseInt(denom.value, 10)
   busy.value = 'propose'
   try {
+    const intend = await readPayoutIntent()
     const row = await api.tangoPropose(auth.adminkey, {
       wallet_id: selectedWallet.value,
       partner_username: partnerName.value,
@@ -406,7 +428,7 @@ async function propose() {
     })
     // Remembered before anything else can change: this is the only copy of the
     // selection that the server did not write. See stores/tangocommit.js.
-    recordTangoCommit(row.id, selectedWallet.value, mixChosen.value)
+    recordTangoCommit(row.id, selectedWallet.value, mixChosen.value, intend)
     denom.value = ''
     mixPicked.value = new Set()
     pushToast(
@@ -447,18 +469,25 @@ async function submitMatch(r) {
       parseInputs(r.a_inputs), chosen.map(localOf), r.denom_sats, r.fee_rate,
       rPieces,
     )
+    // ROUTING IS PER SIDE. Whether A gave a Lightning address has no bearing
+    // here: if this side did not, its change is derived in this browser and
+    // goes to this wallet on chain, exactly as before the setting existed.
+    const intend = await readPayoutIntent()
     const { spend } = parseSpAddress(wallet.value.sp_address)
     const own = tango.deriveOwnOutputs(
-      keys.scanSecret, spend, all, !!amounts.b_change, rPieces,
+      keys.scanSecret, spend, all, !intend && !!amounts.b_change, rPieces,
     )
 
     await api.tangoAccept(auth.adminkey, r.id, {
       wallet_id: selectedWallet.value,
       inputs: chosen.map(wireOf),
       mix_spks: own.mix.map(toHex),
+      // Withheld when routing: a routed change pays the instance, and only the
+      // payee can derive a BIP-352 output. The server refuses a script here
+      // rather than ignoring one, so sending it would fail the accept.
       change_spk: own.change ? toHex(own.change) : null,
     })
-    recordTangoCommit(r.id, selectedWallet.value, chosen)
+    recordTangoCommit(r.id, selectedWallet.value, chosen, intend)
     matchFor.value = null
     matchPicked.value = new Set()
     pushToast(
@@ -511,10 +540,17 @@ async function sign(r) {
       clean: !!fresh.clean,
     }
 
+    // What THIS BROWSER agreed to when it joined, from its own record. Null
+    // means no record — the round was started elsewhere — and
+    // checkBeforeSigning refuses a routed round on that basis rather than
+    // taking the server's word for what the user asked for.
+    const intended = getTangoPayoutIntent(fresh.id, selectedWallet.value)
     const { spend } = parseSpAddress(wallet.value.sp_address)
     const myChange = side === 'a' ? amounts.a_change : amounts.b_change
+    // Nothing of ours to derive when it is routed: that output pays the
+    // instance, and a BIP-352 script is derivable only by its payee.
     const own = tango.deriveOwnOutputs(
-      keys.scanSecret, spend, all, !!myChange, nPieces,
+      keys.scanSecret, spend, all, !intended && !!myChange, nPieces,
     )
 
     // A derives at sign time; B derived when it matched, and its scripts are
@@ -539,18 +575,27 @@ async function sign(r) {
 
     // Nothing is signed until this returns. Every way it throws means cancel,
     // not retry, and the message it throws is the message shown.
+    const myTweak = side === 'a' ? fresh.a_payout_tweak : fresh.b_payout_tweak
     const assembled = tango.checkBeforeSigning({
       side, inputs: all, mine, amounts,
       aMix, bMix, aChange, bChange,
       expectMix: own.mix, expectChange: own.change,
       committed: chose || mine,
       denom: fresh.denom_sats, feeRate: fresh.fee_rate, pieces: nPieces,
+      // A routed change cannot be re-derived here, so the round reveals t_k
+      // and this checks the arithmetic instead. The intent is this browser's
+      // own; the tweak and the address are the round's.
+      payoutSpAddress: fresh.payout_sp_address || null,
+      myPayoutTweak: myTweak ? fromHex(myTweak) : null,
+      myPayoutIntended: intended,
     })
 
     const witnesses = tango.signOwnInputs(assembled, all, mine, keys.spendKey)
     const done = await api.tangoSign(auth.adminkey, r.id, {
       witnesses,
       mix_spks: side === 'a' ? own.mix.map(toHex) : null,
+      // Null when routing, for the same reason as at accept: the server
+      // derives it and refuses a script sent here.
       change_spk: side === 'a' && own.change ? toHex(own.change) : null,
       unsigned_tx: assembled.unsignedHex,
     })
