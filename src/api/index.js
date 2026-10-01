@@ -314,6 +314,24 @@ export async function updateConfig(adminkey, data, network = undefined) {
   })
 }
 
+// Generate a fresh Silent Payments wallet for Tango change to land in, and
+// hand back the address, its SCAN key and the MNEMONIC.
+//
+// The scan key cannot be derived from an address — an SP address carries
+// B_scan as a public key, and recovering the secret from it is the discrete
+// log. Both are derived from one seed instead, so the operator never copies
+// two values and hopes they match.
+//
+// Saves nothing. The mnemonic is shown once and is the only way to ever spend
+// what the address collects; the spend key is derived server-side and
+// discarded with the request.
+export async function generateTangoChangeAddress(adminkey, network = undefined) {
+  return req(`${SILNT}/api/v1/admin/tango/change-address${_cfgQs(network)}`, {
+    method: 'POST',
+    headers: keyHeaders(adminkey),
+  })
+}
+
 // Client app config is per-network; the backend now requires an explicit
 // `network` (no silent signet fallback), so scope by the build's NETWORK_LOCK.
 export async function getAppConfig(inkey, network = undefined) {

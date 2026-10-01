@@ -28,6 +28,32 @@ const config  = ref({ blindbit_url: '', mempool_url: 'https://mempool.space', ex
 // the config blob.
 const payoutWallets = ref([])
 
+// Generating a payout wallet, which is the answer to "can the scan key be
+// derived from the address?" — it cannot. An SP address carries B_scan as a
+// PUBLIC key, and recovering the secret from it is the discrete log; if that
+// were possible Silent Payments would be worthless, because anyone could
+// scan anyone's payments. So both are derived from one seed instead, and the
+// operator never copies two values and hopes they match.
+const genBusy  = ref(false)
+const genError = ref('')
+// Shown ONCE. The server saves nothing and holds no spending key: this phrase
+// is the only way to ever spend what the address collects.
+const genMnemonic = ref('')
+
+async function generateChangeAddress() {
+  genBusy.value = true; genError.value = ''; genMnemonic.value = ''
+  try {
+    const res = await api.generateTangoChangeAddress(auth.adminkey)
+    config.value.tango_change_sp_address = res.sp_address
+    config.value.tango_change_scan_secret = res.scan_secret
+    genMnemonic.value = res.mnemonic
+  } catch (e) {
+    genError.value = e.detail || e.message || 'Could not generate an address.'
+  } finally {
+    genBusy.value = false
+  }
+}
+
 // Shown as a percentage because that is how it was specified and how an
 // operator thinks about it; stored as a fraction because that is what the fee
 // arithmetic multiplies by. One conversion, in one place.
@@ -472,6 +498,47 @@ onBeforeUnmount(() => {
                 the <em>spend</em> key, which belongs in an offline wallet and
                 must never be entered here. Not shown back to non-admins.
               </span>
+              <span class="text-dim text-xs" style="display:block;margin-top:4px">
+                It cannot be worked out from the address — an address carries
+                the scan key's <em>public</em> half, and recovering a secret
+                from a public key is not possible. Saving a key that does not
+                belong to the address above is refused, because the server
+                would otherwise derive change outputs it could never find.
+              </span>
+            </div>
+
+            <!-- Which is why this button exists: one seed, both values. -->
+            <div class="field">
+              <button class="btn btn-ghost btn-sm" :disabled="genBusy"
+                      @click="generateChangeAddress">
+                {{ genBusy ? 'Generating…' : '✨ Generate a new payout wallet' }}
+              </button>
+              <span class="text-dim text-xs" style="display:block;margin-top:4px">
+                Fills both fields above from a fresh wallet and shows you its
+                recovery phrase once. Nothing is saved until you press Save
+                Configuration.
+              </span>
+              <div v-if="genError" class="alert alert-error" style="margin-top:8px">
+                ⚠ {{ genError }}
+              </div>
+              <div v-if="genMnemonic" class="alert alert-warn"
+                   style="margin-top:8px;border-color:var(--red,#ff5f56);background:rgba(255,95,86,.08)">
+                <strong style="color:var(--red,#ff5f56)">
+                  ⛔ Write this down now — it is shown once
+                </strong>
+                <div class="mono" style="margin-top:8px;word-break:break-word;font-size:13px">
+                  {{ genMnemonic }}
+                </div>
+                <div class="text-xs" style="margin-top:8px">
+                  This phrase is the <strong>only</strong> way to ever spend
+                  what this address collects. The server does not store it and
+                  does not keep the spend key — it holds the scan key only, so
+                  it can find those coins but never move them. Lose the phrase
+                  and every sat routed here is gone.
+                </div>
+                <button class="btn btn-ghost btn-sm" style="margin-top:8px"
+                        @click="genMnemonic = ''">I have written it down</button>
+              </div>
             </div>
             <div class="field">
               <label>Pay out from</label>
