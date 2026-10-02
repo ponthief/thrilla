@@ -19,7 +19,14 @@
  * Run: node --experimental-strip-types scripts/check-tango-display.mjs
  */
 import { readFileSync } from 'node:fs';
-import { changeLine, turnLine } from '../src/services/tangoTurns.ts';
+import {
+  CANCEL_NOTE_MAX,
+  CANCEL_NOTE_PROMPT,
+  cancelNote,
+  cancelledLine,
+  changeLine,
+  turnLine,
+} from '../src/services/tangoTurns.ts';
 
 let failures = 0;
 const ok = (name, cond, detail = '') => {
@@ -188,6 +195,62 @@ console.log('\nthe warning about undoing a round is read before it is too late')
   // And in the tampering alert's colours rather than an ordinary privacy note.
   ok('web uses the alarm colours', /tangoPairing && !broadcastDone[\s\S]{0,200}--red/.test(WEB));
   ok('mobile uses the alarm colours', RN.includes('styles.undoWarn'));
+}
+
+console.log('\nthe line somebody leaves when they cancel');
+{
+  // OPTIONAL, and the other side reads it. Two things it must not become: a
+  // place for state (reject_reason stays the machine-readable half, parsed on
+  // both clients and the server) and a message thread.
+  eq('nothing to show is null', cancelNote(''), null);
+  eq('whitespace alone is nothing', cancelNote('  \n '), null);
+  eq('a note is one line', cancelNote(' changed my\n\n mind '), 'changed my mind');
+  ok('a long one is cut with an ellipsis',
+    cancelNote('a'.repeat(CANCEL_NOTE_MAX + 20))
+      === `${'a'.repeat(CANCEL_NOTE_MAX)}…`);
+  ok('the cap matches the server', CANCEL_NOTE_MAX === 200,
+    'helpers/tango.py::CANCEL_NOTE_MAX is the authority');
+  // The prompt says optional. A field on a destructive confirmation with no
+  // label reads as something that has to be filled in first.
+  ok('the prompt names who will read it',
+    CANCEL_NOTE_PROMPT('alice').includes('alice'));
+  ok('and says it is optional',
+    /optional/i.test(CANCEL_NOTE_PROMPT('alice'))
+    && /optional/i.test(CANCEL_NOTE_PROMPT(null)));
+  ok('it still works with no name',
+    CANCEL_NOTE_PROMPT(null).includes('them'));
+
+  // reject_reason is untouched by any of this: both parsers still read it.
+  eq('a cancellation still names the side', cancelledLine('cancelled by a', 'a'),
+    'You cancelled it');
+  eq('and the other reader gets the name',
+    cancelledLine('cancelled by a', 'b', 'alice', 'bob'), 'alice cancelled it');
+
+  const MOBILE = readFileSync(
+    new URL('../src/screens/TangoScreen.tsx', import.meta.url), 'utf8');
+  const WEB = readFileSync(
+    new URL('../src/views/TangoView.vue', import.meta.url), 'utf8');
+  for (const [label, src] of [['mobile', MOBILE], ['web', WEB]]) {
+    ok(`${label} asks for it where the round is cancelled`,
+      src.includes('CANCEL_NOTE_PROMPT('));
+    ok(`${label} caps the input`, /maxlength|maxLength/.test(src)
+      && src.includes('CANCEL_NOTE_MAX'));
+    ok(`${label} quotes it when showing it`, /cancelNote\(/.test(src)
+      && src.includes('\u201c'),
+      'somebody else\'s sentence has to read as theirs, not the app\'s');
+    // The ask is a panel or a modal, not a native dialog: neither confirm()
+    // nor Alert.alert can carry a field (Alert.prompt is iOS-only), so a
+    // dialog here would mean offering the note and dropping it.
+    ok(`${label} asks in a panel, not a dialog`, src.includes('cancelAsk'));
+    // The round-cancel warning must not sit inside a dialog call. Other
+    // confirms on these screens are fine — removing a connection is one.
+    const warn = src.indexOf('coins are held for this round');
+    ok(`${label} states the warning in the panel`, warn !== -1);
+    const before = src.slice(Math.max(0, warn - 300), warn);
+    ok(`${label} does not put that warning in a dialog`,
+      !/confirm\(|Alert\.alert\(/.test(before),
+      'a dialog cannot carry the note field');
+  }
 }
 
 console.log('');

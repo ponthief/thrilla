@@ -718,4 +718,7 @@ export {
   changeLine,
   cancelledLine,
   whoCancelled,
+  cancelNote,
+  CANCEL_NOTE_MAX,
+  CANCEL_NOTE_PROMPT,
 } from './tangoTurns';

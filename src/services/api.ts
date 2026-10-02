@@ -1488,7 +1488,11 @@ export interface TangoRoundRow {
   b_mix_spk?: string | null;
   b_change_spk?: string | null;
   txid?: string | null;
+  /** Why it ended, machine-readable — parsed by tangoTurns.whoCancelled. */
   reject_reason?: string | null;
+  /** And the optional line whoever cancelled left. A person's words: shown in
+   *  quotes, never parsed, and absent from a server that predates it. */
+  cancel_note?: string | null;
   expires_at?: number | null;
   created_at?: string | null;
   updated_at?: string | null;
@@ -1566,9 +1570,19 @@ export async function signTango(
   });
 }
 
-export async function cancelTango(adminkey: string, rid: string): Promise<TangoRoundRow> {
+// A note is optional and goes in the body; the server caps it and stores it
+// apart from reject_reason, which is machine-readable state.
+export async function cancelTango(
+  adminkey: string,
+  rid: string,
+  note?: string | null,
+): Promise<TangoRoundRow> {
+  const text = (note || '').trim();
   return req(`${SILNT}/api/v1/tango/rounds/${rid}/cancel`, {
     method: 'POST',
     headers: apiKey(adminkey),
+    // No body at all when there is no note, which is what the server's
+    // optional body is for — and what every build before this one sent.
+    ...(text ? { body: JSON.stringify({ note: text }) } : {}),
   });
 }
