@@ -75,8 +75,41 @@ npm run lint                # stale hook closures (see below)
 npm run build:signet        # web app
 npm run check:signing       # both on-device signers vs the Python
 npm run check:update        # what the update path offers, vs a real release
+npm run check:contacts      # a stale saved address is visible and fixable
+npm run check:lock          # unlocking asks every time
 cd ../siLNt && python3 -m pytest tests/ -q
 ```
+
+`check:lock` guards a patched dependency, which nothing else in this repo
+looks at. react-native-keychain 8.2.0 creates the app lock's keystore key with
+a **five-second authentication validity window**: after any device
+authentication — including unlocking the phone — the key is usable again with
+no prompt at all. `services/appLock.ts` rests entirely on "a successful read
+means the user authenticated", so inside that window the read succeeded having
+asked nobody anything and the lock screen opened on a tap. It is open at
+exactly the moment that screen is shown, and again for five seconds after an
+attempt that authenticated the user but failed for another reason — which is
+how pressing **Try again** let the user straight in (reported 2026-10-02).
+
+`patches/react-native-keychain+8.2.0.patch` sets the timeout to 0 on Android R
+and above and the duration to −1 below it, both of which mean "authenticate
+for every use". It is applied by a `postinstall` hook running
+`patch-package --error-on-fail`, because without that flag a patch that stops
+applying after a bump is a warning and the build ships the window back.
+
+A key created BEFORE the patch keeps its window for as long as it exists, and
+nothing about a key is readable from JS — so an old sentinel is **replaced
+rather than inspected**. `rebuildSentinel` runs on the next successful unlock,
+which is the moment the sensor is provably working; it has to delete the alias
+first, because `setGenericPassword` reuses an existing key and an overwrite
+would keep the old spec. A rebuild that lands in a storage enforcing nothing
+turns the lock off rather than leaving a decorative one, and never keeps out
+somebody who has just authenticated.
+
+The app lock is the ONLY thing in the wallet written with an `accessControl`,
+so the patch reaches nothing else — `check:lock` asserts that too, because a
+second one would start demanding a prompt per use, which for a wallet key
+would mean one per signature.
 
 `lint` is two rules, not a style pass: `react-hooks/exhaustive-deps` and
 `rules-of-hooks`. It had no config at all until 2026-09-24 and so had never

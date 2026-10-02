@@ -43,6 +43,9 @@ export default function LockScreen() {
   // Deliberately not subscribed to `unlocking` — this screen writes it for
   // App.tsx's benefit but must never gate itself on it. See the note below.
   const setUnlocking = useAppLockStore((s) => s.setUnlocking);
+  // Re-read after a rebuild that turned the lock off, so the rest of the app
+  // and Settings agree with the keystore.
+  const refreshLock = useAppLockStore((s) => s.refresh);
   const pinSet = useAppLockStore((s) => s.pinSet);
   const bioEnabled = useAppLockStore((s) => s.bioEnabled);
   const logout = useAuthStore((s) => s.logout);
@@ -130,6 +133,20 @@ export default function LockScreen() {
       setUnlocking(false);
     }
     if (res.ok) {
+      // A lock set up before the five-second authentication window was closed
+      // still has the old key, and nothing about a key is readable from JS —
+      // so it is replaced rather than inspected. Here, because the user has
+      // just authenticated with the sensor, which is the best evidence there
+      // is that the OS will bind the new one properly.
+      //
+      // Not awaited into the unlock decision: they authenticated, and a
+      // rebuild that fails must not keep them out of their own wallet. It
+      // turns the lock off instead (Settings then shows it off), which is the
+      // honest state for a phone that cannot bind one.
+      if (!(await appLock.sentinelKeyIsCurrent())) {
+        const rebuilt = await appLock.rebuildSentinel();
+        if (!rebuilt.ok) await refreshLock();
+      }
       unlock();
       return;
     }
@@ -138,7 +155,7 @@ export default function LockScreen() {
     // fix — say so rather than offering "Try again" forever.
     setUnenforceable(res.reason === 'not-enforceable');
     setFailed(true);
-  }, [setUnlocking, unlock]);
+  }, [refreshLock, setUnlocking, unlock]);
 
   // Coming back to the foreground means no OS prompt is in front of us any
   // more, whatever happened to the promise we were waiting on. Clear both flags

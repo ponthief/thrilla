@@ -1,0 +1,47 @@
+diff --git a/node_modules/react-native-keychain/android/src/main/java/com/oblador/keychain/cipherStorage/CipherStorageKeystoreRsaEcb.java b/node_modules/react-native-keychain/android/src/main/java/com/oblador/keychain/cipherStorage/CipherStorageKeystoreRsaEcb.java
+index 5603fbf..b3b943c 100644
+--- a/node_modules/react-native-keychain/android/src/main/java/com/oblador/keychain/cipherStorage/CipherStorageKeystoreRsaEcb.java
++++ b/node_modules/react-native-keychain/android/src/main/java/com/oblador/keychain/cipherStorage/CipherStorageKeystoreRsaEcb.java
+@@ -233,7 +233,29 @@ public class CipherStorageKeystoreRsaEcb extends CipherStorageBase {
+ 
+     final int keySize = isForTesting ? ENCRYPTION_KEY_SIZE_WHEN_TESTING : ENCRYPTION_KEY_SIZE;
+ 
+-    final int validityDuration = 5;
++    // WhiSPa: EVERY USE OF THIS KEY IS A FRESH AUTHENTICATION.
++    //
++    // Upstream passes 5 here, which gives the key a five-second window: after
++    // ANY device authentication — including unlocking the phone itself — the
++    // key can be used again with no prompt at all.
++    //
++    // services/appLock.ts is built on "reading the sentinel forces the OS
++    // prompt, so a successful read means the user authenticated". Inside that
++    // window the read succeeds having asked nobody anything, and the app's
++    // lock screen opens on a single tap. The window is open at exactly the
++    // moment the lock screen is shown — right after the phone was unlocked —
++    // and again for five seconds after any attempt that did authenticate the
++    // user but failed for some other reason, which is what made "Try again"
++    // let the user straight in.
++    //
++    // 0 on R and above, and -1 below it, both mean "the user must
++    // authenticate for every use". The type stays AUTH_BIOMETRIC_STRONG, as
++    // upstream has it: a timeout of 0 is only supported with biometrics, and
++    // the app only ever enables this lock on a device with biometry enrolled
++    // (see appLock.enable, which refuses any storage but this one).
++    //
++    // This class is the ONLY place the app stores anything with an
++    // accessControl, so nothing else in the wallet is affected.
+     final KeyGenParameterSpec.Builder keyGenParameterSpecBuilder = new KeyGenParameterSpec.Builder(alias, purposes)
+       .setBlockModes(BLOCK_MODE_ECB)
+       .setEncryptionPaddings(PADDING_PKCS1)
+@@ -242,9 +264,9 @@ public class CipherStorageKeystoreRsaEcb extends CipherStorageBase {
+       .setKeySize(keySize);
+ 
+     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+-      keyGenParameterSpecBuilder.setUserAuthenticationParameters(validityDuration, KeyProperties.AUTH_BIOMETRIC_STRONG);
++      keyGenParameterSpecBuilder.setUserAuthenticationParameters(0, KeyProperties.AUTH_BIOMETRIC_STRONG);
+     } else {
+-      keyGenParameterSpecBuilder.setUserAuthenticationValidityDurationSeconds(validityDuration);
++      keyGenParameterSpecBuilder.setUserAuthenticationValidityDurationSeconds(-1);
+     }
+ 
+     return keyGenParameterSpecBuilder;
