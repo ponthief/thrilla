@@ -707,6 +707,29 @@ onBeforeUnmount(() => {
                 </li>
               </ul>
             </div>
+            <!-- An unset pin stops nothing, so it is not a failed gate — but
+                 it is the difference between "a database write can redirect
+                 every routed change" and "it cannot", and nothing else would
+                 ever say so. -->
+            <div v-if="routing && routing.address_pin
+                       && routing.address_pin.state === 'unpinned'"
+                 class="alert alert-warn" style="margin-bottom:14px">
+              <strong>⚠ The change address is not pinned</strong>
+              <div class="text-sm" style="margin-top:4px">
+                {{ routing.address_pin.env }} is not set in the server's
+                environment, so nothing checks the address stored here against
+                a second copy. Anything able to write the backend config could
+                redirect every future routed change, and the clients could not
+                tell — they verify each output against the address the round
+                hands them.
+              </div>
+              <div class="text-xs" style="margin-top:6px">
+                Set {{ routing.address_pin.env }} to the address above and
+                restart. A mismatch then refuses to route rather than paying
+                somewhere unvouched for, and sends an ntfy.
+              </div>
+            </div>
+
             <div v-else-if="routing" class="alert alert-info"
                  style="margin-bottom:14px">
               <strong>✓ Change routing is being offered</strong>
