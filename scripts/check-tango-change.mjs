@@ -188,6 +188,17 @@ console.log('\nthe intent is read when joining, and written down');
     ok(`the ${label} takes the tweak and the address from the round`,
       /payout_sp_address/.test(src)
       && /a_payout_tweak/.test(src) && /b_payout_tweak/.test(src));
+    // AND THE SCRIPT ITSELF. A routed output pays the instance, so `own.change`
+    // is null by design on the side that routed — taking our own change from
+    // `own` regardless left that side with nothing to verify against the
+    // revealed tweak, and a transaction assembled without the very output it
+    // was about to sign over. Both sides' scripts are on the round from
+    // ACCEPTED onwards; the only one we derive is our own when we did NOT
+    // route.
+    ok(`the ${label} reads its own routed change off the round`,
+      /side === 'a' && !intended \? own\.change/.test(src)
+      && /side === 'b' && !intended \? own\.change/.test(src),
+      'own.change is null when this side routes');
   }
 
   // And the record keeps them apart: coins and intent are two things the

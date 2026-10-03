@@ -559,12 +559,15 @@ async function sign(r) {
     const theirs = (raw, old) => tango.spkList(raw || old).map(fromHex)
     const aMix = side === 'a' ? own.mix : theirs(fresh.a_mix_spks, fresh.a_mix_spk)
     const bMix = side === 'b' ? own.mix : theirs(fresh.b_mix_spks, fresh.b_mix_spk)
-    const aChange = side === 'a'
-      ? own.change
-      : (fresh.a_change_spk ? fromHex(fresh.a_change_spk) : null)
-    const bChange = side === 'b'
-      ? own.change
-      : (fresh.b_change_spk ? fromHex(fresh.b_change_spk) : null)
+    // OUR OWN change comes from the round when we routed it, because a routed
+    // output pays the instance and only the instance can derive one —
+    // `own.change` is null in that case by design. Taking it from `own`
+    // regardless left the side that routed with no change script at all:
+    // nothing to verify against the revealed tweak, and a transaction
+    // assembled without the output it was about to sign over.
+    const fromRow = (hex) => (hex ? fromHex(hex) : null)
+    const aChange = side === 'a' && !intended ? own.change : fromRow(fresh.a_change_spk)
+    const bChange = side === 'b' && !intended ? own.change : fromRow(fresh.b_change_spk)
 
     // The coins this browser chose, from this browser. Comparing the server's
     // set to the server's set would pass whatever it contained. Absent — a
