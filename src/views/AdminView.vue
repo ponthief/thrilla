@@ -65,6 +65,7 @@ const payoutTotals  = ref(null)
 // floor is still clear. An operator looking at a stuck payout is usually
 // looking at this.
 const liquidity     = ref(null)
+const routing       = ref(null)
 const payoutFilter  = ref('')          // '' = all statuses
 const payoutsLoading = ref(false)
 const payoutsError  = ref('')
@@ -79,6 +80,7 @@ async function loadPayouts() {
     payouts.value = res.payouts || []
     payoutTotals.value = res.totals || null
     liquidity.value = res.liquidity || null
+    routing.value = res.routing || null
   } catch (e) {
     payoutsError.value = e.detail || e.message || 'Could not load payouts.'
   } finally {
@@ -682,7 +684,56 @@ onBeforeUnmount(() => {
             </button>
           </div>
           <div class="card-body">
-            <!-- Liquidity first: an undelivered payout is almost always this.
+            <!-- WHY THE LIST IS THE LENGTH IT IS, before the list itself.
+                 An empty ledger has five causes — the network, the
+                 configuration, the wallet's balance, a transaction not deep
+                 enough yet, and rounds that simply did not route — and each
+                 needs a different thing done. Routing is silent to users by
+                 design, so without this there is nothing anywhere that says
+                 which one it was. -->
+            <div v-if="routing && !routing.offering" class="alert alert-warn"
+                 style="margin-bottom:14px">
+              <strong>⚠ Change is not being routed right now</strong>
+              <div class="text-sm" style="margin-top:4px">
+                Rounds are completing with their change left on chain. Every
+                one of these has to hold:
+              </div>
+              <ul class="text-sm" style="margin:6px 0 0 18px">
+                <li v-for="g in routing.gates" :key="g.name">
+                  <span :class="g.ok ? 'text-green' : 'text-amber'">
+                    {{ g.ok ? '✓' : '✗' }} {{ g.name.replace(/_/g, ' ') }}
+                  </span>
+                  — {{ g.detail }}
+                </li>
+              </ul>
+            </div>
+            <div v-else-if="routing" class="alert alert-info"
+                 style="margin-bottom:14px">
+              <strong>✓ Change routing is being offered</strong>
+              <div class="text-sm" style="margin-top:4px">
+                Of the last {{ routing.broadcast_rounds }} broadcast round<span
+                  v-if="routing.broadcast_rounds !== 1">s</span>,
+                {{ routing.rounds_with_change }} left change and
+                {{ routing.routed_sides }} side<span
+                  v-if="routing.routed_sides !== 1">s</span> routed it.
+                <template v-if="routing.rounds_with_change && !routing.routed_sides">
+                  Nobody's change was routed: the users in those rounds had no
+                  Lightning address saved, or had the setting switched off when
+                  they joined.
+                </template>
+                <template v-else-if="!routing.rounds_with_change">
+                  No round left change worth keeping — anything below the dust
+                  limit goes to the miner, so there was nothing to route.
+                </template>
+                <template v-else>
+                  A routed side appears below once its transaction has
+                  {{ routing.min_confirmations }} confirmation<span
+                    v-if="routing.min_confirmations !== 1">s</span>.
+                </template>
+              </div>
+            </div>
+
+            <!-- Liquidity second: an undelivered payout is almost always this.
                  Shown as an alert when the floor is breached, because at that
                  point the feature has stopped being offered to users and the
                  operator needs to know why rather than discover it. -->
