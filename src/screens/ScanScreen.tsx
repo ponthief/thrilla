@@ -24,6 +24,25 @@ import { colors } from '@/theme';
 const PRIMARY = colors.primary;
 const POLL_MS = 1500;
 
+// How far back a deliberate rescan can reach.
+//
+// WHY THIS EXISTS AT ALL. Everything else on this screen scans FORWARD from
+// where the wallet got to. When a block was missed — read as empty, skipped
+// while the oracle was behind, or passed over by a resume point that moved too
+// far — there was no way to look at it again: "Up to date" disabled the only
+// button, and the range is computed, not typed. Recovering a mainnet balance
+// on 2026-10-03 meant editing last_scan_height in the database by hand.
+//
+// Blocks rather than dates because that is what the server takes, with the
+// rough time beside each so the number means something. 1 is deliberate: a
+// payment one block back is the ordinary case for "it has not shown up yet".
+const LOOKBACK: { label: string; blocks: number; about: string }[] = [
+  { label: '10', blocks: 10, about: 'about 1½ hours' },
+  { label: '144', blocks: 144, about: 'about a day' },
+  { label: '1,008', blocks: 1008, about: 'about a week' },
+  { label: '4,320', blocks: 4320, about: 'about a month' },
+];
+
 function groupThousands(n: number): string {
   return Math.floor(n)
     .toString()
@@ -82,6 +101,10 @@ export default function ScanPanel() {
   const [result, setResult] = useState<ScanResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [cooldown, setCooldownSec] = useState(0);
+  // Which lookback is armed, or null for the ordinary catch-up. Cleared after
+  // a scan starts so the next press is the ordinary one again — a rescan is a
+  // thing you choose each time, not a mode the screen stays in.
+  const [lookback, setLookback] = useState<number | null>(null);
 
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   // Holds the latest `poll` so `load` can attach to a running scan without a
@@ -159,13 +182,21 @@ export default function ScanPanel() {
       // already in flight, and tapping it just fires a duplicate the server
       // rejects — which is what made progress appear only after a tab switch.
       let active = false;
+      // Kept past the `if` below: an IDLE scan's record is where a gap from
+      // the last run is reported, and that is exactly the case the range has
+      // to be set from.
+      let p0: api.ScanProgress | null = null;
       try {
-        const p = await api.getScanProgress(inkey, w.id);
-        if (p?.active) {
+        p0 = await api.getScanProgress(inkey, w.id);
+        if (p0?.active) {
           active = true;
-          setProgress(p);
+          setProgress(p0);
           setScanning(true);
           pollFn.current(w.id);
+        } else if (p0) {
+          // Not scanning, but it may still be reporting a block it could not
+          // read. Nothing else on this screen would ever show it.
+          setProgress(p0);
         }
       } catch {
         /* treat as no active scan */
@@ -181,7 +212,17 @@ export default function ScanPanel() {
       // Filling empty fields can never overwrite something the user typed.
       if (newTip) {
         const birth = Number(w.last_height) || 0;
-        const from = String(resumeFrom(birth, scannedFloorRef.current, newTip, minH));
+        // A gap wins over the resume point. resumeFrom floors the start at the
+        // highest height ever seen, which is what stops a transient low read
+        // rewinding the range — and is also what made an unread block
+        // unreachable: the only honest place to start is the block that was
+        // never looked at.
+        const unread = p0?.gap ?? null;
+        const from = String(
+          unread != null
+            ? Math.max(unread, minH || 0)
+            : resumeFrom(birth, scannedFloorRef.current, newTip, minH),
+        );
         const idle = !scanning && !active;
         // Updater form so each field is compared against its LIVE value — this
         // callback's closure can be a keystroke behind, and overwriting a height
@@ -230,8 +271,17 @@ export default function ScanPanel() {
     scannedFloorRef.current,
   );
 
+  // A block the last scan could not read. Until it is read, the wallet has a
+  // hole in it and nothing else on this screen may claim otherwise.
+  const gap = progress.gap ?? null;
+
   const upToDate = (() => {
     if (!wallet || !tip) return false;
+    // NOT "up to date" with a hole in it, whatever the heights say. This is
+    // how a mainnet change output went missing: the scan reported complete,
+    // the wallet read as scanned to the tip, and the block holding the
+    // payment had never been looked at.
+    if (gap != null) return false;
     return effectiveScanned >= tip;
   })();
 
@@ -283,8 +333,15 @@ export default function ScanPanel() {
       return;
     }
 
-    const from = Number(fromHeight);
-    const to = Number(toHeight);
+    // An armed rescan wins over the computed range. It is the only thing on
+    // this screen that deliberately goes BACKWARDS, and the server will not
+    // let it rewind the resume point (set_last_scan_height only moves
+    // forward), so it costs the blocks it scans and nothing else.
+    const from =
+      lookback != null && tip
+        ? Math.max(tip - lookback, minHeight || 1)
+        : Number(fromHeight);
+    const to = lookback != null && tip ? tip : Number(toHeight);
     if (!Number.isFinite(from) || !Number.isFinite(to)) {
       setError('Enter both From and To heights.');
       return;
@@ -312,6 +369,8 @@ export default function ScanPanel() {
     setProgress({ active: true, current: 0, total: 0, found: 0 });
     try {
       await api.startScan(inkey, wallet.id, keys.scanSecret, from, to);
+      // Disarm: the next press is the ordinary catch-up again.
+      setLookback(null);
       markScanStarted(wallet.id); // arm the 1-min cooldown
       setCooldownSec(cooldownRemaining(wallet.id));
       poll(wallet.id);
@@ -333,7 +392,7 @@ export default function ScanPanel() {
         setError(raw || 'Scan failed to start.');
       }
     }
-  }, [wallet, inkey, fromHeight, toHeight, minHeight, tip, poll]);
+  }, [wallet, inkey, fromHeight, toHeight, minHeight, tip, poll, lookback]);
 
   const onStop = useCallback(async () => {
     if (!wallet || !inkey) return;
@@ -401,15 +460,28 @@ export default function ScanPanel() {
           <Row
             label="Status"
             value={
-              upToDate
+              gap != null
+                ? `Block ${groupThousands(gap)} unread`
+                : upToDate
                 ? 'Up to date'
                 : behind != null
                 ? `${groupThousands(behind)} block${behind === 1 ? '' : 's'} behind`
                 : '—'
             }
-            valueStyle={upToDate ? styles.ok : styles.warnText}
+            valueStyle={upToDate && gap == null ? styles.ok : styles.warnText}
           />
         </View>
+
+        {gap != null ? (
+          <View style={styles.card}>
+            <Text style={styles.warn}>
+              The server could not read block {groupThousands(gap)}, so anything
+              paid to you in it has not been seen. The blocks above it were
+              scanned. Scanning from {groupThousands(gap)} again is below, and
+              will work once the server's index covers that block.
+            </Text>
+          </View>
+        ) : null}
 
         {!keysPresent ? (
           <View style={styles.card}>
@@ -448,7 +520,12 @@ export default function ScanPanel() {
               </>
             ) : (
               <>
-                {!upToDate && behind && fromHeight && toHeight ? (
+                {lookback != null && tip ? (
+                  <Text style={styles.rangeCaption}>
+                    Blocks {groupThousands(Math.max(tip - lookback, minHeight || 1))} –{' '}
+                    {groupThousands(tip)}
+                  </Text>
+                ) : !upToDate && behind && fromHeight && toHeight ? (
                   <Text style={styles.rangeCaption}>
                     Blocks {groupThousands(Number(fromHeight))} –{' '}
                     {groupThousands(Number(toHeight))}
@@ -457,13 +534,18 @@ export default function ScanPanel() {
                 <TouchableOpacity
                   style={[
                     styles.primaryBtn,
-                    (upToDate || cooldown > 0) && styles.btnDisabled,
+                    ((upToDate && lookback == null) || cooldown > 0) &&
+                      styles.btnDisabled,
                   ]}
                   onPress={onStart}
-                  disabled={upToDate || cooldown > 0}>
+                  disabled={(upToDate && lookback == null) || cooldown > 0}>
                   <Text style={styles.primaryBtnText}>
                     {cooldown > 0
                       ? `Scan again in ${cooldown}s`
+                      : lookback != null
+                      ? `Rescan last ${groupThousands(lookback)} block${
+                          lookback === 1 ? '' : 's'
+                        }`
                       : upToDate
                       ? 'Up to date'
                       : behind
@@ -473,6 +555,41 @@ export default function ScanPanel() {
                       : 'Start scan'}
                   </Text>
                 </TouchableOpacity>
+
+                {/* Looking BACKWARDS, which nothing else here does. Offered
+                    whatever the wallet's state, because "up to date" is
+                    exactly when somebody needs it: a payment that never
+                    appeared is in a block the wallet believes it has already
+                    read. The server will not let this rewind the resume
+                    point, so the only cost is the blocks it scans. */}
+                <View style={styles.lookback}>
+                  <Text style={styles.lookbackLabel}>
+                    Payment missing? Look at recent blocks again:
+                  </Text>
+                  <View style={styles.lookbackRow}>
+                    {LOOKBACK.map((o) => {
+                      const on = lookback === o.blocks;
+                      return (
+                        <TouchableOpacity
+                          key={o.blocks}
+                          style={[styles.chip, on && styles.chipOn]}
+                          onPress={() =>
+                            setLookback(on ? null : o.blocks)
+                          }>
+                          <Text style={[styles.chipText, on && styles.chipTextOn]}>
+                            {o.label}
+                          </Text>
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </View>
+                  <Text style={styles.lookbackHelp}>
+                    {lookback != null
+                      ? `${LOOKBACK.find((o) => o.blocks === lookback)?.about} of blocks. ` +
+                        'Nothing already scanned is lost.'
+                      : 'Blocks back from the tip. Pick one, then scan.'}
+                  </Text>
+                </View>
               </>
             )}
 
@@ -563,6 +680,21 @@ const styles = StyleSheet.create({
   ok: { color: colors.green },
   warnText: { color: PRIMARY },
 
+  lookback: { marginTop: 18 },
+  lookbackLabel: { fontSize: 13, color: colors.text, marginBottom: 8 },
+  lookbackRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  chip: {
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: 999,
+    paddingHorizontal: 14,
+    paddingVertical: 7,
+    backgroundColor: colors.surfaceAlt,
+  },
+  chipOn: { borderColor: PRIMARY, backgroundColor: PRIMARY },
+  chipText: { fontSize: 13, color: colors.text },
+  chipTextOn: { color: colors.onPrimary, fontWeight: '600' },
+  lookbackHelp: { fontSize: 12, color: colors.faint, marginTop: 8, lineHeight: 17 },
   rangeCaption: {
     fontSize: 13,
     color: colors.muted,

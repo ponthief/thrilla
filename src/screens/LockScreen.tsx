@@ -43,6 +43,9 @@ export default function LockScreen() {
   // Deliberately not subscribed to `unlocking` — this screen writes it for
   // App.tsx's benefit but must never gate itself on it. See the note below.
   const setUnlocking = useAppLockStore((s) => s.setUnlocking);
+  // Re-read after a rebuild that turned the lock off, so the rest of the app
+  // and Settings agree with the keystore.
+  const refreshLock = useAppLockStore((s) => s.refresh);
   const pinSet = useAppLockStore((s) => s.pinSet);
   const bioEnabled = useAppLockStore((s) => s.bioEnabled);
   const logout = useAuthStore((s) => s.logout);
@@ -140,6 +143,42 @@ export default function LockScreen() {
     setFailed(true);
   }, [setUnlocking, unlock]);
 
+  // ── recovering a sentinel the 2026-10-02 build made unreadable ──
+  //
+  // That build generated the keystore key with per-use authentication, which
+  // this keychain library cannot satisfy — its biometric prompt carries no
+  // CryptoObject, so every read throws and the prompt loops. A device that
+  // unlocked once on it cannot unlock again, by any button on this screen.
+  //
+  // So the repair runs BEFORE anything is pressed: the marker those builds
+  // left is readable without authenticating, and replacing the key needs no
+  // authentication either. It is not a way past the lock — the new key still
+  // has to be read, which still raises a prompt — it only puts the screen
+  // back in a state where pressing Unlock can work.
+  //
+  // Once, on mount. A failure leaves the screen as it was, with the PIN and
+  // logout still there.
+  const [repairing, setRepairing] = useState(false);
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      if (!(await appLock.sentinelKeyIsBroken())) return;
+      if (!alive) return;
+      setRepairing(true);
+      try {
+        const rebuilt = await appLock.rebuildSentinel();
+        // A rebuild that could not bind the new key turns the lock off, so the
+        // rest of the app has to be told.
+        if (!rebuilt.ok) await refreshLock();
+      } finally {
+        if (alive) setRepairing(false);
+      }
+    })();
+    return () => {
+      alive = false;
+    };
+  }, [refreshLock]);
+
   // Coming back to the foreground means no OS prompt is in front of us any
   // more, whatever happened to the promise we were waiting on. Clear both flags
   // so a prompt that died with the activity cannot leave the screen inert.
@@ -155,7 +194,7 @@ export default function LockScreen() {
 
   // Busy AND still within the grace period. Past it the button is live again
   // even though the promise is still outstanding.
-  const waiting = busyBio && !stalled;
+  const waiting = (busyBio && !stalled) || repairing;
 
   // ── PIN mode ──
   const [pin, setPin] = useState('');

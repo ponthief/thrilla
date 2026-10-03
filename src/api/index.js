@@ -1123,10 +1123,16 @@ export async function tangoSign(adminkey, rid, body) {
   })
 }
 
-export async function tangoCancel(adminkey, rid) {
-  return req(`${SILNT}/api/v1/tango/rounds/${encodeURIComponent(rid)}/cancel`, {
+// A note is optional and goes in the body. The server caps it and stores it
+// apart from reject_reason, which is machine-readable state.
+export async function tangoCancel(adminkey, rid, note) {
+  const text = (note || '').trim()
+  return req(`${SILNT}/api/v1/tango/rounds/${rid}/cancel`, {
     method: 'POST',
     headers: keyHeaders(adminkey),
+    // No body at all when there is no note — what the server's optional body
+    // is for, and what every build before this one sent.
+    ...(text ? { body: JSON.stringify({ note: text }) } : {}),
   })
 }
 

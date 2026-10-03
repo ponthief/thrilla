@@ -115,6 +115,49 @@ export function cancelledLine(
   return them === 'They' ? 'They cancelled it' : `${them} cancelled it`;
 }
 
+/**
+ * How long a cancellation note may be. MIRRORS helpers/tango.py's
+ * CANCEL_NOTE_MAX, which is the authority — it cuts the note before storing
+ * it, so a client that let a longer one be typed would show the user
+ * something the server then truncated.
+ */
+export const CANCEL_NOTE_MAX = 200;
+
+/**
+ * What the field above the note asks, naming whoever will read it.
+ *
+ * "Optional" has to be in it: a field with no label on a destructive
+ * confirmation reads as something that must be filled in before the button
+ * works, and cancelling must never feel gated on explaining yourself.
+ */
+export function CANCEL_NOTE_PROMPT(them?: string | null): string {
+  const who = (them || '').trim();
+  return who
+    ? `Tell ${who} why, if you want to (optional).`
+    : 'Tell them why, if you want to (optional).';
+}
+
+/**
+ * The other party's own words about why they stopped a round, ready to show.
+ *
+ * Cleaned again HERE even though the server cleans before storing. This is
+ * somebody else's text rendered inside the reader's round list: collapsing the
+ * whitespace stops it laying out lines of its own, and the cap stops an old row
+ * written before the server capped from running down the screen. Both clients
+ * render it as text, so there is no markup to escape — what is left is keeping
+ * it to one short line.
+ *
+ * Null when there is nothing to show, which is the normal case: the note is
+ * optional and most cancellations will not have one.
+ */
+export function cancelNote(note?: string | null): string | null {
+  const text = (note || '').replace(/\s+/g, ' ').trim();
+  if (!text) return null;
+  return text.length > CANCEL_NOTE_MAX
+    ? `${text.slice(0, CANCEL_NOTE_MAX)}…`
+    : text;
+}
+
 /** This wallet's side of a finished round, as the transaction list gets it. */
 export interface MixRow {
   denom_sats: number;

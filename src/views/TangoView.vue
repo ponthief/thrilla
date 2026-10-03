@@ -617,20 +617,29 @@ async function sign(r) {
   } finally { busy.value = '' }
 }
 
-async function cancel(r) {
-  // Only true before it is matched, so it is only said then. After that both
-  // sides' coins are held against the round, and a dialog that implies
-  // otherwise is a dialog about money that is wrong.
-  if (!confirm(
-    r.status === 'PROPOSED'
-      ? 'You can cancel this round before partner matches it.'
-      : 'Both sides\u2019 coins are held for this round. Cancelling frees them; '
-        + 'nothing has been broadcast.',
-  )) return
+// A modal rather than confirm(), because cancelling now takes an optional line
+// for the other side and a native confirm cannot carry a field. Same shape as
+// the sign confirmation, which is the other destructive step here.
+const cancelAsk = ref(null)
+const cancelNoteDraft = ref('')
+
+function cancel(r) {
+  cancelNoteDraft.value = ''
+  cancelAsk.value = r
+}
+
+async function confirmCancel(r) {
   busy.value = r.id
   try {
-    await api.tangoCancel(auth.adminkey, r.id)
+    // Trimmed and capped here as well as on the server, so what was typed is
+    // what gets stored rather than something the server shortened.
+    await api.tangoCancel(
+      auth.adminkey, r.id,
+      cancelNoteDraft.value.trim().slice(0, tango.CANCEL_NOTE_MAX),
+    )
     if (matchFor.value === r.id) matchFor.value = null
+    cancelAsk.value = null
+    cancelNoteDraft.value = ''
     pushToast('Tango cancelled.', { type: 'success' })
     await load()
   } catch (e) {
@@ -669,6 +678,10 @@ const myChangeOf = (r) => (r.role === 'a' ? r.a_change_sats : r.b_change_sats)
 // and on a round with change on one side it reads as a claim about both.
 const theirChangeOf = (r) => (r.role === 'a' ? r.b_change_sats : r.a_change_sats)
 const changeLine = tango.changeLine
+// Named in the template, so bound here like changeLine. `tango` itself is in
+// scope too, which is how CANCEL_NOTE_MAX is read for the input's maxlength.
+const cancelNote = tango.cancelNote
+const CANCEL_NOTE_PROMPT = tango.CANCEL_NOTE_PROMPT
 
 // Who did the last thing, named.
 //
@@ -1173,6 +1186,14 @@ function expiresIn(r) {
                     · {{ r.reject_reason }}
                   </span>
                 </div>
+                <!-- Their own words, quoted and on their own line so it does
+                     not read as the app talking. Shown for a round this side
+                     cancelled too: it is what was sent, and seeing it is how
+                     you know it went. -->
+                <div v-if="r.status === 'CANCELLED' && cancelNote(r.cancel_note)"
+                     class="text-xs text-dim" style="font-style:italic">
+                  “{{ cancelNote(r.cancel_note) }}”
+                </div>
                 <div v-if="r.status === 'BROADCAST'" class="text-xs"
                      :class="r.clean ? 'text-green' : 'text-amber'">
                   {{ r.clean
@@ -1233,6 +1254,35 @@ function expiresIn(r) {
     </div>
 
     <!-- confirm before signing: the second signature broadcasts -->
+    <!-- Cancelling: the warning, and an optional line for the other side. -->
+    <div v-if="cancelAsk" class="modal-overlay" @click.self="cancelAsk = null">
+      <div class="card modal" style="max-width:420px">
+        <div class="card-header"><h2>Cancel this Tango?</h2></div>
+        <div class="card-body" style="display:flex;flex-direction:column;gap:12px">
+          <!-- Only true before it is matched, so it is only said then. After
+               that both sides' coins are held against the round, and a dialog
+               implying otherwise is one about money that is wrong. -->
+          <p class="text-dim text-sm" style="margin:0">
+            {{ cancelAsk.status === 'PROPOSED'
+                ? `You can cancel this round before ${partnerOf(cancelAsk) || 'they'} match it.`
+                : 'Both sides’ coins are held for this round. Cancelling frees them; nothing has been broadcast.' }}
+          </p>
+          <div class="field">
+            <label>{{ CANCEL_NOTE_PROMPT(partnerOf(cancelAsk)) }}</label>
+            <input class="input" v-model="cancelNoteDraft" placeholder="optional"
+                   :maxlength="tango.CANCEL_NOTE_MAX" />
+          </div>
+          <div class="flex gap-2 justify-between" style="margin-top:8px">
+            <button class="btn btn-ghost" @click="cancelAsk = null">Keep it</button>
+            <button class="btn btn-danger" :disabled="busy === cancelAsk.id"
+                    @click="confirmCancel(cancelAsk)">
+              {{ busy === cancelAsk.id ? 'Working…' : 'Cancel it' }}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
     <div v-if="showSignConfirm && signConfirmRound" class="modal-overlay"
          @click.self="showSignConfirm = false">
       <div class="card modal" style="max-width:420px">

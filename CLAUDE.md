@@ -79,6 +79,7 @@ npm run check:contacts      # a stale saved address is visible and fixable
 npm run check:payout        # the Tango change payout says what it takes
 npm run check:vue           # a .vue file importing what it calls, and its CSS classes existing
 npm run check:admin         # the payout ledger reports earnings and debts apart
+npm run check:lock          # unlocking asks every time
 cd ../siLNt && python3 -m pytest tests/ -q
 ```
 
@@ -180,6 +181,84 @@ whole change, not earning part of it); showing what is owed as if it were a
 balance; and showing the user's *current* Lightning address rather than the
 one the payout was actually sent to, which is the entire reason the address is
 stored on the payout row.
+
+`check:lock` is about one weakness and one fix for it that does not work.
+
+react-native-keychain 8.2.0 generates the app lock's keystore key with a
+**five-second authentication validity window**: after any device
+authentication — including unlocking the phone — the key is readable again
+with no prompt. `services/appLock.ts` rests on "a successful read means the
+user authenticated", so inside that window the read succeeds having asked
+nobody anything and the lock screen can open on a tap. It is open at exactly
+the moment that screen is shown, which is how pressing **Try again** let a
+user straight in (2026-10-02).
+
+**Do not close it by patching the key spec.** That was tried the same day —
+`setUserAuthenticationParameters(0, …)` on R+, `…ValidityDurationSeconds(-1)`
+below — and it locked every user out of their wallet.
+`DecryptionResultHandlerInteractiveBiometric` raises its prompt with **no
+`CryptoObject`**, so a biometric success authorises nothing, the retried
+decrypt throws `UserNotAuthenticatedException` again, and the prompt loops
+forever. The window is the library's only mechanism for authorising the key.
+Every device that unlocked once on that build rewrote its sentinel into a key
+nothing could read. `check:lock` refuses that patch, and the `postinstall`
+hook that applied it, coming back.
+
+Closing it properly needs a keychain whose prompt carries a `CryptoObject`.
+Until then it is a five-second weakness in the biometric path; the in-app PIN
+is a separate mechanism and is unaffected.
+
+What does work, and what `check:lock` keeps: a read is a pass only if it came
+back from the auth-binding storage **and** decrypted to our sentinel
+(`storageEnforcesAuth`), because the OS silently downgrades to a storage that
+needs no authentication when biometry is unavailable at write time.
+
+`sentinelKeyIsBroken` finds the marker the broken build left and
+`rebuildSentinel` replaces the key, on mount — a repair behind an unlock can
+never run, because the key is what is unreadable. Rebuilding is not a way past
+the lock: writing a sentinel needs no authentication, but the key it writes
+still has to be READ to unlock, which still raises a prompt.
+
+The app lock is the ONLY thing in the wallet written with an `accessControl`,
+so all of this reaches nothing else — `check:lock` asserts that too, because a
+second one would start demanding a prompt per use, which for a wallet key
+would mean one per signature.
+
+## The resume point
+
+`wallets.last_scan_height` is one claim: **every block up to here has been
+looked at.** Nothing in either app can tell that it is wrong — a wallet whose
+resume point is too high reports itself fully scanned while a payment sits in
+a block nothing ever read. Two rules keep it honest, and both were broken
+until 2026-10-03, when a mainnet balance had to be repaired by editing this
+column by hand.
+
+**It starts one BELOW the range.** `last_scanned_height = start - 1`, because
+nothing has been looked at yet. It used to start at `start`, which claimed the
+first block was scanned before anything had scanned it: a scan that read
+nothing — the first block unindexed, or stopped before the first batch — wrote
+that block as done and the next scan began above it. Skipped for good.
+
+**It only ever moves forward.** `set_last_scan_height` is a guarded `UPDATE`
+(`WHERE last_scan_height IS NULL OR last_scan_height < :height`), in one
+statement so two scans finishing at once cannot have the slower one's older
+value land last. Scanning an EARLIER range does not make the claim less true,
+so a deliberate rescan must not rewind it — the next scan would redo
+everything above, which on mainnet is hours.
+
+That second rule is what makes a rescan control safe to offer at all, and the
+phone now has one: a lookback chooser on the scan screen (10 / 144 / 1,008 /
+4,320 blocks back from the tip), live **even when the wallet is up to date**,
+because that is exactly when somebody needs it — a payment that never appeared
+is in a block the wallet believes it has already read. Before it, the phone
+computed its range and never offered the fields, so "Up to date" disabled the
+only button and there was no way back. The web has had editable From/To all
+along.
+
+Separately, a block the scan could not read holds the resume point below it
+and is reported as `gap` on the progress record, so neither client claims the
+wallet is up to date while there is a hole in it. See
+`tests/test_scan_gap_is_reported.py` and `tests/test_resume_point.py`.
 
 `lint` is two rules, not a style pass: `react-hooks/exhaustive-deps` and
 `rules-of-hooks`. It had no config at all until 2026-09-24 and so had never

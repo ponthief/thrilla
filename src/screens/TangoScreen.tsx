@@ -149,6 +149,10 @@ export default function TangoScreen() {
   // is that. Two sets rather than one, because a half-built proposal on the CJ
   // tab must not become the coins that match somebody else's round.
   const [matchFor, setMatchFor] = useState<string | null>(null);
+  // Which round is being cancelled, and the optional line that goes with it.
+  // Inline rather than an Alert: Alert.prompt is iOS-only.
+  const [cancelAsk, setCancelAsk] = useState<string | null>(null);
+  const [cancelNote, setCancelNote] = useState('');
   const [matchPicked, setMatchPicked] = useState<Set<string>>(new Set());
   const matchChosen = useMemo(
     () => selectable.filter((c) => matchPicked.has(key(c))),
@@ -715,40 +719,35 @@ export default function TangoScreen() {
     [adminkey, inkey, walletId, spAddress, coins, committed, load],
   );
 
-  const cancel = useCallback(
-    (row: Row) => {
-      Alert.alert(
-        'Cancel this Tango?',
-        // Only true before it is matched, so it is only said then. After that
-        // both sides' coins are held against the round, and a dialog that
-        // implies otherwise is a dialog about money that is wrong.
-        row.status === 'PROPOSED'
-          ? 'You can cancel this round before partner matches it.'
-          : 'Both sides\u2019 coins are held for this round. Cancelling frees '
-            + 'them; nothing has been broadcast.',
-        [
-          { text: 'Keep it', style: 'cancel' },
-          {
-            text: 'Cancel it',
-            style: 'destructive',
-            onPress: async () => {
-              if (!adminkey) return;
-              setBusy(row.id);
-              try {
-                await api.cancelTango(adminkey, row.id);
-                setMsg('Cancelled.');
-                await load();
-              } catch (e) {
-                fail(e);
-              } finally {
-                setBusy(null);
-              }
-            },
-          },
-        ],
-      );
+  // Cancelling asks inline rather than in an Alert, because it now takes an
+  // optional line for the other side. Alert.prompt is iOS-only, so a dialog
+  // could not carry the field on the platform this ships to.
+  const cancel = useCallback((row: Row) => {
+    setCancelNote('');
+    setCancelAsk(row.id);
+  }, []);
+
+  const confirmCancel = useCallback(
+    async (row: Row) => {
+      if (!adminkey) return;
+      setBusy(row.id);
+      try {
+        // Trimmed and capped here as well as on the server, so what was typed
+        // is what gets stored rather than something the server shortened.
+        await api.cancelTango(
+          adminkey, row.id, cancelNote.trim().slice(0, tango.CANCEL_NOTE_MAX),
+        );
+        setCancelAsk(null);
+        setCancelNote('');
+        setMsg('Cancelled.');
+        await load();
+      } catch (e) {
+        fail(e);
+      } finally {
+        setBusy(null);
+      }
     },
-    [adminkey, load],
+    [adminkey, cancelNote, load],
   );
 
   const sats = (n?: number | null) => fmtSats(n, hidden);
@@ -800,6 +799,15 @@ export default function TangoScreen() {
           <Text style={styles.rowWho}>with {other}</Text>
           <Text style={styles.rowStatus}>{statusLabel(r)}</Text>
         </View>
+        {/* Their own words, in quotes and in their own line so it does not
+            read as the app talking. Shown for a round this side cancelled
+            too — it is what was sent, and seeing it is how you know it
+            went. */}
+        {r.status === 'CANCELLED' && tango.cancelNote(r.cancel_note) ? (
+          <Text style={styles.rowNote}>
+            “{tango.cancelNote(r.cancel_note)}”
+          </Text>
+        ) : null}
         <Text style={styles.rowAmount}>{sats(r.denom_sats)} each</Text>
         {tango.stepNumber(r.status) ? (
           <Text style={styles.rowMeta}>
@@ -912,6 +920,35 @@ export default function TangoScreen() {
               onPress={() => cancel(r)} />
           ) : null}
         </View>
+        {cancelAsk === r.id ? (
+          <View style={styles.matchPanel}>
+            {/* Only true before it is matched, so it is only said then. After
+                that both sides' coins are held against the round, and a
+                dialog that implies otherwise is one about money that is
+                wrong. */}
+            <Text style={styles.rowMeta}>
+              {r.status === 'PROPOSED'
+                ? `You can cancel this round before ${other || 'they'} match`
+                  + ' it.'
+                : 'Both sides\u2019 coins are held for this round. Cancelling'
+                  + ' frees them; nothing has been broadcast.'}
+            </Text>
+            <Text style={styles.rowMeta}>
+              {tango.CANCEL_NOTE_PROMPT(other)}
+            </Text>
+            <Field
+              value={cancelNote}
+              onChangeText={setCancelNote}
+              placeholder="optional"
+              maxLength={tango.CANCEL_NOTE_MAX}
+              action="Cancel it"
+              onAction={() => void confirmCancel(r)}
+              actionBusy={busy === r.id}
+            />
+            <Button small label="Keep it"
+              onPress={() => { setCancelAsk(null); setCancelNote(''); }} />
+          </View>
+        ) : null}
       </View>
     );
   };
@@ -1303,6 +1340,13 @@ const styles = StyleSheet.create({
     borderLeftColor: colors.border,
   },
   rowActions: { flexDirection: 'row', gap: space.sm, marginTop: space.sm },
+  // Quoted, dimmed and italic: somebody else's sentence, not the app's.
+  rowNote: {
+    ...type_.body,
+    color: colors.muted,
+    fontStyle: 'italic',
+    marginTop: space.xs,
+  },
   coin: {
     flexDirection: 'row',
     alignItems: 'center',
