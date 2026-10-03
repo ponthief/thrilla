@@ -1529,7 +1529,7 @@ export async function cancelTango(
   adminkey: string,
   rid: string,
   note?: string | null,
-): Promise<TangoRoundRow> {
+): Promise<TangoRoundRow & { note_saved?: boolean }> {
   const text = (note || '').trim();
   return req(`${SILNT}/api/v1/tango/rounds/${rid}/cancel`, {
     method: 'POST',

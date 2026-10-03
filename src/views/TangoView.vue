@@ -636,14 +636,22 @@ async function confirmCancel(r) {
   try {
     // Trimmed and capped here as well as on the server, so what was typed is
     // what gets stored rather than something the server shortened.
-    await api.tangoCancel(
-      auth.adminkey, r.id,
-      cancelNoteDraft.value.trim().slice(0, tango.CANCEL_NOTE_MAX),
-    )
+    const text = cancelNoteDraft.value.trim().slice(0, tango.CANCEL_NOTE_MAX)
+    const done = await api.tangoCancel(auth.adminkey, r.id, text)
     if (matchFor.value === r.id) matchFor.value = null
     cancelAsk.value = null
     cancelNoteDraft.value = ''
-    pushToast('Tango cancelled.', { type: 'success' })
+    // Said, rather than assumed. A note the server could not store is a reason
+    // the other side will never read, and "Tango cancelled." on its own reads
+    // as though it went.
+    if (text && done?.note_saved === false) {
+      pushToast(
+        'Tango cancelled, but your note could not be saved — the other side will not see it.',
+        { type: 'warn' },
+      )
+    } else {
+      pushToast('Tango cancelled.', { type: 'success' })
+    }
     await load()
   } catch (e) {
     pushToast(e.detail || e.message || 'Could not cancel that Tango.', { type: 'error' })

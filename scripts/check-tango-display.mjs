@@ -238,6 +238,15 @@ console.log('\nthe line somebody leaves when they cancel');
     ok(`${label} quotes it when showing it`, /cancelNote\(/.test(src)
       && src.includes('\u201c'),
       'somebody else\'s sentence has to read as theirs, not the app\'s');
+    // AND IN THE HISTORY, which is where a finished round is read. Both
+    // clients render past rounds through the same row renderer as the live
+    // ones, so the note has to sit in that shared renderer rather than in a
+    // branch only the live list takes.
+    const noteAt = src.indexOf('cancelNote(');
+    const cancelledOnly = /r\.status === 'CANCELLED' && /.test(src)
+      || /r\.status === 'CANCELLED' &&\s*$/m.test(src);
+    ok(`the ${label} shows it only for a cancelled round`, cancelledOnly);
+    ok(`the ${label} shows it wherever a round is listed`, noteAt !== -1);
     // The ask is a panel or a modal, not a native dialog: neither confirm()
     // nor Alert.alert can carry a field (Alert.prompt is iOS-only), so a
     // dialog here would mean offering the note and dropping it.
@@ -250,6 +259,16 @@ console.log('\nthe line somebody leaves when they cancel');
     ok(`${label} does not put that warning in a dialog`,
       !/confirm\(|Alert\.alert\(/.test(before),
       'a dialog cannot carry the note field');
+    // THE TWO BUTTONS ARE NOT STACKED. "Keep it" was full width directly
+    // under a "Cancel it" welded to the input, a few pixels apart — two
+    // full-width targets, one of which ends a round.
+    ok(`${label} keeps the two actions apart`,
+      /cancelActions|justify-between/.test(src),
+      'a destructive action must not sit flush against the safe one');
+    // A note the server could not store is a reason the other side will never
+    // read; saying "Cancelled." alone reads as though it went.
+    ok(`${label} says when the note did not save`,
+      /note_saved === false/.test(src));
   }
 }
 

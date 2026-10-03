@@ -18,7 +18,7 @@ import * as commits from '@services/tangoCommit';
 import { parseSpAddress, fromHex, toHex } from '@services/spSign';
 import { payoutIntended } from '@services/lnAddress';
 import TangoPayoutCard from '../components/TangoPayoutCard';
-import { colors, space, type as type_ } from '@/theme';
+import { colors, radius, space, type as type_ } from '@/theme';
 import { Block, Button, Chips, Field, Group, Note, Page } from './settings/ui';
 
 // Tango: a two-party mix.
@@ -739,12 +739,19 @@ export default function TangoScreen() {
       try {
         // Trimmed and capped here as well as on the server, so what was typed
         // is what gets stored rather than something the server shortened.
-        await api.cancelTango(
-          adminkey, row.id, cancelNote.trim().slice(0, tango.CANCEL_NOTE_MAX),
-        );
+        const text = cancelNote.trim().slice(0, tango.CANCEL_NOTE_MAX);
+        const done = await api.cancelTango(adminkey, row.id, text);
         setCancelAsk(null);
         setCancelNote('');
-        setMsg('Cancelled.');
+        // Said, rather than assumed. A note the server could not store is a
+        // reason the other side will never read, and "Cancelled." on its own
+        // reads as though it went.
+        setMsg(
+          text && done?.note_saved === false
+            ? 'Cancelled, but your note could not be saved — the other side '
+              + 'will not see it.'
+            : 'Cancelled.',
+        );
         await load();
       } catch (e) {
         fail(e);
@@ -941,17 +948,40 @@ export default function TangoScreen() {
             <Text style={styles.rowMeta}>
               {tango.CANCEL_NOTE_PROMPT(other)}
             </Text>
-            <Field
+            {/* The input on its own line. It was a Field, which puts its
+                action button hard against the input — so the destructive one
+                sat where the keyboard's own confirm key would be, with a
+                full-width "Keep it" directly under it and nothing between
+                them. Two full-width buttons stacked a few pixels apart, one of
+                which ends a round, is a mis-tap waiting to happen. */}
+            <TextInput
+              style={styles.noteInput}
               value={cancelNote}
               onChangeText={setCancelNote}
               placeholder="optional"
+              placeholderTextColor={colors.faint}
               maxLength={tango.CANCEL_NOTE_MAX}
-              action="Cancel it"
-              onAction={() => void confirmCancel(r)}
-              actionBusy={busy === r.id}
+              autoCapitalize="sentences"
+              autoCorrect
             />
-            <Button small label="Keep it"
-              onPress={() => { setCancelAsk(null); setCancelNote(''); }} />
+            {/* Keep it first and wider: it is the safe one, and the one a
+                thumb reaching up the screen finds. They share a row with a
+                real gap, so neither is where the other was. */}
+            <View style={styles.cancelActions}>
+              <Button
+                label="Keep it"
+                kind="secondary"
+                style={styles.keepBtn}
+                onPress={() => { setCancelAsk(null); setCancelNote(''); }}
+              />
+              <Button
+                label="Cancel it"
+                kind="danger"
+                busy={busy === r.id}
+                style={styles.cancelBtn}
+                onPress={() => void confirmCancel(r)}
+              />
+            </View>
           </View>
         ) : null}
       </View>
@@ -1345,6 +1375,26 @@ const styles = StyleSheet.create({
     borderLeftColor: colors.border,
   },
   rowActions: { flexDirection: 'row', gap: space.sm, marginTop: space.sm },
+  noteInput: {
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radius.sm,
+    backgroundColor: colors.surfaceAlt,
+    paddingHorizontal: space.md,
+    paddingVertical: 10,
+    marginTop: space.sm,
+    fontSize: 15,
+    color: colors.text,
+  },
+  // A real gap, not a stack: the two do different things and one of them
+  // cannot be undone.
+  cancelActions: {
+    flexDirection: 'row',
+    gap: space.md,
+    marginTop: space.md,
+  },
+  keepBtn: { flex: 3 },
+  cancelBtn: { flex: 2 },
   // Quoted, dimmed and italic: somebody else's sentence, not the app's.
   rowNote: {
     ...type_.body,
