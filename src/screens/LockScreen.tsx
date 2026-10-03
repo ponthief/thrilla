@@ -133,20 +133,6 @@ export default function LockScreen() {
       setUnlocking(false);
     }
     if (res.ok) {
-      // A lock set up before the five-second authentication window was closed
-      // still has the old key, and nothing about a key is readable from JS —
-      // so it is replaced rather than inspected. Here, because the user has
-      // just authenticated with the sensor, which is the best evidence there
-      // is that the OS will bind the new one properly.
-      //
-      // Not awaited into the unlock decision: they authenticated, and a
-      // rebuild that fails must not keep them out of their own wallet. It
-      // turns the lock off instead (Settings then shows it off), which is the
-      // honest state for a phone that cannot bind one.
-      if (!(await appLock.sentinelKeyIsCurrent())) {
-        const rebuilt = await appLock.rebuildSentinel();
-        if (!rebuilt.ok) await refreshLock();
-      }
       unlock();
       return;
     }
@@ -155,7 +141,43 @@ export default function LockScreen() {
     // fix — say so rather than offering "Try again" forever.
     setUnenforceable(res.reason === 'not-enforceable');
     setFailed(true);
-  }, [refreshLock, setUnlocking, unlock]);
+  }, [setUnlocking, unlock]);
+
+  // ── recovering a sentinel the 2026-10-02 build made unreadable ──
+  //
+  // That build generated the keystore key with per-use authentication, which
+  // this keychain library cannot satisfy — its biometric prompt carries no
+  // CryptoObject, so every read throws and the prompt loops. A device that
+  // unlocked once on it cannot unlock again, by any button on this screen.
+  //
+  // So the repair runs BEFORE anything is pressed: the marker those builds
+  // left is readable without authenticating, and replacing the key needs no
+  // authentication either. It is not a way past the lock — the new key still
+  // has to be read, which still raises a prompt — it only puts the screen
+  // back in a state where pressing Unlock can work.
+  //
+  // Once, on mount. A failure leaves the screen as it was, with the PIN and
+  // logout still there.
+  const [repairing, setRepairing] = useState(false);
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      if (!(await appLock.sentinelKeyIsBroken())) return;
+      if (!alive) return;
+      setRepairing(true);
+      try {
+        const rebuilt = await appLock.rebuildSentinel();
+        // A rebuild that could not bind the new key turns the lock off, so the
+        // rest of the app has to be told.
+        if (!rebuilt.ok) await refreshLock();
+      } finally {
+        if (alive) setRepairing(false);
+      }
+    })();
+    return () => {
+      alive = false;
+    };
+  }, [refreshLock]);
 
   // Coming back to the foreground means no OS prompt is in front of us any
   // more, whatever happened to the promise we were waiting on. Clear both flags
@@ -172,7 +194,7 @@ export default function LockScreen() {
 
   // Busy AND still within the grace period. Past it the button is live again
   // even though the promise is still outstanding.
-  const waiting = busyBio && !stalled;
+  const waiting = (busyBio && !stalled) || repairing;
 
   // ── PIN mode ──
   const [pin, setPin] = useState('');

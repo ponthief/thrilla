@@ -15,14 +15,24 @@ const LOCK_SERVICE = 'com.thrilla.applock'; // biometric-gated sentinel
 const PREF_SERVICE = 'com.thrilla.applock.pref'; // plain on/off flag
 const SENTINEL = 'thrilla-app-lock';
 
-// Which key spec this device's sentinel was created under.
+// A marker left by one build, and the only way to recognise the sentinel it
+// broke.
 //
-// '2' means the keystore key requires an authentication for EVERY use.
-// Absent, or anything else, means it was created while react-native-keychain
-// still asked for a FIVE-SECOND window — see patches/, and rebuildSentinel
-// below for how one of those is replaced.
+// 2026-10-02 shipped a patch to react-native-keychain that generated this
+// key with setUserAuthenticationParameters(0, …) — "authenticate for every
+// use" — to close the five-second window described below. The library cannot
+// satisfy that: DecryptionResultHandlerInteractiveBiometric calls
+// prompt.authenticate(promptInfo) with NO CryptoObject, so the biometric
+// success is not bound to the key, the retried decrypt throws
+// UserNotAuthenticatedException again, and the prompt loops forever. Every
+// device that unlocked once on that build rewrote its sentinel into a key
+// nothing can read, and its owner was locked out of the app.
+//
+// The marker is readable without authenticating, so a build with the patch
+// reverted can find those sentinels and replace them. Nothing writes it any
+// more; it exists to be found and cleared.
 const KEY_VERSION_SERVICE = 'com.thrilla.applock.keyver';
-const KEY_VERSION = '2';
+const BROKEN_KEY_VERSION = '2';
 
 // What kind of biometry the device offers (null = none enrolled). Device PIN is
 // still usable as a fallback even when this is null, but we surface the type for
@@ -81,64 +91,68 @@ function storageEnforcesAuth(storage?: string): boolean {
     : storage === AUTH_BOUND_ANDROID_STORAGE;
 }
 
-// ── and "the OS prompted" is not "the OS asked anyone anything" ──────────────
+// ── the five-second window, which is still here ──────────────────────────────
 //
-// react-native-keychain 8.2.0 generates the RSA key with a five-second
+// react-native-keychain 8.2.0 generates this key with a five-second
 // authentication validity window: after ANY device authentication — including
 // unlocking the phone — the key is usable again with no prompt at all. The
-// whole lock rests on "reading the sentinel forces the prompt", so inside that
-// window the read succeeded, this file reported an authentication, and the app
-// unlocked on a tap.
+// lock rests on "reading the sentinel forces the prompt", so inside that
+// window the read succeeds having asked nobody anything.
 //
-// It is open at the worst possible moment. The lock screen is shown just after
-// the phone itself was unlocked, and again for five seconds after an attempt
-// that authenticated the user but failed for some other reason — which is what
-// made pressing "Try again" let the user straight in, reported 2026-10-02.
+// It is open at the worst possible moment: the lock screen is shown just after
+// the phone itself was unlocked, which is why pressing Unlock there can let
+// somebody in without a prompt.
 //
-// patches/react-native-keychain+8.2.0.patch closes it for keys created from
-// now on. A key created BEFORE it keeps the window for as long as it exists,
-// and nothing about it is visible from JS, so it is replaced rather than
-// detected: see rebuildSentinel.
+// IT CANNOT BE CLOSED FROM HERE, and trying cost a day. The window is the
+// library's only mechanism for authorising the key: its biometric prompt is
+// raised WITHOUT a CryptoObject, so the only thing that can authorise a
+// decrypt is a recent authentication by time. Generating the key with
+// per-use authentication instead makes every read throw
+// UserNotAuthenticatedException forever — see BROKEN_KEY_VERSION above, and
+// scripts/check-app-lock.cjs, which refuses that patch coming back.
+//
+// Closing it properly means a keychain library whose prompt carries a
+// CryptoObject. Until then this is a five-second weakness in the biometric
+// path, and the in-app PIN — which this file has nothing to do with — is
+// unaffected.
 
-/** Has this device's sentinel been created under the current key spec? */
-export async function sentinelKeyIsCurrent(): Promise<boolean> {
+/**
+ * Was this device's sentinel written by the build that made it unreadable?
+ *
+ * False on any error: nothing is torn down on the strength of a read that
+ * failed, and a device that is not in that state must never be pushed through
+ * a rebuild on a guess.
+ */
+export async function sentinelKeyIsBroken(): Promise<boolean> {
   try {
     const c = await Keychain.getGenericPassword({ service: KEY_VERSION_SERVICE });
-    return !!c && c.password === KEY_VERSION;
+    return !!c && c.password === BROKEN_KEY_VERSION;
   } catch {
-    // The keystore is not answering right now. Say "current" so nothing is
-    // torn down on the strength of a read that failed — the next unlock asks
-    // again, and the cost of a late rebuild is a window that was already open.
-    return true;
+    return false;
   }
 }
 
-async function markKeyVersion(): Promise<void> {
+async function clearKeyVersion(): Promise<void> {
   try {
-    await Keychain.setGenericPassword('keyver', KEY_VERSION, {
-      service: KEY_VERSION_SERVICE,
-      accessible: Keychain.ACCESSIBLE.WHEN_UNLOCKED,
-    });
+    await Keychain.resetGenericPassword({ service: KEY_VERSION_SERVICE });
   } catch {
-    /* Unmarked means "rebuild again next time", which is wasteful and safe. */
+    /* Left behind means one more rebuild next launch: wasteful, not harmful. */
   }
 }
 
 /**
- * Replace a sentinel created under the old key spec with one that requires an
- * authentication for every use.
+ * Replace the sentinel, and the keystore key behind it.
  *
- * CALLED STRAIGHT AFTER A SUCCESSFUL UNLOCK, which is what makes it safe:
- * writing the sentinel needs no authentication (RSA encrypts with the public
- * half) but the OS picks the storage by whether biometry is available at that
- * instant, and a moment when the user has just authenticated with it is the
- * best evidence available that it is.
+ * THIS IS NOT A WAY PAST THE LOCK. Writing the sentinel needs no
+ * authentication — RSA encrypts with the public half — but the key it writes
+ * still requires one to READ, so a rebuild leaves somebody holding the phone
+ * exactly where they were: in front of a prompt they have to satisfy.
  *
  * THE ALIAS HAS TO GO FIRST. setGenericPassword reuses an existing keystore
- * key, so overwriting the entry would leave the old spec — and its window — in
- * place. That makes the operation destructive for the moment between the two
- * calls, which is why it is guarded on biometry being available at all and why
- * a downgraded result turns the lock off rather than leaving a decorative one.
+ * key, so overwriting the entry would keep the broken one. That makes this
+ * destructive for the moment between the two calls, which is why it refuses to
+ * start unless the OS says biometry is available — without it the rewrite
+ * lands in a storage that enforces nothing.
  */
 export async function rebuildSentinel(): Promise<EnableResult> {
   // Nothing to rebuild from. Writing one now would turn a lock that is not set
@@ -184,7 +198,7 @@ export async function rebuildSentinel(): Promise<EnableResult> {
     await disable();
     return { ok: false, reason: 'not-enforceable', storage };
   }
-  await markKeyVersion();
+  await clearKeyVersion();
   return { ok: true };
 }
 
@@ -293,8 +307,8 @@ export async function enable(): Promise<EnableResult> {
     /* pref write failed — treat as not enabled */
     return { ok: false, reason: 'pref-write-failed' };
   }
-  // Created under the current spec, so nothing will try to rebuild it.
-  await markKeyVersion();
+  // A lock turned on now is not the broken one, whatever a stale marker says.
+  await clearKeyVersion();
   return { ok: true };
 }
 

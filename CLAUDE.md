@@ -80,34 +80,45 @@ npm run check:lock          # unlocking asks every time
 cd ../siLNt && python3 -m pytest tests/ -q
 ```
 
-`check:lock` guards a patched dependency, which nothing else in this repo
-looks at. react-native-keychain 8.2.0 creates the app lock's keystore key with
-a **five-second authentication validity window**: after any device
-authentication — including unlocking the phone — the key is usable again with
-no prompt at all. `services/appLock.ts` rests entirely on "a successful read
-means the user authenticated", so inside that window the read succeeded having
-asked nobody anything and the lock screen opened on a tap. It is open at
-exactly the moment that screen is shown, and again for five seconds after an
-attempt that authenticated the user but failed for another reason — which is
-how pressing **Try again** let the user straight in (reported 2026-10-02).
+`check:lock` is about one weakness and one fix for it that does not work.
 
-`patches/react-native-keychain+8.2.0.patch` sets the timeout to 0 on Android R
-and above and the duration to −1 below it, both of which mean "authenticate
-for every use". It is applied by a `postinstall` hook running
-`patch-package --error-on-fail`, because without that flag a patch that stops
-applying after a bump is a warning and the build ships the window back.
+react-native-keychain 8.2.0 generates the app lock's keystore key with a
+**five-second authentication validity window**: after any device
+authentication — including unlocking the phone — the key is readable again
+with no prompt. `services/appLock.ts` rests on "a successful read means the
+user authenticated", so inside that window the read succeeds having asked
+nobody anything and the lock screen can open on a tap. It is open at exactly
+the moment that screen is shown, which is how pressing **Try again** let a
+user straight in (2026-10-02).
 
-A key created BEFORE the patch keeps its window for as long as it exists, and
-nothing about a key is readable from JS — so an old sentinel is **replaced
-rather than inspected**. `rebuildSentinel` runs on the next successful unlock,
-which is the moment the sensor is provably working; it has to delete the alias
-first, because `setGenericPassword` reuses an existing key and an overwrite
-would keep the old spec. A rebuild that lands in a storage enforcing nothing
-turns the lock off rather than leaving a decorative one, and never keeps out
-somebody who has just authenticated.
+**Do not close it by patching the key spec.** That was tried the same day —
+`setUserAuthenticationParameters(0, …)` on R+, `…ValidityDurationSeconds(-1)`
+below — and it locked every user out of their wallet.
+`DecryptionResultHandlerInteractiveBiometric` raises its prompt with **no
+`CryptoObject`**, so a biometric success authorises nothing, the retried
+decrypt throws `UserNotAuthenticatedException` again, and the prompt loops
+forever. The window is the library's only mechanism for authorising the key.
+Every device that unlocked once on that build rewrote its sentinel into a key
+nothing could read. `check:lock` refuses that patch, and the `postinstall`
+hook that applied it, coming back.
+
+Closing it properly needs a keychain whose prompt carries a `CryptoObject`.
+Until then it is a five-second weakness in the biometric path; the in-app PIN
+is a separate mechanism and is unaffected.
+
+What does work, and what `check:lock` keeps: a read is a pass only if it came
+back from the auth-binding storage **and** decrypted to our sentinel
+(`storageEnforcesAuth`), because the OS silently downgrades to a storage that
+needs no authentication when biometry is unavailable at write time.
+
+`sentinelKeyIsBroken` finds the marker the broken build left and
+`rebuildSentinel` replaces the key, on mount — a repair behind an unlock can
+never run, because the key is what is unreadable. Rebuilding is not a way past
+the lock: writing a sentinel needs no authentication, but the key it writes
+still has to be READ to unlock, which still raises a prompt.
 
 The app lock is the ONLY thing in the wallet written with an `accessControl`,
-so the patch reaches nothing else — `check:lock` asserts that too, because a
+so all of this reaches nothing else — `check:lock` asserts that too, because a
 second one would start demanding a prompt per use, which for a wallet key
 would mean one per signature.
 

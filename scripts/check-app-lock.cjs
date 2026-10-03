@@ -1,23 +1,29 @@
 #!/usr/bin/env node
 /*
- * The app lock only works if reading the sentinel forces an OS prompt.
+ * The app lock, and the one thing that must not be "fixed" again.
  *
- * WHAT WENT WRONG. react-native-keychain 8.2.0 creates the RSA key with a
- * FIVE-SECOND authentication validity window: after any device authentication
- * — including unlocking the phone itself — the key can be used again with no
- * prompt at all. services/appLock.ts is built on "a successful read means the
- * user authenticated", so inside that window the read succeeded having asked
- * nobody anything and the app unlocked on a tap.
+ * THE WEAKNESS. react-native-keychain 8.2.0 generates the app lock's keystore
+ * key with a FIVE-SECOND authentication validity window: after any device
+ * authentication — including unlocking the phone — the key can be read again
+ * with no prompt. services/appLock.ts rests on "a successful read means the
+ * user authenticated", so inside that window the read succeeds having asked
+ * nobody anything, and the lock screen can open on a tap. It is real, and it
+ * is open at exactly the moment that screen is shown.
  *
- * The window is open at exactly the moment the lock screen is shown: just
- * after the phone was unlocked, and again for five seconds after an attempt
- * that authenticated the user but failed for another reason — which is how
- * pressing "Try again" let the user straight in (2026-10-02).
+ * THE FIX THAT DOES NOT WORK, and this is what the checks below are for. On
+ * 2026-10-02 the window was closed by patching the key to per-use
+ * authentication — setUserAuthenticationParameters(0, …) on R+,
+ * setUserAuthenticationValidityDurationSeconds(-1) below. The library cannot
+ * satisfy that: DecryptionResultHandlerInteractiveBiometric raises its prompt
+ * with NO CryptoObject, so a biometric success authorises nothing, the retried
+ * decrypt throws UserNotAuthenticatedException again, and the prompt loops.
+ * Every device that unlocked once on that build rewrote its sentinel into a
+ * key nothing could read, and its owner was locked out of the wallet.
  *
- * WHY THIS IS A CHECK AND NOT A TEST. The fix is a patch to a dependency's
- * Java, compiled only by a real Gradle build, and a dependency bump would drop
- * it silently. Nothing in tsc, lint or the signing checks looks at it. So this
- * reads the patch, the installed copy, and the install hook that applies it.
+ * Closing the window properly needs a keychain whose prompt carries a
+ * CryptoObject. Until then it stays open, and this file exists so the next
+ * person to find it — including whoever reads the comment in appLock.ts —
+ * cannot reach for the patch again without tripping a check that says why.
  *
  * Run: node scripts/check-app-lock.cjs
  */
@@ -40,64 +46,92 @@ const read = (p) => {
   }
 };
 
-const PATCH = 'patches/react-native-keychain+8.2.0.patch';
 const RSA =
   'node_modules/react-native-keychain/android/src/main/java/com/oblador/'
   + 'keychain/cipherStorage/CipherStorageKeystoreRsaEcb.java';
 
-console.log('the key is bound to an authentication for every use');
+console.log('the key spec is upstream, and stays that way');
 {
-  const patch = read(PATCH);
-  ok('the patch is in the repo', !!patch, `${PATCH} is missing`);
-  if (patch) {
-    // 0 on R+ and -1 below it both mean "authenticate for every use".
-    ok('it sets the R+ timeout to 0',
-      /\+\s*keyGenParameterSpecBuilder\.setUserAuthenticationParameters\(0,/.test(patch));
-    ok('and the pre-R duration to -1',
-      /\+\s*keyGenParameterSpecBuilder\.setUserAuthenticationValidityDurationSeconds\(-1\)/
-        .test(patch));
-    ok('it removes the five-second window',
-      /^-\s*final int validityDuration = 5;/m.test(patch),
-      'the upstream value is what made the lock openable on a tap');
-    ok('it says why, where the next person will be editing',
-      /five-second window/i.test(patch));
-  }
-}
-
-console.log('\nand the installed copy actually has it');
-{
-  // A bump, a fresh clone with no postinstall, or a patch that stopped
-  // applying all look the same from here: the window is back.
   const rsa = read(RSA);
   ok('react-native-keychain is installed', !!rsa);
   if (rsa) {
-    ok('no five-second validity window remains',
-      !/final int validityDuration = 5;/.test(rsa),
-      'the patch is not applied — run npm install');
-    ok('every use needs an authentication',
-      /setUserAuthenticationParameters\(0,/.test(rsa)
-      && /setUserAuthenticationValidityDurationSeconds\(-1\)/.test(rsa));
-    ok('the key still requires one at all',
-      /setUserAuthenticationRequired\(true\)/.test(rsa));
+    // Per-use authentication cannot be authorised by this library. A key
+    // generated with it is unreadable for the life of the install.
+    ok('the key is not bound per use',
+      !/setUserAuthenticationParameters\(\s*0\s*,/.test(rsa)
+      && !/setUserAuthenticationValidityDurationSeconds\(\s*-1\s*\)/.test(rsa),
+      'this locks every user out: the prompt carries no CryptoObject, so the '
+      + 'retried decrypt throws UserNotAuthenticatedException forever');
+    ok('it still requires an authentication at all',
+      /setUserAuthenticationRequired\(true\)/.test(rsa),
+      'without this the sentinel reads with no prompt, ever');
   }
-}
-
-console.log('\nthe patch is applied by every install, and loudly');
-{
+  // The patch is gone and must not come back by the same route.
+  ok('no keychain patch is applied',
+    !fs.existsSync(path.join(__dirname, '..', 'patches',
+      'react-native-keychain+8.2.0.patch')),
+    'see the header: patching this key spec is what caused the lockout');
   const pkg = JSON.parse(read('package.json'));
-  ok('there is a postinstall hook',
-    (pkg.scripts || {}).postinstall === 'patch-package --error-on-fail',
-    'without --error-on-fail a patch that stops applying is a warning, and '
-    + 'the build ships the window back');
-  ok('patch-package is a devDependency',
-    !!(pkg.devDependencies || {})['patch-package']);
+  ok('and no install hook re-applies one',
+    !(pkg.scripts || {}).postinstall,
+    'a postinstall patch-package hook is how the broken spec shipped');
 }
 
-console.log('\nnothing else in the wallet is affected');
+console.log('\nthe real guard is still the storage the sentinel landed in');
 {
-  // This class is only used for entries written with an accessControl. If a
-  // second one ever appears, per-use authentication starts applying to it —
-  // which for a wallet key would mean a prompt on every signature.
+  // This one works and predates all of the above: a read that came back from
+  // a storage needing no authentication is not a pass, whatever it returned.
+  const lock = read('src/services/appLock.ts') || '';
+  ok('storageEnforcesAuth exists', /function storageEnforcesAuth/.test(lock));
+  ok('a read from anywhere else is refused',
+    /reason: 'not-enforceable'/.test(lock));
+  ok('and the sentinel has to decrypt to ours',
+    /res\.password !== SENTINEL/.test(lock));
+  ok('enabling refuses a storage that enforces nothing',
+    /if \(!storageEnforcesAuth\(storage\)\) \{\s*\n\s*await disable\(\);/.test(lock));
+  // The weakness is written down where somebody would look for it.
+  ok('the five-second window is documented, not hidden',
+    /five-second/.test(lock) && /CryptoObject/.test(lock));
+}
+
+console.log('\na sentinel the broken build left is repaired, not trusted');
+{
+  const lock = read('src/services/appLock.ts') || '';
+  const screen = read('src/screens/LockScreen.tsx') || '';
+  ok('the marker those builds left can be found',
+    /export async function sentinelKeyIsBroken/.test(lock));
+  ok('a read that fails does not claim it is broken',
+    /} catch \{\s*\n\s*return false;/.test(lock),
+    'nothing may be torn down on the strength of a failed read');
+  ok('nothing writes the marker any more',
+    !/setGenericPassword\('keyver'/.test(lock));
+  ok('the rebuild deletes the alias first',
+    /resetGenericPassword\(\{ service: LOCK_SERVICE \}\)/.test(lock),
+    'setGenericPassword reuses the existing key, so an overwrite keeps it');
+  ok('it refuses to start without biometry',
+    /if \(!\(await biometryType\(\)\)\)/.test(lock),
+    'the rewrite would land in a storage that enforces nothing');
+  // On MOUNT, not on a press and not after a successful unlock — a repair
+  // behind an unlock can never run, because the key is what is unreadable.
+  const at = screen.indexOf('sentinelKeyIsBroken()');
+  ok('the lock screen looks for one', at !== -1);
+  ok('and repairs it on mount, not behind an unlock',
+    at !== -1
+    && screen.lastIndexOf('useEffect(', at) > screen.lastIndexOf('useCallback(', at),
+    'a repair that needs an unlock first can never run');
+  ok('the button is held while it repairs',
+    /\|\| repairing/.test(screen),
+    'pressing Unlock against a half-replaced sentinel is a failure for nothing');
+  // The repair is not a bypass, and the reasoning is written down.
+  ok('and says why that is not a way past the lock',
+    /NOT A WAY PAST THE LOCK/.test(lock),
+    'rebuilding writes a key that still has to be READ to unlock');
+}
+
+console.log('\nnothing else in the wallet is bound to an authentication');
+{
+  // If a second accessControl ever appears, everything above starts applying
+  // to it — for a wallet key, a prompt per signature.
   const src = [];
   const walk = (dir) => {
     for (const e of fs.readdirSync(path.join(__dirname, '..', dir), { withFileTypes: true })) {
@@ -108,31 +142,9 @@ console.log('\nnothing else in the wallet is affected');
   };
   walk('src');
   const users = src.filter(([, body]) => /accessControl:/.test(body)).map(([p]) => p);
-  ok('only the app lock binds a keystore item to an authentication',
+  ok('only the app lock uses accessControl',
     users.length === 1 && users[0] === 'src/services/appLock.ts',
-    `also: ${users.join(', ')} — per-use auth would now apply to those too`);
-}
-
-console.log('\na sentinel made before the fix is replaced, not trusted');
-{
-  const lock = read('src/services/appLock.ts') || '';
-  const screen = read('src/screens/LockScreen.tsx') || '';
-  ok('there is a rebuild', /export async function rebuildSentinel/.test(lock));
-  ok('it deletes the alias first', /resetGenericPassword\(\{ service: LOCK_SERVICE \}\)/.test(lock),
-    'setGenericPassword reuses the existing key, so an overwrite keeps the old spec');
-  ok('it refuses to rebuild without biometry',
-    /if \(!\(await biometryType\(\)\)\)/.test(lock),
-    'the rewrite would land in a storage that needs no authentication');
-  ok('a downgraded rebuild turns the lock off', /await disable\(\);/.test(lock));
-  ok('the lock screen rebuilds after a successful unlock',
-    /sentinelKeyIsCurrent\(\)/.test(screen) && /rebuildSentinel\(\)/.test(screen));
-  ok('and still lets the user in when it fails',
-    screen.indexOf('rebuildSentinel()') < screen.indexOf('unlock();'),
-    'they authenticated; a failed rebuild must not keep them out');
-  // The original guard is the other half and must stay.
-  ok('a read from a storage that enforces nothing is still not a pass',
-    /function storageEnforcesAuth/.test(lock)
-    && /reason: 'not-enforceable'/.test(lock));
+    `also: ${users.join(', ')}`);
 }
 
 console.log('');
@@ -140,4 +152,4 @@ if (failures) {
   console.log(`${failures} check(s) failed`);
   process.exit(1);
 }
-console.log('all checks passed — unlocking asks every time');
+console.log('all checks passed — the lock prompts, and can still be read');

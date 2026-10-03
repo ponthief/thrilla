@@ -3,7 +3,6 @@
   "version": "0.3.0",
   "private": true,
   "scripts": {
-    "postinstall": "patch-package --error-on-fail",
     "android": "react-native run-android --mode=mainnetDebug",
     "android:signet": "react-native run-android --mode=signetDebug",
     "apk:mainnet": "cd android && ./gradlew assembleMainnetRelease",
@@ -69,7 +68,6 @@
     "zustand": "^4.5.7"
   },
   "devDependencies": {
-    "patch-package": "^8.0.1",
     "@babel/core": "^7.20.0",
     "@babel/preset-env": "^7.20.0",
     "@babel/runtime": "^7.20.0",
