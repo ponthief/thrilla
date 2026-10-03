@@ -45,6 +45,7 @@ import {
   LN_ADDRESS_EXAMPLE,
   PAYOUT_PROMPT,
   PAYOUT_WHEN,
+  PAYOUT_WHEN_SET,
   PAYOUT_TITLE,
   PAYOUT_WHY,
   lnAddressProblem,
@@ -180,6 +181,10 @@ export default function TangoPayoutCard({
         <>
           <Text style={styles.body}>{PAYOUT_WHY}</Text>
           <Text style={styles.when}>{PAYOUT_WHEN}</Text>
+          {/* Beside WHEN, because both are about timing and this is the one
+              that decides whether the switch in front of you applies to the
+              round you are about to start. */}
+          <Text style={styles.when}>{PAYOUT_WHEN_SET}</Text>
           <Text style={styles.muted}>
             {payoutMinimumNote(setting.min_change_sats)}
           </Text>

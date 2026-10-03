@@ -77,6 +77,20 @@ export function payoutMinimumNote(minChangeSats: number | null): string {
 export const PAYOUT_WHEN =
   'Change is sent once the Tango transaction confirms.';
 
+/**
+ * WHEN THE ANSWER IS TAKEN, which is a different question from when the money
+ * moves and was not asked anywhere until a round answered it by surprise.
+ *
+ * Each side's answer is snapshotted at the moment it joins — the proposer's
+ * when it makes the offer, the other side's when it accepts — because the
+ * output set is what both signatures commit to, and re-reading a live setting
+ * between them would leave the two holding valid signatures for different
+ * transactions. The cost of that is this: turning the setting on half way
+ * through a round does nothing to that round, and nothing used to say so.
+ */
+export const PAYOUT_WHEN_SET =
+  'A Tango already under way keeps the setting it started with.';
+
 /** Why anyone would want this. The risk is the whole pitch, so it leads. */
 export const PAYOUT_WHY =
   'Make your Tango mini coinjoin change not linkable on-chain. Send it to '
@@ -107,6 +121,35 @@ export const PAYOUT_TITLE = 'Send my change over Lightning';
  * setting is a live value; what a signature commits to is what was true when
  * the round was planned.
  */
+/**
+ * Where THIS round's change went, for the side reading it.
+ *
+ * READ FROM THE ROUND, never from the setting. The two can disagree, and the
+ * round is the one that is true: a side's answer was snapshotted when it
+ * joined, so a setting switched on afterwards does not reach back. Rendering
+ * the setting here would tell somebody their change was routed while the
+ * transaction says otherwise.
+ *
+ * That disagreement is the whole reason this exists. On 2026-10-03 a round
+ * (7e180d9e…) paid one side's change over Lightning and left the other's on
+ * chain, correctly — the second side had turned the setting on after making
+ * the offer — and nothing in either client said a word about it. A privacy
+ * setting that silently did not apply is worse than one that is off.
+ *
+ * Null when there is no change to place, and null when the round predates the
+ * flag and nothing is known: a blank is better than a guess.
+ */
+export function changeDestination(
+  changeSats: number | null | undefined,
+  routed: boolean | null | undefined,
+): string | null {
+  if (!changeSats) return null;
+  if (routed === null || routed === undefined) return null;
+  return routed
+    ? 'Your change is sent to your Lightning address.'
+    : 'Your change stays in your wallet.';
+}
+
 export function payoutIntended(setting: {
   offered?: boolean | null;
   ready?: boolean | null;

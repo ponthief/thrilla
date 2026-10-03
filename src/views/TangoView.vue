@@ -34,7 +34,7 @@ import { parseSpAddress, fromHex, toHex } from '@/services/spSign'
 // services/lnAddress.
 import TangoPayoutPanel from '@/components/TangoPayoutPanel.vue'
 import { tangoRounds as rounds, refreshTangoWatch } from '@/stores/tangowatch'
-import { payoutIntended } from '@/services/lnAddress'
+import { changeDestination, payoutIntended } from '@/services/lnAddress'
 import {
   recordTangoCommit,
   getTangoCommit,
@@ -688,6 +688,12 @@ const myChangeOf = (r) => (r.role === 'a' ? r.a_change_sats : r.b_change_sats)
 // Both are recorded, so "change on one or both sides" was never necessary —
 // and on a round with change on one side it reads as a claim about both.
 const theirChangeOf = (r) => (r.role === 'a' ? r.b_change_sats : r.a_change_sats)
+// WHERE this side's change goes, from the round's own flag and not from the
+// setting: a setting switched on after joining does not reach back into a
+// round already under way, and until this line existed nothing said which of
+// the two had applied. See lnAddress.changeDestination.
+const myChangeDest = (r) =>
+  changeDestination(myChangeOf(r), r.role === 'a' ? r.a_payout : r.b_payout)
 const changeLine = tango.changeLine
 // Named in the template, so bound here like changeLine. `tango` itself is in
 // scope too, which is how CANCEL_NOTE_MAX is read for the input's maxlength.
@@ -1050,6 +1056,9 @@ function expiresIn(r) {
                     · your change <span class="mono">{{ fmtSats(myChangeOf(r)) }}</span>
                   </template>
                 </div>
+                <div v-if="myChangeDest(r)" class="text-xs text-dim">
+                  {{ myChangeDest(r) }}
+                </div>
                 <div v-if="r.clean === false" class="text-xs text-amber">
                   {{ changeLine(myChangeOf(r), theirChangeOf(r), partnerOf(r)) }}
                 </div>
@@ -1153,6 +1162,9 @@ function expiresIn(r) {
                     · your change <span class="mono">{{ fmtSats(myChangeOf(r)) }}</span>
                   </template>
                 </div>
+                <div v-if="myChangeDest(r)" class="text-xs text-dim">
+                  {{ myChangeDest(r) }}
+                </div>
               </div>
               <button class="btn btn-ghost btn-sm" :disabled="busy === r.id"
                       @click="cancel(r)">Cancel</button>
@@ -1210,6 +1222,11 @@ function expiresIn(r) {
                   {{ r.clean
                       ? 'Clean — no change either side, so the shares are the only outputs.'
                       : changeLine(myChangeOf(r), theirChangeOf(r), partnerOf(r)) }}
+                </div>
+                <!-- In history too: "where did my change go" is asked about a
+                     round that is over at least as often as one in progress. -->
+                <div v-if="myChangeDest(r)" class="text-xs text-dim">
+                  {{ myChangeDest(r) }}
                 </div>
               </div>
             </div>

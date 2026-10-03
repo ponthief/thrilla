@@ -16,7 +16,7 @@ import { useBalancesHidden, MASK } from '@stores/balancePrivacy';
 import * as tango from '@services/tango';
 import * as commits from '@services/tangoCommit';
 import { parseSpAddress, fromHex, toHex } from '@services/spSign';
-import { payoutIntended } from '@services/lnAddress';
+import { changeDestination, payoutIntended } from '@services/lnAddress';
 import TangoPayoutCard from '../components/TangoPayoutCard';
 import { colors, radius, space, type as type_ } from '@/theme';
 import { Block, Button, Chips, Field, Group, Note, Page } from './settings/ui';
@@ -831,6 +831,15 @@ export default function TangoScreen() {
           <Text style={styles.rowMeta}>
             your fee {sats(side === 'a' ? r.a_fee_sats : r.b_fee_sats)} · {r.vsize} vB
             {myChange ? ` · your change ${sats(myChange)}` : ''}
+          </Text>
+        ) : null}
+        {/* WHERE that change goes, from the round's own flag rather than from
+            the setting — the two disagree whenever somebody switched it on
+            after joining, and until this line existed nothing said which had
+            applied. See changeDestination. */}
+        {changeDestination(myChange, side === 'a' ? r.a_payout : r.b_payout) ? (
+          <Text style={styles.rowMeta}>
+            {changeDestination(myChange, side === 'a' ? r.a_payout : r.b_payout)}
           </Text>
         ) : null}
         {/* Which side, not "one or both": both amounts are recorded, and the

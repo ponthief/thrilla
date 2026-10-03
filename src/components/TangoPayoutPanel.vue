@@ -24,6 +24,7 @@ import {
   LN_ADDRESS_EXAMPLE,
   PAYOUT_PROMPT,
   PAYOUT_WHEN,
+  PAYOUT_WHEN_SET,
   PAYOUT_TITLE,
   PAYOUT_WHY,
   lnAddressProblem,
@@ -131,6 +132,10 @@ async function forget() {
       <template v-else>
         <p class="text-dim text-sm" style="margin-top:0.4rem;">{{ PAYOUT_WHY }}</p>
         <p class="text-dim text-sm" style="margin-top:0.5rem;">{{ PAYOUT_WHEN }}</p>
+        <!-- Beside WHEN, because both are about timing and this is the one
+             that decides whether the switch in front of you applies to the
+             round you are about to start. -->
+        <p class="text-dim text-sm" style="margin-top:0.5rem;">{{ PAYOUT_WHEN_SET }}</p>
         <p class="text-dim text-xs" style="margin-top:0.5rem;">
           {{ payoutMinimumNote(payout.min_change_sats) }}
         </p>

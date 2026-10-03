@@ -139,8 +139,25 @@ turns into.
 
 The copy is short on purpose and the order is load-bearing: why (the change is
 the linkable part, send it to yourself over Lightning), then when it is sent,
-then the minimum, then "Save your Lightning address below" directly above the
-field. Four lines, each held to one sentence by a test.
+then when the answer is *taken*, then the minimum, then "Save your Lightning
+address below" directly above the field. Five lines, each held to one sentence
+by a test.
+
+The third one earned its place on 2026-10-03. Each side's answer is
+snapshotted at the moment that side JOINS — the proposer's at propose, the
+other's at accept — because the output set is what both signatures commit to,
+and re-reading a live setting between them would leave the two holding valid
+signatures for different transactions. Round `7e180d9e…` paid one side's 716
+sats of change over Lightning and left the other's on chain, correctly: that
+side had turned the setting on after making the offer. Nothing anywhere said
+so. The round card now renders `changeDestination` — "Your change is sent to
+your Lightning address" or "stays in your wallet" — **from the round's own
+flag, never from the setting**, because those two disagree in exactly the case
+worth reporting; a round predating the flag gets a blank rather than a guess.
+`check:signing` still bans `a_payout`/`b_payout` from everything in the
+clients except that one display read, and separately bans it from the signing
+path, because what to derive, withhold and sign must keep coming from the
+device's own record.
 
 There is no longer a line saying the change output pays the instance rather
 than the user. It was there, at two sentences and then one, and was cut on

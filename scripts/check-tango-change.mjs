@@ -182,9 +182,29 @@ console.log('\nthe intent is read when joining, and written down');
       /!intend && !!amounts\.b_change/.test(src)
       && /!intended && !!myChange/.test(src),
       'a routed output pays the instance and only it can derive one');
-    ok(`the ${label} never reads the other side's flag`,
-      !/\ba_payout\b|\bb_payout\b/.test(src),
+    // DISPLAY IS NOT A DECISION, and the ban below is about decisions.
+    //
+    // The round's flag is the only honest answer to "where did my change go",
+    // because a setting switched on after joining does not reach back into a
+    // round already under way — which is how round 7e180d9e… (2026-10-03)
+    // paid one side's change over Lightning, left the other's on chain
+    // correctly, and said nothing. So changeDestination reads the flag, and
+    // those lines are taken out before the ban is applied. Everything else —
+    // what to derive, what to withhold, what to sign — still has to come from
+    // this device's own record, which the assertions around this one pin.
+    const deciding = src
+      .split('\n')
+      .filter((l) => !/changeDestination\(|myChangeDest/.test(l))
+      .join('\n');
+    ok(`the ${label} reads the flag only to display it`,
+      !/\ba_payout\b|\bb_payout\b/.test(deciding),
       'routing is per side; the partner\'s setting is not this side\'s business');
+    // And never inside the signing path, whatever it is wrapped in: a
+    // coordinator that turned routing on would otherwise take a change coin
+    // the user never offered.
+    const signing = src.slice(src.indexOf('myPayoutIntended: intended'));
+    ok(`the ${label} signs on its own record, not the flag`,
+      !/\ba_payout\b|\bb_payout\b/.test(signing.slice(0, 2000)));
     ok(`the ${label} takes the tweak and the address from the round`,
       /payout_sp_address/.test(src)
       && /a_payout_tweak/.test(src) && /b_payout_tweak/.test(src));

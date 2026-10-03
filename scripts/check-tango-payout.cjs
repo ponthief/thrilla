@@ -93,6 +93,55 @@ console.log('\nit says when the change is sent, before the field');
   }
 }
 
+console.log('\nit says that a round already under way keeps what it started with');
+{
+  // The gap this closes: each side's answer is snapshotted when it JOINS — the
+  // proposer's when it makes the offer, the other side's when it accepts —
+  // because the output set is what both signatures commit to. Turning the
+  // setting on half way through a round therefore does nothing to that round,
+  // and nothing said so. Round 7e180d9e… (2026-10-03) paid one side's change
+  // over Lightning and left the other's on chain, correctly, in silence.
+  const set = (SHARED.match(/PAYOUT_WHEN_SET\s*=\s*([\s\S]*?);/) || [])[1] || '';
+  const text = set.replace(/['+\n]/g, ' ').replace(/\s+/g, ' ').trim();
+  ok('the line exists', text.length > 20, text);
+  ok('and is one sentence', (text.match(/\./g) || []).length === 1, text);
+  ok('it names the round, not the address', /tango|round/i.test(text), text);
+  for (const [label, src] of [['phone', CARD], ['browser', WEB]]) {
+    ok(`the ${label} renders it`, src.includes('PAYOUT_WHEN_SET'));
+    // Beside WHEN: both are about timing, and this is the one that decides
+    // whether the switch in front of you applies to the round you are about
+    // to start. Before the input either way.
+    ok(`the ${label} shows it before the field`,
+      src.indexOf('PAYOUT_WHEN_SET') < src.lastIndexOf('LN_ADDRESS_EXAMPLE'));
+  }
+}
+
+console.log('\nthe round says where its own change went');
+{
+  // Read from the ROUND's flag, never from the setting: the two disagree
+  // exactly when somebody switched it on after joining, and the round is the
+  // one that is true. A privacy setting that silently did not apply is worse
+  // than one that is off.
+  ok('the destination is a shared function',
+    /export function changeDestination/.test(SHARED));
+  const fn = SHARED.slice(SHARED.indexOf('export function changeDestination'));
+  ok('no change means no line', /if \(!changeSats\) return null;/.test(fn));
+  ok('an unknown flag means no line',
+    /routed === null \|\| routed === undefined/.test(fn),
+    'a round predating the flag must get a blank, not a guess');
+  for (const [label, src] of [['phone', RN_TANGO], ['browser', WEB_TANGO]]) {
+    ok(`the ${label} renders it on the round`, src.includes('changeDestination('));
+    ok(`the ${label} reads the round's flag`,
+      /a_payout\s*:\s*r?\.?\w*\.?b_payout/.test(src.replace(/\s+/g, ' '))
+      || /r\.a_payout/.test(src),
+      'it must come off the round, not from getTangoPayoutSetting');
+  }
+  // The setting is a live value and the round's answer is frozen. Reading the
+  // setting here is the bug this line exists to report.
+  ok('the phone does not render the setting instead',
+    !/changeDestination\([^)]*setting/.test(RN_TANGO));
+}
+
 console.log('\nthe minimum comes from the server, and no number is typed in');
 {
   // The fee prose is gone from both clients on purpose — it read as a
