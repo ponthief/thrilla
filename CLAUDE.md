@@ -122,6 +122,42 @@ so all of this reaches nothing else — `check:lock` asserts that too, because a
 second one would start demanding a prompt per use, which for a wallet key
 would mean one per signature.
 
+## The resume point
+
+`wallets.last_scan_height` is one claim: **every block up to here has been
+looked at.** Nothing in either app can tell that it is wrong — a wallet whose
+resume point is too high reports itself fully scanned while a payment sits in
+a block nothing ever read. Two rules keep it honest, and both were broken
+until 2026-10-03, when a mainnet balance had to be repaired by editing this
+column by hand.
+
+**It starts one BELOW the range.** `last_scanned_height = start - 1`, because
+nothing has been looked at yet. It used to start at `start`, which claimed the
+first block was scanned before anything had scanned it: a scan that read
+nothing — the first block unindexed, or stopped before the first batch — wrote
+that block as done and the next scan began above it. Skipped for good.
+
+**It only ever moves forward.** `set_last_scan_height` is a guarded `UPDATE`
+(`WHERE last_scan_height IS NULL OR last_scan_height < :height`), in one
+statement so two scans finishing at once cannot have the slower one's older
+value land last. Scanning an EARLIER range does not make the claim less true,
+so a deliberate rescan must not rewind it — the next scan would redo
+everything above, which on mainnet is hours.
+
+That second rule is what makes a rescan control safe to offer at all, and the
+phone now has one: a lookback chooser on the scan screen (10 / 144 / 1,008 /
+4,320 blocks back from the tip), live **even when the wallet is up to date**,
+because that is exactly when somebody needs it — a payment that never appeared
+is in a block the wallet believes it has already read. Before it, the phone
+computed its range and never offered the fields, so "Up to date" disabled the
+only button and there was no way back. The web has had editable From/To all
+along.
+
+Separately, a block the scan could not read holds the resume point below it
+and is reported as `gap` on the progress record, so neither client claims the
+wallet is up to date while there is a hole in it. See
+`tests/test_scan_gap_is_reported.py` and `tests/test_resume_point.py`.
+
 `lint` is two rules, not a style pass: `react-hooks/exhaustive-deps` and
 `rules-of-hooks`. It had no config at all until 2026-09-24 and so had never
 run — which is how a `useCallback` that read `network` without listing it
