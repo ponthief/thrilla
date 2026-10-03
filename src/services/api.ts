@@ -57,6 +57,21 @@ export interface ScanProgress {
   total: number;
   found: number;
   amount?: number; // sats received (sum of newly-found UTXOs) this scan
+  /**
+   * The first block the last scan could NOT read, or null.
+   *
+   * The counters reach their total whether or not every block could be read:
+   * an unindexed block is skipped, the blocks above it are still scanned, and
+   * the bar still fills. So a complete-looking scan can leave a hole, and a
+   * payment inside it never appears. The server holds the resume point below
+   * the gap so the block is looked at again — which means the wallet is not
+   * scanned to where `last_scan_height` suggests, and saying "up to date"
+   * there is a lie.
+   *
+   * In the server's memory, so it is null again after an LNbits restart until
+   * the next scan rediscovers it.
+   */
+  gap?: number | null;
 }
 
 // BlindBit /info — we only need the chain height.

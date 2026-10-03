@@ -84,11 +84,23 @@ const rangeError = computed(() => {
 
 // "up to date" = the wallet has already scanned to (or past) the chain tip, so
 // there are no new blocks. We surface this instead of a misleading "1 block".
+// A block the last scan could not read. Until it is read the wallet has a hole
+// in it, and nothing on this page may claim otherwise.
+const scanGap = computed(() => {
+  const g = progress.value?.gap
+  return g == null ? null : Number(g)
+})
+
 const upToDate = computed(() => {
   const tip = Number(chainTip.value) || 0
   if (!tip) return false
   const w = wallets.value.find(x => x.id === selectedWallet.value)
   if (!w) return false
+  // NOT up to date with a hole in it, whatever the heights say. The counters
+  // reach their total whether or not every block could be read, so a scan that
+  // skipped one still reports complete — which is how a payment in that block
+  // stays invisible while the page says there is nothing left to do.
+  if (scanGap.value != null) return false
   const scanned = Math.max(
     Number(w.last_scan_height) || 0,
     Number(w.last_height) || 0,
@@ -137,7 +149,7 @@ function onWalletChange(preserveProgress = false) {
   // Skip when called right after a scan completes (preserveProgress) so the
   // final 100% + result stay visible.
   if (!scanning.value && !preserveProgress) {
-    progress.value = { active: false, current: 0, total: 0, found: 0 }
+    progress.value = { active: false, current: 0, total: 0, found: 0, gap: null }
     scanResult.value = null
   }
   // For a never-scanned wallet, last_scan_height may be 0/1/null — fall back to
@@ -161,6 +173,13 @@ function onWalletChange(preserveProgress = false) {
   // i.e. nothing new) rather than an out-of-range tip+1.
   const tip = Number(chainTip.value) || 0
   if (tip && start > tip) start = tip
+  // A block that could not be read wins over all of it. scannedFloor exists to
+  // stop a transient low read rewinding the range, and it is also what made an
+  // unread block unreachable — the only honest place to start is the block
+  // nothing has looked at.
+  if (scanGap.value != null) {
+    start = Math.max(scanGap.value, minScanHeight.value || 0)
+  }
   fromHeight.value = start
 }
 
@@ -222,7 +241,7 @@ async function startScan() {
   // Reset progress up front. Otherwise, if this scan is immediately rejected
   // (e.g. rate-limited), the bar would still show the previous scan's stale
   // values — often 100% — which looks like the scan ran and completed.
-  progress.value = { active: false, current: 0, total: 0, found: 0 }
+  progress.value = { active: false, current: 0, total: 0, found: 0, gap: null }
   try {
     // Fire and poll — scan runs async on the backend
     const keys = await auth.getWalletKeys(selectedWallet.value)
@@ -350,6 +369,12 @@ onUnmounted(() => {
 
           <div v-if="rangeError" class="alert alert-warn">⚠ {{ rangeError }}</div>
 
+          <div v-if="scanGap != null" class="alert alert-warn" style="margin-bottom:0.75rem">
+            ⚠ The server could not read block {{ scanGap.toLocaleString() }}, so
+            anything paid to you in it has not been seen. The blocks above it
+            were scanned. The range below starts there; it will work once the
+            server's index covers that block.
+          </div>
           <div v-if="upToDate" class="info-row">
             <span class="text-dim text-sm">Status</span>
             <span class="mono text-green" style="font-size:14px;font-weight:600">✓ Up to date</span>

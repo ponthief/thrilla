@@ -159,13 +159,21 @@ export default function ScanPanel() {
       // already in flight, and tapping it just fires a duplicate the server
       // rejects — which is what made progress appear only after a tab switch.
       let active = false;
+      // Kept past the `if` below: an IDLE scan's record is where a gap from
+      // the last run is reported, and that is exactly the case the range has
+      // to be set from.
+      let p0: api.ScanProgress | null = null;
       try {
-        const p = await api.getScanProgress(inkey, w.id);
-        if (p?.active) {
+        p0 = await api.getScanProgress(inkey, w.id);
+        if (p0?.active) {
           active = true;
-          setProgress(p);
+          setProgress(p0);
           setScanning(true);
           pollFn.current(w.id);
+        } else if (p0) {
+          // Not scanning, but it may still be reporting a block it could not
+          // read. Nothing else on this screen would ever show it.
+          setProgress(p0);
         }
       } catch {
         /* treat as no active scan */
@@ -181,7 +189,17 @@ export default function ScanPanel() {
       // Filling empty fields can never overwrite something the user typed.
       if (newTip) {
         const birth = Number(w.last_height) || 0;
-        const from = String(resumeFrom(birth, scannedFloorRef.current, newTip, minH));
+        // A gap wins over the resume point. resumeFrom floors the start at the
+        // highest height ever seen, which is what stops a transient low read
+        // rewinding the range — and is also what made an unread block
+        // unreachable: the only honest place to start is the block that was
+        // never looked at.
+        const unread = p0?.gap ?? null;
+        const from = String(
+          unread != null
+            ? Math.max(unread, minH || 0)
+            : resumeFrom(birth, scannedFloorRef.current, newTip, minH),
+        );
         const idle = !scanning && !active;
         // Updater form so each field is compared against its LIVE value — this
         // callback's closure can be a keystroke behind, and overwriting a height
@@ -230,8 +248,17 @@ export default function ScanPanel() {
     scannedFloorRef.current,
   );
 
+  // A block the last scan could not read. Until it is read, the wallet has a
+  // hole in it and nothing else on this screen may claim otherwise.
+  const gap = progress.gap ?? null;
+
   const upToDate = (() => {
     if (!wallet || !tip) return false;
+    // NOT "up to date" with a hole in it, whatever the heights say. This is
+    // how a mainnet change output went missing: the scan reported complete,
+    // the wallet read as scanned to the tip, and the block holding the
+    // payment had never been looked at.
+    if (gap != null) return false;
     return effectiveScanned >= tip;
   })();
 
@@ -401,15 +428,28 @@ export default function ScanPanel() {
           <Row
             label="Status"
             value={
-              upToDate
+              gap != null
+                ? `Block ${groupThousands(gap)} unread`
+                : upToDate
                 ? 'Up to date'
                 : behind != null
                 ? `${groupThousands(behind)} block${behind === 1 ? '' : 's'} behind`
                 : '—'
             }
-            valueStyle={upToDate ? styles.ok : styles.warnText}
+            valueStyle={upToDate && gap == null ? styles.ok : styles.warnText}
           />
         </View>
+
+        {gap != null ? (
+          <View style={styles.card}>
+            <Text style={styles.warn}>
+              The server could not read block {groupThousands(gap)}, so anything
+              paid to you in it has not been seen. The blocks above it were
+              scanned. Scanning from {groupThousands(gap)} again is below, and
+              will work once the server's index covers that block.
+            </Text>
+          </View>
+        ) : null}
 
         {!keysPresent ? (
           <View style={styles.card}>
